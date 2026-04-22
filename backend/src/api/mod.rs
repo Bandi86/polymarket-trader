@@ -87,6 +87,8 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/settings/validate-existing", post(settings::validate_existing))
         .route("/settings/validate-with-balance", post(settings::validate_with_balance))
         .route("/settings/store", post(settings::store_credentials))
+        .route("/settings/keys", get(settings::list_api_keys))
+        .route("/settings/keys/store", post(settings::store_api_keys))
         .route("/system/status", get(monitoring::get_system_status))
         .route("/system/logs", get(monitoring::get_logs))
         .route("/system/log", post(monitoring::log_activity))

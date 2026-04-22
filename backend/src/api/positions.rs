@@ -1,11 +1,11 @@
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use crate::db::{queries, PositionRecord};
+use crate::middleware::auth::Claims;
 use super::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -42,17 +42,10 @@ impl From<PositionRecord> for PositionResponse {
 
 pub async fn list_positions(
     State(state): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    Extension(claims): Extension<Claims>,
 ) -> Response {
     let db = state.db();
-    let user_id = payload.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
-
-    if user_id == 0 {
-        return Json(ErrorResponse {
-            error: "Unauthorized".to_string(),
-        })
-        .into_response();
-    }
+    let user_id = claims.user_id;
 
     match queries::get_positions_by_user(&db, user_id).await {
         Ok(positions) => Json(positions.into_iter().map(PositionResponse::from).collect::<Vec<_>>()).into_response(),

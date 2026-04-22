@@ -135,6 +135,25 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // API keys storage - generic key-value store for encrypted API credentials
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            key_name TEXT NOT NULL,
+            key_value TEXT NOT NULL,
+            is_valid INTEGER DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            last_validated TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, key_name)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS activity_log (
@@ -1235,9 +1254,81 @@ pub mod queries {
         }
         Ok(())
     }
+
+    // === API Keys CRUD ===
+
+    pub async fn get_api_keys(
+        db: &Db,
+        user_id: i64,
+    ) -> Result<Vec<ApiKeyRecord>, sqlx::Error> {
+        let result = sqlx::query(
+            "SELECT key_name, key_value, is_valid, created_at, last_validated FROM api_keys WHERE user_id = ?"
+        )
+        .bind(user_id)
+        .fetch_all(db.as_ref())
+        .await?;
+
+        Ok(result.into_iter().map(|row| ApiKeyRecord {
+            key_name: row.get("key_name"),
+            key_value: row.get("key_value"),
+            is_valid: row.get::<i64, _>("is_valid") != 0,
+            created_at: row.get("created_at"),
+            last_validated: row.get("last_validated"),
+        }).collect())
+    }
+
+    pub async fn upsert_api_key(
+        db: &Db,
+        user_id: i64,
+        key_name: &str,
+        key_value: &str,
+        is_valid: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO api_keys (user_id, key_name, key_value, is_valid, last_validated)
+            VALUES (?, ?, ?, ?, datetime('now'))
+            ON CONFLICT(user_id, key_name) DO UPDATE SET
+                key_value = excluded.key_value,
+                is_valid = excluded.is_valid,
+                last_validated = datetime('now')
+            "#,
+        )
+        .bind(user_id)
+        .bind(key_name)
+        .bind(key_value)
+        .bind(is_valid as i64)
+        .execute(db.as_ref())
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_api_keys_by_provider(
+        db: &Db,
+        user_id: i64,
+        provider: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "DELETE FROM api_keys WHERE user_id = ? AND key_name LIKE ?"
+        )
+        .bind(user_id)
+        .bind(format!("{}_%", provider))
+        .execute(db.as_ref())
+        .await?;
+        Ok(())
+    }
 }
 
 // === Data Records (structs) ===
+
+#[derive(Debug, Clone)]
+pub struct ApiKeyRecord {
+    pub key_name: String,
+    pub key_value: String,
+    pub is_valid: bool,
+    pub created_at: String,
+    pub last_validated: String,
+}
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct BotRecord {

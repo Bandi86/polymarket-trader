@@ -552,3 +552,67 @@ pub async fn derive_key(
         .into_response(),
     }
 }
+
+// === API Keys Management ===
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoredKeyResponse {
+    pub key_name: String,
+    pub key_value: String,
+    pub is_valid: bool,
+    pub created_at: String,
+    pub last_validated: String,
+}
+
+/// GET /settings/keys - List all stored API keys
+pub async fn list_api_keys(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let db = state.db();
+
+    match queries::get_api_keys(&db, claims.user_id).await {
+        Ok(keys) => Json(keys.into_iter().map(|k| StoredKeyResponse {
+            key_name: k.key_name,
+            key_value: k.key_value,
+            is_valid: k.is_valid,
+            created_at: k.created_at,
+            last_validated: k.last_validated,
+        }).collect::<Vec<_>>()).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get API keys: {}", e);
+            Json(ErrorResponse {
+                error: "Failed to load stored keys".to_string(),
+            })
+            .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoreApiKeyRequest {
+    pub provider: String,
+    pub keys: std::collections::HashMap<String, String>,
+}
+
+/// POST /settings/keys/store - Store API keys for a provider
+pub async fn store_api_keys(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<StoreApiKeyRequest>,
+) -> Response {
+    let db = state.db();
+
+    for (field, value) in payload.keys.iter() {
+        let key_name = format!("{}_{}", payload.provider, field);
+        if let Err(e) = queries::upsert_api_key(&db, claims.user_id, &key_name, value, true).await {
+            tracing::error!("Failed to store key {}: {}", key_name, e);
+            return Json(ErrorResponse {
+                error: format!("Failed to store key: {}", e),
+            })
+            .into_response();
+        }
+    }
+
+    Json(serde_json::json!({ "success": true, "message": "Keys stored successfully" })).into_response()
+}
