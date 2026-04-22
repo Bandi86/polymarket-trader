@@ -27,7 +27,7 @@ pub struct AuthConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         let secret = std::env::var("JWT_SECRET")
-            .unwrap_or_else(|_| "polymarket-v2-dev-secret-change-in-production".to_string());
+            .unwrap_or_else(|_| "CHANGE_ME_SET_JWT_SECRET_ENV_VAR".to_string());
 
         let mut validation = Validation::new(Algorithm::HS256);
         validation.validate_exp = true;
