@@ -26,6 +26,9 @@ Thumbs.db
 logs/
 *.log
 
+# Claude Code memory/logs
+.remember/
+
 # Database
 *.db
 *.sqlite
