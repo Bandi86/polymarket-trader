@@ -1,10 +1,10 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
-import { Layers, X, TrendingUp, TrendingDown } from "lucide-react";
-import { useAppStore } from "@/store";
-import { useCancelOrder } from "@/hooks/use-api";
+import { AnimatePresence, motion } from "framer-motion";
+import { Layers, TrendingDown, TrendingUp, X } from "lucide-react";
 import { toast } from "sonner";
+import { useCancelOrder } from "@/hooks/use-api";
+import { useAppStore } from "@/store";
 
 export function PositionsPanel() {
   const { positions } = useAppStore();
@@ -38,7 +38,14 @@ export function PositionsPanel() {
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "0.75rem",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Layers size={16} style={{ color: "#6366f1" }} />
           <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Positions</span>
@@ -80,7 +87,14 @@ export function PositionsPanel() {
                 }}
               >
                 {/* Top row */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    marginBottom: "0.5rem",
+                  }}
+                >
                   <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     {position.outcome === "YES" ? (
                       <TrendingUp size={16} style={{ color: "#22c55e" }} />
@@ -115,7 +129,9 @@ export function PositionsPanel() {
                 </div>
 
                 {/* Details */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
+                <div
+                  style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}
+                >
                   <div>
                     <span style={{ color: "#71717a" }}>Amount</span>
                     <span className="price-ticker" style={{ color: "#fafafa", marginLeft: 4 }}>

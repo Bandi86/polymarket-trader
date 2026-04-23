@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Terminal, Trash2 } from "lucide-react";
 import { useAppStore } from "@/store";
 
@@ -40,7 +40,14 @@ export function TerminalLog() {
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "0.5rem",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Terminal size={16} style={{ color: "#6366f1" }} />
           <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Terminal</span>
@@ -87,9 +94,9 @@ export function TerminalLog() {
               <span style={{ fontSize: 12 }}>No activity...</span>
             </div>
           ) : (
-            logs.slice(-20).map((log, idx) => (
+            logs.slice(-20).map((log) => (
               <motion.div
-                key={`${log.timestamp}-${idx}`}
+                key={log.timestamp}
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 style={{
@@ -112,9 +119,7 @@ export function TerminalLog() {
                 >
                   [{log.bot_name}]
                 </span>
-                <span style={{ fontSize: 11, color: "#fafafa" }}>
-                  {log.message}
-                </span>
+                <span style={{ fontSize: 11, color: "#fafafa" }}>{log.message}</span>
               </motion.div>
             ))
           )}

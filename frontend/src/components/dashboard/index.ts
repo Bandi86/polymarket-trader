@@ -1,7 +1,11 @@
-export { Dashboard } from "./main";
-export { CommandCenter } from "./command-center";
+export { ActivityTabs } from "./activity-tabs";
 export { BotSelector } from "./bot-selector";
-export { TradingPanel } from "./trading-panel";
-export { TerminalLog } from "./terminal-log";
-export { PositionsPanel } from "./positions-panel";
+export { ChartPanel } from "./chart-panel";
+export { CommandCenter } from "./command-center";
 export { CompactDataBar } from "./compact-data-bar";
+export { Dashboard } from "./main";
+export { MarketHistory } from "./market-history";
+export { PositionsPanel } from "./positions-panel";
+export { QuickTradePanel } from "./quick-trade-panel";
+export { TerminalLog } from "./terminal-log";
+export { TradingPanel } from "./trading-panel";

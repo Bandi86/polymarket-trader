@@ -2,8 +2,7 @@
 
 import { motion } from "framer-motion";
 import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
-import { formatPrice, formatPercent } from "@/lib/utils";
+import { cn, formatPercent, formatPrice } from "@/lib/utils";
 
 interface StatCardProps {
   label: string;
@@ -33,22 +32,21 @@ export function StatCard({
 
   const valueColor =
     format === "pnl"
-      ? value >= 0 ? "text-neon-green" : "text-neon-red"
-      : highlight ? "text-btc" : "text-text";
+      ? value >= 0
+        ? "text-neon-green"
+        : "text-neon-red"
+      : highlight
+        ? "text-btc"
+        : "text-text";
 
   return (
     <motion.div
       whileHover={{ scale: 1.02 }}
-      className={cn(
-        "glass-card px-4 py-3 flex items-center gap-3",
-        highlight && "border-btc/30"
-      )}
+      className={cn("glass-card px-4 py-3 flex items-center gap-3", highlight && "border-btc/30")}
     >
       {icon && <div className="shrink-0">{icon}</div>}
       <div className="flex flex-col">
-        <span className="text-xs text-text-muted uppercase tracking-wide">
-          {label}
-        </span>
+        <span className="text-xs text-text-muted uppercase tracking-wide">{label}</span>
         <div className="flex items-baseline gap-1">
           <motion.span
             key={value}
@@ -59,9 +57,7 @@ export function StatCard({
           >
             {formattedValue}
           </motion.span>
-          {suffix && (
-            <span className="text-xs text-text-muted">{suffix}</span>
-          )}
+          {suffix && <span className="text-xs text-text-muted">{suffix}</span>}
         </div>
       </div>
     </motion.div>

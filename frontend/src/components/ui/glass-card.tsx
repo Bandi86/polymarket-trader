@@ -19,11 +19,7 @@ export function GlassCard({ children, className, hover, animate }: GlassCardProp
   return (
     <Component
       {...animationProps}
-      className={cn(
-        "glass-card",
-        hover && "glass-card-hover",
-        className
-      )}
+      className={cn("glass-card", hover && "glass-card-hover", className)}
     >
       {children}
     </Component>
@@ -31,7 +27,5 @@ export function GlassCard({ children, className, hover, animate }: GlassCardProp
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return (
-    <div className={cn("skeleton rounded-lg", className)} />
-  );
+  return <div className={cn("skeleton rounded-lg", className)} />;
 }

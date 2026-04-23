@@ -1,17 +1,17 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
 import {
-  LayoutDashboard,
   Bot,
-  LineChart,
-  History,
-  Settings,
   ChevronLeft,
   ChevronRight,
+  History,
+  LayoutDashboard,
+  LineChart,
+  Settings,
 } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAppStore } from "@/store";
 
 const navItems = [
@@ -33,17 +33,28 @@ export function Sidebar({ collapsed }: SidebarProps) {
   return (
     <motion.aside
       initial={false}
-      animate={{ width: collapsed ? 64 : 200 }}
+      animate={{ width: collapsed ? 64 : 220 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      style={{
-        background: "rgba(11, 11, 15, 0.95)",
-        borderRight: "1px solid rgba(255, 255, 255, 0.08)",
-        backdropFilter: "blur(20px)",
-      }}
-      className="flex flex-col h-full relative"
+      className="flex flex-col h-full bg-zinc-950/95 border-r border-white/8 backdrop-blur-xl relative"
     >
+      {/* Logo Area */}
+      <div className="flex items-center gap-3 px-4 py-4 border-b border-white/8">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 flex-shrink-0">
+          <LayoutDashboard className="h-5 w-5 text-indigo-500" />
+        </div>
+        {!collapsed && (
+          <motion.span
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-base font-bold text-zinc-100"
+          >
+            PolyTrade
+          </motion.span>
+        )}
+      </div>
+
       {/* Navigation */}
-      <nav className="flex-1 p-2" style={{ paddingTop: "1rem" }}>
+      <nav className="flex-1 p-3 mt-2">
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
@@ -52,20 +63,20 @@ export function Sidebar({ collapsed }: SidebarProps) {
             <Link
               key={item.href}
               href={item.href}
-              className={`nav-item ${isActive ? "nav-item-active" : ""} ${collapsed ? "justify-center" : ""}`}
-              style={{
-                width: "100%",
-                marginBottom: 4,
-                justifyContent: collapsed ? "center" : "flex-start",
-                padding: collapsed ? "0.75rem" : "0.75rem 1rem",
-              }}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mb-1 cursor-pointer transition-all
+              ${collapsed ? "justify-center" : "justify-start"}
+              ${
+                isActive
+                  ? "bg-indigo-500/15 border border-indigo-500/30 text-indigo-400"
+                  : "text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+              }`}
             >
-              <Icon size={20} />
+              <Icon className="h-5 w-5 flex-shrink-0" />
               {!collapsed && (
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  style={{ fontWeight: 500, fontSize: 14 }}
+                  className="text-sm font-medium"
                 >
                   {item.label}
                 </motion.span>
@@ -75,43 +86,23 @@ export function Sidebar({ collapsed }: SidebarProps) {
         })}
       </nav>
 
-      {/* Collapse toggle */}
-      <button
-        type="button"
-        onClick={toggleSidebar}
-        style={{
-          position: "absolute",
-          right: -12,
-          top: 24,
-          width: 24,
-          height: 24,
-          borderRadius: "50%",
-          background: "rgba(20, 20, 28, 0.6)",
-          border: "1px solid rgba(255, 255, 255, 0.08)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
-          zIndex: 10,
-        }}
-      >
-        {collapsed ? (
-          <ChevronRight size={16} style={{ color: "#a1a1aa" }} />
-        ) : (
-          <ChevronLeft size={16} style={{ color: "#a1a1aa" }} />
-        )}
-      </button>
-
       {/* Emergency Stop */}
       {!collapsed && (
-        <div
-          style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", padding: "0.75rem" }}
-        >
-          <button type="button" className="btn-emergency" style={{ width: "100%" }}>
+        <div className="border-t border-white/8 p-3 pb-4">
+          <button type="button" className="btn-emergency w-full">
             Emergency Stop
           </button>
         </div>
       )}
+
+      {/* Collapse toggle */}
+      <button
+        type="button"
+        onClick={toggleSidebar}
+        className="absolute -right-3 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900/60 border border-white/8 text-zinc-400 hover:text-zinc-200 cursor-pointer z-10 transition-colors"
+      >
+        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+      </button>
     </motion.aside>
   );
 }

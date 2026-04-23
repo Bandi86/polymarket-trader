@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { Bot, Market, Position, BotLogEvent, SystemStatus } from "@/types";
+import type { Bot, BotLogEvent, Market, Position, SystemStatus } from "@/types";
 
 interface AppState {
   // Auth
@@ -27,6 +27,7 @@ interface AppState {
   marketQuestion: string;
   currentMarket: Market | null;
   timeRemaining: number;
+  volume: number;
   setBtcPrice: (price: number) => void;
   setStartPrice: (price: number) => void;
   setPriceDelta: (delta: number) => void;
@@ -36,6 +37,24 @@ interface AppState {
   setMarketQuestion: (question: string) => void;
   setCurrentMarket: (market: Market | null) => void;
   setTimeRemaining: (seconds: number) => void;
+  setVolume: (volume: number) => void;
+
+  // Market History - past 5 completed markets
+  marketHistory: {
+    endTime: number;
+    targetPrice: number;
+    finalPrice: number;
+    delta: number; // final - target (positive = exceeded)
+    duration: number; // 300 seconds
+  }[];
+  setMarketHistory: (history: AppState["marketHistory"]) => void;
+  addMarketResult: (result: AppState["marketHistory"][0]) => void;
+
+  // Balance & Credentials
+  userBalance: number | null;
+  hasCredentials: boolean;
+  setUserBalance: (balance: number | null) => void;
+  setHasCredentials: (has: boolean) => void;
 
   // Positions
   positions: Position[];
@@ -84,9 +103,7 @@ export const useAppStore = create<AppState>()(
       setSelectedBot: (id) => set({ selectedBotId: id }),
       updateBot: (id, updates) =>
         set((state) => ({
-          bots: state.bots.map((bot) =>
-            bot.id === id ? { ...bot, ...updates } : bot
-          ),
+          bots: state.bots.map((bot) => (bot.id === id ? { ...bot, ...updates } : bot)),
         })),
 
       // Market Data
@@ -99,6 +116,7 @@ export const useAppStore = create<AppState>()(
       marketQuestion: "",
       currentMarket: null,
       timeRemaining: 0,
+      volume: 0,
       setBtcPrice: (price) => set({ btcPrice: price }),
       setStartPrice: (price) => set({ startPrice: price }),
       setPriceDelta: (delta) => set({ priceDelta: delta }),
@@ -108,6 +126,21 @@ export const useAppStore = create<AppState>()(
       setMarketQuestion: (question) => set({ marketQuestion: question }),
       setCurrentMarket: (market) => set({ currentMarket: market }),
       setTimeRemaining: (seconds) => set({ timeRemaining: seconds }),
+      setVolume: (volume) => set({ volume }),
+
+      // Market History
+      marketHistory: [],
+      setMarketHistory: (history) => set({ marketHistory: history }),
+      addMarketResult: (result) =>
+        set((state) => ({
+          marketHistory: [...state.marketHistory.slice(-4), result],
+        })),
+
+      // Balance & Credentials
+      userBalance: null,
+      hasCredentials: false,
+      setUserBalance: (balance) => set({ userBalance: balance }),
+      setHasCredentials: (has) => set({ hasCredentials: has }),
 
       // Positions
       positions: [],
@@ -127,8 +160,7 @@ export const useAppStore = create<AppState>()(
 
       // UI
       sidebarCollapsed: false,
-      toggleSidebar: () =>
-        set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
+      toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       emergencyStopActive: false,
       setEmergencyStop: (active) => set({ emergencyStopActive: active }),
     }),
@@ -144,9 +176,7 @@ export const useAppStore = create<AppState>()(
 );
 
 // SSE Connection Hook Helper
-export const createSSEConnection = (
-  onMessage: (event: MessageEvent) => void
-): EventSource => {
+export const createSSEConnection = (onMessage: (event: MessageEvent) => void): EventSource => {
   const token = localStorage.getItem("token");
 
   // In development, frontend is on port 3000, backend on 3001

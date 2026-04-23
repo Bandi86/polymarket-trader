@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Sidebar } from "@/components/layout/sidebar";
-import { Header } from "@/components/layout/header";
+import { useEffect } from "react";
 import { CommandCenter } from "@/components/dashboard/command-center";
+import { Header } from "@/components/layout/header";
+import { Sidebar } from "@/components/layout/sidebar";
 import { AmbientGlow } from "@/components/ui/ambient-glow";
+import { useBots, useBtcPrice, usePositions, useSSE } from "@/hooks";
 import { useAppStore } from "@/store";
-import { useSSE, useBots, useBtcPrice, usePositions } from "@/hooks";
 
 export function Dashboard() {
   const router = useRouter();
@@ -52,15 +52,17 @@ export function Dashboard() {
       <AmbientGlow color="primary" position="center" />
 
       {/* Layout */}
-      <div className="flex h-screen">
+      <div className="flex h-screen overflow-hidden">
         {/* Sidebar */}
         <Sidebar collapsed={sidebarCollapsed} />
 
         {/* Main content */}
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
           <Header />
-          <main className="flex-1 overflow-auto p-4 lg:p-6">
-            <CommandCenter />
+          <main className="flex-1 overflow-auto">
+            <div className="max-w-7xl mx-auto p-4 lg:p-6">
+              <CommandCenter />
+            </div>
           </main>
         </div>
       </div>

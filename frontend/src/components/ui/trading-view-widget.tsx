@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 interface TradingViewWidgetProps {
   symbol?: string;
@@ -46,7 +46,7 @@ export function TradingViewWidget({
       }
     }
 
-    if (scriptRef.current && scriptRef.current.parentNode) {
+    if (scriptRef.current?.parentNode) {
       scriptRef.current.remove();
       scriptRef.current = null;
     }

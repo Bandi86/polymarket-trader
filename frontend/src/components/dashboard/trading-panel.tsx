@@ -1,12 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { LineChart, TrendingUp, TrendingDown, Loader2 } from "lucide-react";
+import { LineChart, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { useState } from "react";
-import { useAppStore } from "@/store";
-import { useQuickTrade } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { TradingViewWidget } from "@/components/ui/trading-view-widget";
+import { useQuickTrade } from "@/hooks/use-api";
+import { useAppStore } from "@/store";
 
 type TradeSide = "UP" | "DOWN";
 
@@ -80,9 +80,8 @@ export function TradingPanel() {
   const isLoading = quickTrade.isPending;
 
   const isAboveTarget = btcPrice >= beatPrice;
-  const priceDiffPercent = btcPrice > 0 && beatPrice > 0
-    ? ((btcPrice - beatPrice) / beatPrice) * 100
-    : 0;
+  const priceDiffPercent =
+    btcPrice > 0 && beatPrice > 0 ? ((btcPrice - beatPrice) / beatPrice) * 100 : 0;
 
   return (
     <div
@@ -95,29 +94,41 @@ export function TradingPanel() {
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: "1rem",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <LineChart size={20} style={{ color: "#6366f1" }} />
           <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Quick Trade</span>
         </div>
 
         {/* Current Prediction */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "0.5rem",
-          padding: "0.5rem 1rem",
-          borderRadius: 8,
-          background: isAboveTarget ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
-          border: `1px solid ${isAboveTarget ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.5rem",
+            padding: "0.5rem 1rem",
+            borderRadius: 8,
+            background: isAboveTarget ? "rgba(34, 197, 94, 0.15)" : "rgba(239, 68, 68, 0.15)",
+            border: `1px solid ${isAboveTarget ? "rgba(34, 197, 94, 0.3)" : "rgba(239, 68, 68, 0.3)"}`,
+          }}
+        >
           {isAboveTarget ? (
             <TrendingUp size={16} style={{ color: "#22c55e" }} />
           ) : (
             <TrendingDown size={16} style={{ color: "#ef4444" }} />
           )}
-          <span style={{ fontSize: 12, fontWeight: 700, color: isAboveTarget ? "#22c55e" : "#ef4444" }}>
-            {isAboveTarget ? "UP" : "DOWN"} @ {priceDiffPercent >= 0 ? "+" : ""}{priceDiffPercent.toFixed(3)}%
+          <span
+            style={{ fontSize: 12, fontWeight: 700, color: isAboveTarget ? "#22c55e" : "#ef4444" }}
+          >
+            {isAboveTarget ? "UP" : "DOWN"} @ {priceDiffPercent >= 0 ? "+" : ""}
+            {priceDiffPercent.toFixed(3)}%
           </span>
         </div>
       </div>
@@ -133,18 +144,14 @@ export function TradingPanel() {
           overflow: "hidden",
         }}
       >
-        <TradingViewWidget
-          symbol="BINANCE:BTCUSDT"
-          interval="5"
-          height={300}
-        />
+        <TradingViewWidget symbol="BINANCE:BTCUSDT" interval="5" height={300} />
       </div>
 
       {/* Amount input */}
       <div style={{ margin: "1rem 0" }}>
-        <label style={{ fontSize: 12, color: "#71717a", marginBottom: "0.5rem", display: "block" }}>
+        <div style={{ fontSize: 12, color: "#71717a", marginBottom: "0.5rem", display: "block" }}>
           Bet Amount (USDC)
-        </label>
+        </div>
         <input
           type="number"
           value={amount}
@@ -177,8 +184,19 @@ export function TradingPanel() {
           className={`trade-btn trade-btn-up ${selectedSide === "UP" ? "trade-btn-up-active" : ""}`}
           style={{ opacity: isLoading && selectedSide !== "UP" ? 0.5 : 1 }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-            {isLoading && selectedSide === "UP" ? <Loader2 size={20} className="animate-spin" /> : <TrendingUp size={20} />}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "0.25rem",
+            }}
+          >
+            {isLoading && selectedSide === "UP" ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <TrendingUp size={20} />
+            )}
             <span style={{ fontWeight: 700, fontSize: 18 }}>UP</span>
           </div>
           <span style={{ fontSize: 12, color: "rgba(34, 197, 94, 0.7)" }}>
@@ -195,8 +213,19 @@ export function TradingPanel() {
           className={`trade-btn trade-btn-down ${selectedSide === "DOWN" ? "trade-btn-down-active" : ""}`}
           style={{ opacity: isLoading && selectedSide !== "DOWN" ? 0.5 : 1 }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
-            {isLoading && selectedSide === "DOWN" ? <Loader2 size={20} className="animate-spin" /> : <TrendingDown size={20} />}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem",
+              marginBottom: "0.25rem",
+            }}
+          >
+            {isLoading && selectedSide === "DOWN" ? (
+              <Loader2 size={20} className="animate-spin" />
+            ) : (
+              <TrendingDown size={20} />
+            )}
             <span style={{ fontWeight: 700, fontSize: 18 }}>DOWN</span>
           </div>
           <span style={{ fontSize: 12, color: "rgba(239, 68, 68, 0.7)" }}>

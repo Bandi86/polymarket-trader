@@ -1,15 +1,15 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/utils";
 import type {
   Bot,
-  Position,
-  Order,
+  CreateBotRequest,
+  LoginResponse,
   Market,
+  Order,
+  PlaceOrderRequest,
+  Position,
   Settings,
   SystemStatus,
-  LoginResponse,
-  CreateBotRequest,
-  PlaceOrderRequest,
 } from "@/types";
 
 // Auth
@@ -73,8 +73,7 @@ export function useStartBot() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: number) =>
-      apiFetch<Bot>(`/bots/${id}/start`, { method: "POST" }),
+    mutationFn: async (id: number) => apiFetch<Bot>(`/bots/${id}/start`, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bots"] });
     },
@@ -85,8 +84,7 @@ export function useStopBot() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: number) =>
-      apiFetch<Bot>(`/bots/${id}/stop`, { method: "POST" }),
+    mutationFn: async (id: number) => apiFetch<Bot>(`/bots/${id}/stop`, { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bots"] });
     },

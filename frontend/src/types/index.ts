@@ -112,6 +112,9 @@ export interface Settings {
   binance_api_secret?: string;
   daily_loss_limit?: number;
   emergency_stop_enabled?: boolean;
+  has_credentials?: boolean;
+  wallet_address?: string;
+  balance?: string;
 }
 
 export interface SystemStatus {

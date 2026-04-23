@@ -238,7 +238,7 @@ pub async fn bot_events_stream(
         let mut status_interval = tokio::time::interval(std::time::Duration::from_secs(5));
         let mut btc_interval = tokio::time::interval(std::time::Duration::from_secs(2));
         let mut price_interval = tokio::time::interval(std::time::Duration::from_millis(300)); // Fast!
-        let mut discovery_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+        let mut discovery_interval = tokio::time::interval(std::time::Duration::from_secs(5)); // Check every 5s
 
         // Skip first ticks
         status_interval.tick().await;
@@ -274,7 +274,7 @@ pub async fn bot_events_stream(
 
         loop {
             tokio::select! {
-                // Market discovery (every 30s)
+                // Market discovery (every 5s)
                 _ = discovery_interval.tick() => {
                     let current_market = last_market.read().await.clone();
                     let needs_new = if let Some(ref m) = current_market {

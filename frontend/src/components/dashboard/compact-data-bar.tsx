@@ -1,14 +1,25 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Clock, TrendingUp, TrendingDown, Play, Square, Wallet, Zap, Trophy, Activity, Target, Flame, Bitcoin, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  BarChart3,
+  Bitcoin,
+  ChevronDown,
+  Clock,
+  Loader2,
+  Play,
+  Square,
+  Target,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
+import { useState } from "react";
+import { useStartBot, useStopBot } from "@/hooks";
 import { useAppStore } from "@/store";
-import { useRunAllBots, useStopAllBots } from "@/hooks/use-api";
-import { toast } from "sonner";
 
 function formatBTCPrice(price: number): string {
   if (price >= 1000) {
-    return price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return price.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
   }
   return price.toFixed(2);
 }
@@ -22,391 +33,337 @@ function formatTimeRemaining(seconds: number): string {
   if (seconds <= 0) return "0:00";
   const minutes = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
-  return `${minutes}:${String(secs).padStart(2, '0')}`;
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
+}
+
+function formatVolume(volume: number): string {
+  if (volume >= 1_000_000) return `$${(volume / 1_000_000).toFixed(1)}M`;
+  if (volume >= 1_000) return `$${(volume / 1_000).toFixed(0)}K`;
+  return `$${volume.toFixed(0)}`;
 }
 
 export function CompactDataBar() {
-  const { btcPrice, startPrice, priceDelta, yesPrice, noPrice, timeRemaining, bots, systemStatus, positions } = useAppStore();
-  const runAllBots = useRunAllBots();
-  const stopAllBots = useStopAllBots();
+  const { btcPrice, startPrice, priceDelta, yesPrice, timeRemaining, volume, marketQuestion, bots, selectedBotId, setSelectedBot } = useAppStore();
+  const [botDropdownOpen, setBotDropdownOpen] = useState(false);
+  const startBot = useStartBot();
+  const stopBot = useStopBot();
 
-  const isBotRunning = (systemStatus?.bots_running ?? 0) > 0;
-  const activeBots = bots.filter(b => b.status === "running").length;
-  const totalBots = bots.length;
+  const selectedBot = bots.find((b) => b.id === selectedBotId);
+  const isBotRunning = selectedBot?.status === "running";
 
-  // Calculate stats from positions
-  const totalPnl = systemStatus?.total_pnl ?? 0;
-  const totalTrades = positions.length;
-  const totalExposure = positions.reduce((sum, p) => sum + p.stake, 0);
+  const handleToggleBot = () => {
+    if (!selectedBotId) return;
+    if (isBotRunning) {
+      stopBot.mutate(selectedBotId);
+    } else {
+      startBot.mutate(selectedBotId);
+    }
+  };
 
-  // Market prediction: YES = "BTC will exceed target", NO = "BTC will stay below target"
   const marketPrediction = yesPrice > 0.5 ? "EXCEED" : "STAY BELOW";
   const confidence = Math.abs(yesPrice - 0.5) * 100;
-
-  // Current status relative to target
-  const deltaColor = priceDelta >= 0 ? "#22c55e" : "#ef4444";
-
-  const handleRunAll = async () => {
-    runAllBots.mutate(undefined, {
-      onSuccess: () => toast.success("All bots started"),
-      onError: (err) => toast.error("Failed to start bots", { description: String(err) }),
-    });
-  };
-
-  const handleStopAll = async () => {
-    stopAllBots.mutate(undefined, {
-      onSuccess: () => toast.success("All bots stopped"),
-      onError: (err) => toast.error("Failed to stop bots", { description: String(err) }),
-    });
-  };
+  const isUp = priceDelta >= 0;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -8 }}
+      initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      style={{
-        background: "rgba(10, 15, 25, 0.7)",
-        backdropFilter: "blur(20px)",
-        border: "1px solid rgba(255, 255, 255, 0.06)",
-        borderRadius: "16px",
-        overflow: "hidden",
-        boxShadow: "0 8px 32px rgba(0, 0, 0, 0.3)",
-      }}
+      className="rounded-2xl border border-white/8 bg-white/3 backdrop-blur-xl"
     >
-      {/* ROW 1: Timer + Price Target + YES/NO Odds + Controls */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "1.5rem",
-        padding: "1rem 1.5rem",
-        borderBottom: "1px solid rgba(255,255,255,0.05)",
-      }}>
-        {/* Timer */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 10,
-            background: timeRemaining < 60
-              ? "rgba(239, 68, 68, 0.15)"
-              : timeRemaining < 180
-                ? "rgba(245, 158, 11, 0.15)"
-                : "rgba(34, 197, 94, 0.15)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            border: `1px solid ${timeRemaining < 60
-              ? "rgba(239, 68, 68, 0.3)"
-              : timeRemaining < 180
-                ? "rgba(245, 158, 11, 0.3)"
-                : "rgba(34, 197, 94, 0.3)"}`
-          }}>
-            <Clock style={{ width: 22, height: 22, color: timeRemaining < 60 ? "#ef4444" : timeRemaining < 180 ? "#f59e0b" : "#22c55e" }} />
+      {/* Status Banner - Full Width, Color-coded */}
+      <div
+        className={`mx-4 mt-3 flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-bold transition-all duration-300
+        ${
+          isUp && btcPrice > 0
+            ? "bg-green-500/20 border border-green-500/40 text-green-400 shadow-[0_0_30px_rgba(34,197,94,0.2)]"
+            : btcPrice > 0
+              ? "bg-red-500/20 border border-red-500/40 text-red-400 shadow-[0_0_30px_rgba(239,68,68,0.2)]"
+              : "bg-zinc-800/50 border border-white/10 text-zinc-400"
+        }`}
+      >
+        {isUp && btcPrice > 0 ? (
+          <TrendingUp className="h-5 w-5" />
+        ) : btcPrice > 0 ? (
+          <TrendingDown className="h-5 w-5" />
+        ) : (
+          <Clock className="h-5 w-5" />
+        )}
+        <span>
+          {isUp && btcPrice > 0
+            ? "ABOVE TARGET"
+            : btcPrice > 0
+              ? "BELOW TARGET"
+              : "WAITING FOR DATA"}
+        </span>
+        {isUp && btcPrice > 0 && priceDelta !== 0 && (
+          <span className="text-xs font-mono text-green-500/80">
+            +{formatPriceDelta(priceDelta)}
+          </span>
+        )}
+        {!isUp && btcPrice > 0 && priceDelta !== 0 && (
+          <span className="text-xs font-mono text-red-500/80">
+            {formatPriceDelta(priceDelta)}
+          </span>
+        )}
+      </div>
+
+      {/* Market Question */}
+      {marketQuestion && (
+        <div className="px-4 pt-2 pb-1 text-center">
+          <span className="text-xs font-medium text-zinc-400">{marketQuestion}</span>
+        </div>
+      )}
+
+      {/* Bot Running Indicator */}
+      {isBotRunning && (
+        <div className="mx-4 mb-1 flex items-center justify-center gap-2 rounded-lg bg-green-500/10 border border-green-500/20 px-3 py-1">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-green-500" />
+          <span className="text-xs font-semibold text-green-400">
+            Bot Running
+          </span>
+          <span className="text-[10px] text-zinc-500">
+            • {selectedBot?.strategy}
+          </span>
+          <span className="text-[10px] text-zinc-600">
+            • Analyzing market
+          </span>
+        </div>
+      )}
+
+      {/* Centered Horizontal Layout */}
+      <div className="flex flex-wrap items-center justify-center gap-3 px-4 py-3 xl:flex-nowrap xl:gap-6 xl:px-6">
+        {/* Timer - Left */}
+        <div className="flex items-center gap-3">
+          <div
+            className={`flex h-10 w-10 items-center justify-center rounded-xl border
+            ${
+              timeRemaining < 60
+                ? "bg-red-500/15 border-red-500/30"
+                : timeRemaining < 180
+                  ? "bg-amber-500/15 border-amber-500/30"
+                  : "bg-green-500/15 border-green-500/30"
+            }`}
+          >
+            <Clock
+              className={`h-4 w-4
+              ${
+                timeRemaining < 60
+                  ? "text-red-500"
+                  : timeRemaining < 180
+                    ? "text-amber-500"
+                    : "text-green-500"
+              }`}
+            />
           </div>
-          <div>
-            <div style={{ fontSize: "0.65rem", color: "#71717a", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Ends In
-            </div>
-            <span style={{ fontSize: "1.4rem", fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: "#fafafa" }}>
+            </span>
+            <span className="text-lg font-extrabold font-mono text-zinc-100">
               {timeRemaining > 0 ? formatTimeRemaining(timeRemaining) : "--:--"}
             </span>
           </div>
         </div>
 
-        <div style={{ width: 1, height: 44, background: "rgba(255,255,255,0.08)" }} />
+        {/* Divider */}
+        <div className="hidden h-10 w-px bg-white/10 xl:block" />
 
-        {/* Target Price vs Current Price */}
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          {/* Target Price (Price to Beat) */}
-          <div style={{
-            padding: "0.5rem 1rem",
-            borderRadius: 10,
-            background: "rgba(99, 102, 241, 0.1)",
-            border: "1px solid rgba(99, 102, 241, 0.2)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <Target style={{ width: 14, height: 14, color: "#818cf8" }} />
-              <span style={{ fontSize: "0.65rem", fontWeight: 600, color: "#818cf8", textTransform: "uppercase" }}>
-                TARGET
-              </span>
-            </div>
-            <span style={{ fontSize: "1.1rem", fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: "#818cf8" }}>
-              ${startPrice > 0 ? formatBTCPrice(startPrice) : "---"}
+        {/* Target - Center Left */}
+        <div className="rounded-xl bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <Target className="h-3 w-3 text-indigo-400" />
+            <span className="text-[10px] font-semibold uppercase text-indigo-400">TARGET</span>
+          </div>
+          <span className="text-base font-extrabold font-mono text-indigo-400">
+            ${startPrice > 0 ? formatBTCPrice(startPrice) : "---"}
+          </span>
+        </div>
+
+        {/* Delta Arrow */}
+        <div
+          className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5
+          ${isUp ? "bg-green-500/10 border border-green-500/20" : "bg-red-500/10 border border-red-500/20"}`}
+        >
+          {priceDelta !== 0 && (
+            <motion.div
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: 0.15 }}
+            >
+              {isUp ? (
+                <TrendingUp className="h-3.5 w-3.5 text-green-500" />
+              ) : (
+                <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+              )}
+            </motion.div>
+          )}
+          <span
+            className={`text-xs font-bold font-mono ${isUp ? "text-green-500" : "text-red-500"}`}
+          >
+            {priceDelta !== 0 ? formatPriceDelta(priceDelta) : "---"}
+          </span>
+        </div>
+
+        {/* Current BTC Price - Color based on position vs target */}
+        <div
+          className={`rounded-xl border-2 px-3 py-1.5 transition-all duration-300
+          ${isUp && btcPrice > 0
+            ? "bg-green-500/15 border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.15)]"
+            : btcPrice > 0
+              ? "bg-red-500/15 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.15)]"
+              : "bg-orange-500/10 border-orange-500/20"
+          }`}
+        >
+          <div className="flex items-center gap-1.5">
+            <Bitcoin className={`h-3 w-3 ${isUp && btcPrice > 0 ? "text-green-400" : btcPrice > 0 ? "text-red-400" : "text-orange-400"}`} />
+            <span className={`text-[10px] font-semibold uppercase ${isUp && btcPrice > 0 ? "text-green-400" : btcPrice > 0 ? "text-red-400" : "text-orange-400"}`}>
+              CURRENT
             </span>
           </div>
+          <span className={`text-base font-extrabold font-mono ${isUp && btcPrice > 0 ? "text-green-500" : btcPrice > 0 ? "text-red-500" : "text-orange-400"}`}>
+            ${btcPrice > 0 ? formatBTCPrice(btcPrice) : "---"}
+          </span>
+        </div>
 
-          {/* Delta Arrow */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.25rem",
-            padding: "0.5rem 0.75rem",
-            borderRadius: 8,
-            background: priceDelta >= 0 ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
-            border: `1px solid ${priceDelta >= 0 ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
-          }}>
-            {priceDelta !== 0 && (
+        {/* Divider */}
+        <div className="hidden h-10 w-px bg-white/10 xl:block" />
+
+        {/* Volume */}
+        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5">
+          <div className="flex items-center gap-1.5">
+            <BarChart3 className="h-3 w-3 text-emerald-400" />
+            <span className="text-[10px] font-semibold uppercase text-emerald-400">VOLUME</span>
+          </div>
+          <span className="text-base font-extrabold font-mono text-emerald-400">
+            {volume > 0 ? formatVolume(volume) : "---"}
+          </span>
+        </div>
+
+        {/* Divider */}
+        <div className="hidden h-10 w-px bg-white/10 xl:block" />
+
+        {/* Market Prediction - Right */}
+        <div
+          className={`rounded-xl px-3 py-1.5
+          ${
+            marketPrediction === "EXCEED"
+              ? "bg-green-500/10 border border-green-500/20"
+              : "bg-red-500/10 border border-red-500/20"
+          }`}
+        >
+          <span className="text-[10px] uppercase text-zinc-500">Market Predicts</span>
+          <div
+            className={`text-sm font-bold ${marketPrediction === "EXCEED" ? "text-green-500" : "text-red-500"}`}
+          >
+            {marketPrediction === "EXCEED" ? "BTC WILL EXCEED" : "BTC WILL STAY BELOW"}
+          </div>
+          <span className="text-[10px] text-zinc-500">{confidence.toFixed(1)}% confidence</span>
+        </div>
+
+        {/* Divider */}
+        <div className="hidden h-10 w-px bg-white/10 xl:block" />
+
+        {/* Bot Selector */}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setBotDropdownOpen(!botDropdownOpen)}
+            className="flex items-center gap-2 rounded-xl bg-violet-500/10 border border-violet-500/20 px-3 py-1.5 hover:bg-violet-500/15 transition-colors cursor-pointer"
+          >
+            <div
+              className={`h-2.5 w-2.5 rounded-full ${selectedBot?.status === "running" ? "bg-green-500 animate-pulse" : selectedBot?.status === "error" ? "bg-red-500" : "bg-zinc-500"}`}
+            />
+            <span className="text-xs font-semibold text-violet-400 max-w-20 truncate">
+              {selectedBot?.name ?? "No Bot"}
+            </span>
+            <ChevronDown
+              className={`h-3 w-3 text-violet-400 transition-transform ${botDropdownOpen ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {/* Bot Dropdown */}
+          <AnimatePresence>
+            {botDropdownOpen && (
               <motion.div
-                key={priceDelta}
-                initial={{ scale: 0.8, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                className="absolute right-0 top-full mt-2 z-50 w-56 rounded-xl border border-white/10 bg-zinc-900/95 backdrop-blur-xl shadow-xl overflow-hidden"
               >
-                {priceDelta >= 0
-                  ? <ArrowUpRight style={{ width: 16, height: 16, color: "#22c55e" }} />
-                  : <ArrowDownRight style={{ width: 16, height: 16, color: "#ef4444" }} />
-                }
+                {bots.length === 0 ? (
+                  <div className="p-4">
+                    <div className="text-center text-xs text-zinc-500 mb-3">
+                      No bots configured
+                    </div>
+                    <a
+                      href="/bots"
+                      className="flex items-center justify-center gap-2 rounded-lg bg-violet-500/15 text-violet-400 px-3 py-2 text-xs font-semibold hover:bg-violet-500/25 transition-colors"
+                    >
+                      <Play className="h-3 w-3" />
+                      Create Your First Bot
+                    </a>
+                  </div>
+                ) : (
+                  <>
+                    {bots.map((bot) => (
+                      <button
+                        key={bot.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedBot(bot.id);
+                          setBotDropdownOpen(false);
+                        }}
+                        className={`flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-white/5 transition-colors cursor-pointer
+                        ${bot.id === selectedBotId ? "bg-violet-500/10" : ""}`}
+                      >
+                        <div
+                          className={`h-2 w-2 rounded-full flex-shrink-0 ${bot.status === "running" ? "bg-green-500 animate-pulse" : bot.status === "error" ? "bg-red-500" : "bg-zinc-500"}`}
+                        />
+                        <div className="flex flex-1 flex-col min-w-0">
+                          <span className="truncate text-xs font-semibold text-zinc-100">
+                            {bot.name}
+                          </span>
+                          <span className="text-[10px] text-zinc-500">{bot.strategy}</span>
+                        </div>
+                        <span
+                          className={`text-[10px] font-medium ${bot.status === "running" ? "text-green-500" : bot.status === "error" ? "text-red-500" : "text-zinc-500"}`}
+                        >
+                          {bot.status}
+                        </span>
+                      </button>
+                    ))}
+                    {selectedBot && (
+                      <div className="border-t border-white/10 p-2">
+                        <button
+                          type="button"
+                          onClick={handleToggleBot}
+                          disabled={startBot.isPending || stopBot.isPending}
+                          className={`flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors cursor-pointer
+                            ${
+                              isBotRunning
+                                ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                                : "bg-green-500/15 text-green-400 hover:bg-green-500/25"
+                            }`}
+                        >
+                          {isBotRunning ? (
+                            <>
+                              <Square className="h-3 w-3" />
+                              Stop Bot
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-3 w-3" />
+                              Start Bot
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </motion.div>
             )}
-            <span style={{
-              fontSize: "0.85rem",
-              fontWeight: 700,
-              fontFamily: "'JetBrains Mono', monospace",
-              color: deltaColor,
-            }}>
-              {priceDelta !== 0 ? formatPriceDelta(priceDelta) : "---"}
-            </span>
-          </div>
-
-          {/* Current BTC Price */}
-          <div style={{
-            padding: "0.5rem 1rem",
-            borderRadius: 10,
-            background: "rgba(247, 147, 26, 0.1)",
-            border: "1px solid rgba(247, 147, 26, 0.2)",
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <Bitcoin style={{ width: 14, height: 14, color: "#f7931a" }} />
-              <span style={{ fontSize: "0.65rem", fontWeight: 600, color: "#f7931a", textTransform: "uppercase" }}>
-                CURRENT
-              </span>
-            </div>
-            <span style={{ fontSize: "1.1rem", fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: "#f7931a" }}>
-              ${btcPrice > 0 ? formatBTCPrice(btcPrice) : "---"}
-            </span>
-          </div>
+          </AnimatePresence>
         </div>
-
-        <div style={{ width: 1, height: 44, background: "rgba(255,255,255,0.08)" }} />
-
-        {/* YES/NO Odds - Market Prediction */}
-        <div style={{ display: "flex", gap: "0.75rem" }}>
-          <motion.div
-            key={`yes-${yesPrice}`}
-            initial={{ scale: 0.95 }}
-            animate={{ scale: 1 }}
-            style={{
-              padding: "0.6rem 1rem",
-              borderRadius: 10,
-              background: "rgba(34, 197, 94, 0.08)",
-              border: "1px solid rgba(34, 197, 94, 0.2)",
-            }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <TrendingUp style={{ width: 16, height: 16, color: "#22c55e" }} />
-              <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#22c55e" }}>YES</span>
-            </div>
-            <span style={{ fontSize: "1.5rem", fontWeight: 800, color: "#22c55e", fontFamily: "'JetBrains Mono', monospace" }}>
-              {(yesPrice * 100).toFixed(1)}¢
-            </span>
-          </motion.div>
-          <motion.div
-            key={`no-${noPrice}`}
-            initial={{ scale: 0.95 }}
-            animate={{ scale: 1 }}
-            style={{
-              padding: "0.6rem 1rem",
-              borderRadius: 10,
-              background: "rgba(239, 68, 68, 0.08)",
-              border: "1px solid rgba(239, 68, 68, 0.2)",
-            }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-              <TrendingDown style={{ width: 16, height: 16, color: "#ef4444" }} />
-              <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#ef4444" }}>NO</span>
-            </div>
-            <span style={{ fontSize: "1.5rem", fontWeight: 800, color: "#ef4444", fontFamily: "'JetBrains Mono', monospace" }}>
-              {(noPrice * 100).toFixed(1)}¢
-            </span>
-          </motion.div>
-        </div>
-
-        {/* Market Prediction Indicator */}
-        <div style={{
-          padding: "0.75rem 1rem",
-          borderRadius: 10,
-          background: marketPrediction === "EXCEED" ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)",
-          border: `1px solid ${marketPrediction === "EXCEED" ? "rgba(34, 197, 94, 0.2)" : "rgba(239, 68, 68, 0.2)"}`,
-          maxWidth: 180,
-        }}>
-          <div style={{ fontSize: "0.65rem", color: "#71717a", textTransform: "uppercase", marginBottom: "0.25rem" }}>
-            Market Predicts
-          </div>
-          <div style={{
-            fontSize: "0.9rem",
-            fontWeight: 700,
-            color: marketPrediction === "EXCEED" ? "#22c55e" : "#ef4444",
-          }}>
-            {marketPrediction === "EXCEED" ? "BTC WILL EXCEED TARGET" : "BTC WILL STAY BELOW"}
-          </div>
-          <div style={{ fontSize: "0.7rem", color: "#71717a", marginTop: "0.25rem" }}>
-            {confidence.toFixed(1)}% confidence
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginLeft: "auto" }}>
-          <motion.button
-            whileHover={{ scale: isBotRunning ? 1 : 1.03 }}
-            whileTap={{ scale: isBotRunning ? 1 : 0.97 }}
-            onClick={handleRunAll}
-            disabled={isBotRunning || runAllBots.isPending}
-            style={{
-              display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.6rem 1.1rem",
-              borderRadius: 10, border: "none",
-              background: isBotRunning ? "rgba(34, 197, 94, 0.1)" : "linear-gradient(135deg, #22c55e, #16a34a)",
-              color: isBotRunning ? "#22c55e" : "white",
-              fontWeight: 700, cursor: isBotRunning ? "not-allowed" : "pointer", fontSize: "0.85rem",
-              boxShadow: isBotRunning ? "none" : "0 4px 16px rgba(34, 197, 94, 0.3)",
-              opacity: isBotRunning ? 0.7 : 1,
-            }}
-          >
-            <Play style={{ width: 14, height: 14 }} fill={!isBotRunning ? "currentColor" : "none"} />
-            RUN ALL
-          </motion.button>
-
-          <motion.button
-            whileHover={{ scale: !isBotRunning ? 1 : 1.03 }}
-            whileTap={{ scale: !isBotRunning ? 1 : 0.97 }}
-            onClick={handleStopAll}
-            disabled={!isBotRunning || stopAllBots.isPending}
-            style={{
-              display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.6rem 1.1rem",
-              borderRadius: 10, border: isBotRunning ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid rgba(255,255,255,0.1)",
-              background: isBotRunning ? "rgba(239, 68, 68, 0.1)" : "transparent",
-              color: isBotRunning ? "#ef4444" : "#71717a",
-              fontWeight: 700, cursor: !isBotRunning ? "not-allowed" : "pointer", fontSize: "0.85rem",
-              opacity: !isBotRunning ? 0.5 : 1,
-            }}
-          >
-            <Square style={{ width: 14, height: 14 }} />
-            STOP ALL
-          </motion.button>
-        </div>
-      </div>
-
-      {/* ROW 2: Stats */}
-      <div style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "1.5rem",
-        padding: "0.75rem 1.5rem",
-        background: "rgba(0,0,0,0.2)",
-      }}>
-        {/* P&L */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: totalPnl >= 0 ? "rgba(34, 197, 94, 0.12)" : "rgba(239, 68, 68, 0.12)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            border: totalPnl >= 0 ? "1px solid rgba(34, 197, 94, 0.2)" : "1px solid rgba(239, 68, 68, 0.2)"
-          }}>
-            <Trophy style={{ width: 16, height: 16, color: totalPnl >= 0 ? "#22c55e" : "#ef4444" }} />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.6rem", color: "#71717a" }}>P&L</div>
-            <span style={{ fontSize: "1rem", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>
-              {totalPnl >= 0 ? "+" : ""}{totalPnl.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Trades */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(167, 139, 250, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(167, 139, 250, 0.2)" }}>
-            <Activity style={{ width: 16, height: 16, color: "#a78bfa" }} />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.6rem", color: "#71717a" }}>Trades</div>
-            <span style={{ fontSize: "1rem", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
-              {totalTrades}
-            </span>
-          </div>
-        </div>
-
-        {/* Exposure */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: totalExposure > 0 ? "rgba(245, 158, 11, 0.12)" : "rgba(255,255,255,0.05)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            border: totalExposure > 0 ? "1px solid rgba(245, 158, 11, 0.2)" : "1px solid rgba(255,255,255,0.08)"
-          }}>
-            <Target style={{ width: 16, height: 16, color: totalExposure > 0 ? "#f59e0b" : "#71717a" }} />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.6rem", color: "#71717a" }}>Exposure</div>
-            <span style={{ fontSize: "1rem", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: totalExposure > 0 ? "#f59e0b" : "#71717a" }}>
-              ${totalExposure.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Bots */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(99, 102, 241, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(99, 102, 241, 0.2)" }}>
-            <Zap style={{ width: 16, height: 16, color: "#6366f1" }} />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.6rem", color: "#71717a" }}>Bots</div>
-            <span style={{ fontSize: "1rem", fontWeight: 700, color: isBotRunning ? "#22c55e" : "#71717a" }}>
-              {activeBots}/{totalBots}
-            </span>
-          </div>
-        </div>
-
-        {/* Positions */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: "rgba(59, 130, 246, 0.12)", display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
-            <Wallet style={{ width: 16, height: 16, color: "#3b82f6" }} />
-          </div>
-          <div>
-            <div style={{ fontSize: "0.6rem", color: "#71717a" }}>Positions</div>
-            <span style={{ fontSize: "1rem", fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
-              {positions.length}
-            </span>
-          </div>
-        </div>
-
-        {/* Running Indicator */}
-        {isBotRunning && (
-          <>
-            <div style={{ width: 1, height: 32, background: "rgba(255,255,255,0.08)" }} />
-            <motion.div
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: "0.5rem",
-                padding: "0.4rem 0.8rem",
-                borderRadius: 10,
-                background: "linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1))",
-                border: "1px solid rgba(34, 197, 94, 0.4)",
-              }}
-            >
-              <Flame style={{ width: 16, height: 16, color: "#22c55e" }} />
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                <span style={{ fontSize: "0.6rem", color: "#71717a", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                  Running
-                </span>
-                <span style={{
-                  fontSize: "0.85rem",
-                  fontWeight: 700,
-                  fontFamily: "'JetBrains Mono', monospace",
-                  color: "#22c55e",
-                  lineHeight: 1,
-                }}>
-                  {activeBots} active
-                </span>
-              </div>
-            </motion.div>
-          </>
-        )}
       </div>
     </motion.div>
   );

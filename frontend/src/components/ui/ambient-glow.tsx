@@ -23,13 +23,5 @@ const positionMap = {
 };
 
 export function AmbientGlow({ color, position }: AmbientGlowProps) {
-  return (
-    <div
-      className={cn(
-        "ambient-glow",
-        colorMap[color],
-        positionMap[position]
-      )}
-    />
-  );
+  return <div className={cn("ambient-glow", colorMap[color], positionMap[position])} />;
 }

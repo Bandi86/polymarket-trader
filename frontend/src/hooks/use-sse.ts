@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
-import { useAppStore, createSSEConnection } from "@/store";
+import { useCallback, useEffect, useRef } from "react";
+import { createSSEConnection, useAppStore } from "@/store";
 
 export function useSSE() {
   const eventSourceRef = useRef<EventSource | null>(null);
+  const prevEventStartTimeRef = useRef<number>(0);
+  const prevStartPriceRef = useRef<number>(0);
+
   const {
     setBtcPrice,
     setStartPrice,
@@ -14,12 +17,9 @@ export function useSSE() {
     setNoPrice,
     setMarketQuestion,
     setTimeRemaining,
-    setCurrentMarket,
-    addLog,
-    updateBot,
-    setPositions,
     setSystemStatus,
-    setBots,
+    setVolume,
+    addMarketResult,
   } = useAppStore();
 
   const connect = useCallback(() => {
@@ -48,8 +48,35 @@ export function useSSE() {
     eventSource.addEventListener("market", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
+        const newStartPrice = data.start_price || data.price_to_beat || 0;
+        const eventStartTime = data.event_start_time || 0;
+
+        // Detect new market start (event_start_time changed)
+        if (eventStartTime > 0 && prevEventStartTimeRef.current > 0 && eventStartTime !== prevEventStartTimeRef.current) {
+          // Previous market just ended - save result
+          addMarketResult({
+            endTime: Date.now(),
+            targetPrice: prevStartPriceRef.current,
+            finalPrice: data.btc_price,
+            delta: data.btc_price - prevStartPriceRef.current,
+            duration: 300,
+          });
+          // Reset start price ref for new market
+          prevStartPriceRef.current = 0;
+        }
+
+        // Track event start time for change detection
+        if (eventStartTime > 0 && prevEventStartTimeRef.current === 0) {
+          prevEventStartTimeRef.current = eventStartTime;
+        }
+
+        // Save start price when it becomes available (for market result later)
+        if (newStartPrice > 0 && prevStartPriceRef.current === 0) {
+          prevStartPriceRef.current = newStartPrice;
+        }
+
         setBtcPrice(data.btc_price);
-        setStartPrice(data.start_price || data.price_to_beat || 0);
+        setStartPrice(newStartPrice);
         setPriceDelta(data.price_delta || 0);
         setBeatPrice(data.price_to_beat || data.beat_price);
         if (data.yes !== undefined) {
@@ -67,10 +94,12 @@ export function useSSE() {
         if (data.market_question) {
           setMarketQuestion(data.market_question);
         }
-        if (data.time_remaining) {
+        if (data.time_remaining !== undefined) {
           setTimeRemaining(data.time_remaining);
         }
-        console.log("Market update:", data);
+        if (data.volume !== undefined) {
+          setVolume(data.volume);
+        }
       } catch (err) {
         console.error("Failed to parse market event:", err);
       }
@@ -81,7 +110,7 @@ export function useSSE() {
         const data = JSON.parse(e.data);
         setSystemStatus({
           bots_running: data.running_bots,
-          bots_total: data.running_bots, // TODO: fetch total bots separately
+          bots_total: data.running_bots,
           total_pnl: data.total_pnl,
           active_positions: 0,
           binance_connected: true,
@@ -93,7 +122,10 @@ export function useSSE() {
     });
 
     eventSource.onerror = () => {
-      console.error("SSE connection error");
+      console.warn("SSE connection error, reconnecting...");
+      // SSE auto-reconnects, but reset refs to avoid stale state
+      prevEventStartTimeRef.current = 0;
+      prevStartPriceRef.current = 0;
     };
 
     eventSourceRef.current = eventSource;
@@ -106,12 +138,9 @@ export function useSSE() {
     setNoPrice,
     setMarketQuestion,
     setTimeRemaining,
-    setCurrentMarket,
-    addLog,
-    updateBot,
-    setPositions,
     setSystemStatus,
-    setBots,
+    setVolume,
+    addMarketResult,
   ]);
 
   const disconnect = useCallback(() => {

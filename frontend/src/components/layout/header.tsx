@@ -1,14 +1,15 @@
 "use client";
 
-import { Bell, Zap, Settings, LogOut } from "lucide-react";
-import { BotSelector } from "@/components/dashboard/bot-selector";
-import { useAppStore } from "@/store";
+import { Bell, LogOut, Settings, User, Wallet } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { useSettings } from "@/hooks";
+import { useAppStore } from "@/store";
 
 export function Header() {
   const router = useRouter();
-  const { clearAuth } = useAppStore();
+  const { clearAuth, user } = useAppStore();
+  const { data: settings } = useSettings();
 
   const handleLogout = () => {
     clearAuth();
@@ -17,98 +18,75 @@ export function Header() {
   };
 
   return (
-    <header
-      className="glass-card"
-      style={{
-        margin: 0,
-        borderRadius: 0,
-        borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-        background: "rgba(11, 11, 15, 0.95)",
-        backdropFilter: "blur(20px)",
-      }}
-    >
-      <div style={{ padding: "0.75rem 1.5rem", maxWidth: 1600, margin: "0 auto" }} className="flex items-center justify-between gap-4">
-        {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-          <div
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: "rgba(99, 102, 241, 0.15)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Zap size={18} style={{ color: "#6366f1" }} />
+    <header className="border-b border-white/8 bg-zinc-950/95 backdrop-blur-xl">
+      <div className="flex items-center justify-between gap-4 mx-auto max-w-7xl py-3 px-6">
+        {/* Left: Logo */}
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15">
+            <Settings className="h-4 w-4 text-indigo-500" />
           </div>
-          <span style={{ fontWeight: 700, fontSize: 18, color: "#fafafa" }}>
-            Poly<span style={{ color: "#6366f1" }}>Trade</span>
+          <span className="text-lg font-bold text-zinc-100">
+            Poly<span className="text-indigo-500">Trade</span>
           </span>
         </div>
 
-        {/* Bot Selector - Centered */}
-        <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-          <BotSelector />
+        {/* Center: Status Chips */}
+        <div className="hidden items-center gap-2 md:flex">
+          {/* Auth Status */}
+          {user ? (
+            <div className="flex items-center gap-2 rounded-lg bg-green-500/10 border border-green-500/20 px-3 py-1.5">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+              <User className="h-3 w-3 text-green-400" />
+              <span className="text-xs font-semibold text-green-400">@{user.username}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 rounded-lg bg-zinc-800/50 border border-white/10 px-3 py-1.5">
+              <div className="h-2 w-2 rounded-full bg-zinc-500" />
+              <span className="text-xs font-semibold text-zinc-500">Not Logged In</span>
+            </div>
+          )}
+
+          {/* Wallet Status */}
+          {settings?.has_credentials ? (
+            <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5">
+              <Wallet className="h-3 w-3 text-emerald-400" />
+              <span className="text-xs font-semibold text-emerald-400">Wallet Connected</span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/settings")}
+              className="flex items-center gap-2 rounded-lg bg-amber-500/10 border border-amber-500/20 px-3 py-1.5 hover:bg-amber-500/15 transition-colors cursor-pointer"
+            >
+              <Wallet className="h-3 w-3 text-amber-400" />
+              <span className="text-xs font-semibold text-amber-400">Connect Wallet</span>
+            </button>
+          )}
         </div>
 
-        {/* Actions */}
+        {/* Right: Actions */}
         <div className="flex items-center gap-2">
-          {/* Notifications */}
           <button
             type="button"
-            className="glass-card"
-            style={{
-              padding: "0.5rem",
-              width: 36,
-              height: 36,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              background: "rgba(255, 255, 255, 0.03)",
-            }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/3 hover:bg-white/5 transition-colors cursor-pointer"
           >
-            <Bell size={18} style={{ color: "#a1a1aa" }} />
+            <Bell className="h-4 w-4 text-zinc-400" />
           </button>
 
-          {/* Settings */}
           <button
             type="button"
             onClick={() => router.push("/settings")}
-            className="glass-card"
-            style={{
-              padding: "0.5rem",
-              width: 36,
-              height: 36,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              background: "rgba(255, 255, 255, 0.03)",
-            }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/3 hover:bg-white/5 transition-colors cursor-pointer"
           >
-            <Settings size={18} style={{ color: "#a1a1aa" }} />
+            <Settings className="h-4 w-4 text-zinc-400" />
           </button>
 
-          {/* Logout */}
           <button
             type="button"
             onClick={handleLogout}
-            className="glass-card"
-            style={{
-              padding: "0.5rem",
-              width: 36,
-              height: 36,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-              background: "rgba(255, 255, 255, 0.03)",
-            }}
+            className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/3 hover:bg-white/5 transition-colors cursor-pointer"
           >
-            <LogOut size={18} style={{ color: "#a1a1aa" }} />
+            <LogOut className="h-4 w-4 text-zinc-400" />
           </button>
         </div>
       </div>

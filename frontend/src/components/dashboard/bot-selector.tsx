@@ -1,27 +1,15 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
-import { ChevronDown, Bot } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Bot, ChevronDown } from "lucide-react";
 import { useState } from "react";
 import { useAppStore } from "@/store";
-import type { BotStatus } from "@/types";
 
 export function BotSelector() {
   const { bots, selectedBotId, setSelectedBot } = useAppStore();
   const [isOpen, setIsOpen] = useState(false);
 
   const selectedBot = bots.find((b) => b.id === selectedBotId);
-
-  const getStatusColor = (status: BotStatus) => {
-    switch (status) {
-      case "running":
-        return "#22c55e";
-      case "error":
-        return "#ef4444";
-      default:
-        return "#71717a";
-    }
-  };
 
   return (
     <div style={{ position: "relative" }}>
@@ -56,9 +44,7 @@ export function BotSelector() {
             {selectedBot?.name ?? "Botok"}
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div
-              className={`status-dot status-dot-${selectedBot?.status ?? "stopped"}`}
-            />
+            <div className={`status-dot status-dot-${selectedBot?.status ?? "stopped"}`} />
             <span style={{ fontSize: 12, color: "#71717a" }}>
               {selectedBot?.status ?? "Válassz botot"}
             </span>
@@ -112,22 +98,26 @@ export function BotSelector() {
                     gap: "0.75rem",
                     padding: "0.75rem",
                     borderRadius: 8,
-                    background: bot.id === selectedBotId ? "rgba(99, 102, 241, 0.15)" : "transparent",
+                    background:
+                      bot.id === selectedBotId ? "rgba(99, 102, 241, 0.15)" : "transparent",
                     border: bot.id === selectedBotId ? "1px solid rgba(99, 102, 241, 0.3)" : "none",
                     cursor: "pointer",
                     marginBottom: 4,
                   }}
                 >
+                  <div className={`status-dot status-dot-${bot.status}`} />
                   <div
-                    className={`status-dot status-dot-${bot.status}`}
-                  />
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-start",
+                    }}
+                  >
                     <span style={{ fontWeight: 500, fontSize: 14, color: "#fafafa" }}>
                       {bot.name}
                     </span>
-                    <span style={{ fontSize: 12, color: "#71717a" }}>
-                      {bot.strategy}
-                    </span>
+                    <span style={{ fontSize: 12, color: "#71717a" }}>{bot.strategy}</span>
                   </div>
                 </button>
               ))
