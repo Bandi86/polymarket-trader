@@ -11,16 +11,15 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
-  Zap,
 } from "lucide-react";
 import { useAppStore } from "@/store";
 
 const navItems = [
-  { href: "/", label: "Command Center", icon: LayoutDashboard },
-  { href: "/bots", label: "Botok", icon: Bot },
-  { href: "/markets", label: "Piacok", icon: LineChart },
-  { href: "/orders", label: "Rendelések", icon: History },
-  { href: "/settings", label: "Beállítások", icon: Settings },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/bots", label: "Bots", icon: Bot },
+  { href: "/markets", label: "Markets", icon: LineChart },
+  { href: "/orders", label: "Orders", icon: History },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 interface SidebarProps {
@@ -34,46 +33,17 @@ export function Sidebar({ collapsed }: SidebarProps) {
   return (
     <motion.aside
       initial={false}
-      animate={{ width: collapsed ? 64 : 240 }}
+      animate={{ width: collapsed ? 64 : 200 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       style={{
-        background: "rgba(255, 255, 255, 0.03)",
+        background: "rgba(11, 11, 15, 0.95)",
         borderRight: "1px solid rgba(255, 255, 255, 0.08)",
         backdropFilter: "blur(20px)",
       }}
       className="flex flex-col h-full relative"
     >
-      {/* Logo */}
-      <div
-        style={{ borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}
-        className="p-4 flex items-center gap-3"
-      >
-        <div
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 12,
-            background: "rgba(99, 102, 241, 0.15)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <Zap style={{ color: "#6366f1" }} size={20} />
-        </div>
-        {!collapsed && (
-          <motion.span
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            style={{ color: "#fafafa", fontWeight: 700, fontSize: 18 }}
-          >
-            PolyTrade
-          </motion.span>
-        )}
-      </div>
-
       {/* Navigation */}
-      <nav className="flex-1 p-2">
+      <nav className="flex-1 p-2" style={{ paddingTop: "1rem" }}>
         {navItems.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
@@ -87,6 +57,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 width: "100%",
                 marginBottom: 4,
                 justifyContent: collapsed ? "center" : "flex-start",
+                padding: collapsed ? "0.75rem" : "0.75rem 1rem",
               }}
             >
               <Icon size={20} />
@@ -94,7 +65,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  style={{ fontWeight: 500 }}
+                  style={{ fontWeight: 500, fontSize: 14 }}
                 >
                   {item.label}
                 </motion.span>
@@ -111,7 +82,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
         style={{
           position: "absolute",
           right: -12,
-          top: 80,
+          top: 24,
           width: 24,
           height: 24,
           borderRadius: "50%",
@@ -134,12 +105,10 @@ export function Sidebar({ collapsed }: SidebarProps) {
       {/* Emergency Stop */}
       {!collapsed && (
         <div
-          style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)" }}
-          className="p-4"
+          style={{ borderTop: "1px solid rgba(255, 255, 255, 0.08)", padding: "0.75rem" }}
         >
-          <button type="button" className="btn-emergency">
-            <Zap size={16} />
-            Vészleállítás
+          <button type="button" className="btn-emergency" style={{ width: "100%" }}>
+            Emergency Stop
           </button>
         </div>
       )}

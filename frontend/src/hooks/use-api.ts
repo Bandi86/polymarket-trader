@@ -171,6 +171,30 @@ export function useCancelOrder() {
   });
 }
 
+// Quick Trade for UP/DOWN buttons
+export function useQuickTrade() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: { side: "UP" | "DOWN"; amount: number }) =>
+      apiFetch<{
+        success: boolean;
+        message: string;
+        order_id?: string;
+        btc_price?: number;
+        beat_price?: number;
+        error_code?: string;
+      }>("/orders/quick", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+      queryClient.invalidateQueries({ queryKey: ["positions"] });
+    },
+  });
+}
+
 // Markets
 export function useMarkets() {
   return useQuery({

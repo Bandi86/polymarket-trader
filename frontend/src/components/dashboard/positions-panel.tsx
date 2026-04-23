@@ -1,11 +1,14 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Layers, X } from "lucide-react";
+import { Layers, X, TrendingUp, TrendingDown } from "lucide-react";
 import { useAppStore } from "@/store";
+import { useCancelOrder } from "@/hooks/use-api";
+import { toast } from "sonner";
 
 export function PositionsPanel() {
   const { positions } = useAppStore();
+  const cancelOrder = useCancelOrder();
 
   const formatPnl = (pnl?: number) => {
     if (pnl === undefined) return "---";
@@ -13,13 +16,32 @@ export function PositionsPanel() {
     return `${sign}$${pnl.toFixed(2)}`;
   };
 
+  const handleClosePosition = async (positionId: string) => {
+    cancelOrder.mutate(positionId, {
+      onSuccess: () => {
+        toast.success("Position closed");
+      },
+      onError: (err) => {
+        toast.error("Failed to close position", { description: String(err) });
+      },
+    });
+  };
+
   return (
-    <div className="glass-card" style={{ padding: "1rem", height: "100%", display: "flex", flexDirection: "column" }}>
+    <div
+      className="glass-card"
+      style={{
+        padding: "1rem",
+        height: 300,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Layers size={16} style={{ color: "#6366f1" }} />
-          <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Pozíciók</span>
+          <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Positions</span>
         </div>
         <span
           style={{
@@ -30,7 +52,7 @@ export function PositionsPanel() {
             color: "#71717a",
           }}
         >
-          {positions.length} aktív
+          {positions.length} active
         </span>
       </div>
 
@@ -40,7 +62,7 @@ export function PositionsPanel() {
           {positions.length === 0 ? (
             <div style={{ textAlign: "center", padding: "2rem", color: "#71717a" }}>
               <Layers size={32} style={{ marginBottom: 8, opacity: 0.5 }} />
-              <span style={{ fontSize: 12 }}>Nincs aktív pozíció</span>
+              <span style={{ fontSize: 12 }}>No active positions</span>
             </div>
           ) : (
             positions.map((position) => (
@@ -59,13 +81,22 @@ export function PositionsPanel() {
               >
                 {/* Top row */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
-                  <span
-                    className={`badge ${position.outcome === "YES" ? "badge-green" : "badge-red"}`}
-                  >
-                    {position.outcome === "YES" ? "UP" : "DOWN"}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    {position.outcome === "YES" ? (
+                      <TrendingUp size={16} style={{ color: "#22c55e" }} />
+                    ) : (
+                      <TrendingDown size={16} style={{ color: "#ef4444" }} />
+                    )}
+                    <span
+                      className={`badge ${position.outcome === "YES" ? "badge-green" : "badge-red"}`}
+                    >
+                      {position.outcome === "YES" ? "UP" : "DOWN"}
+                    </span>
+                  </div>
                   <button
                     type="button"
+                    onClick={() => handleClosePosition(String(position.id))}
+                    disabled={cancelOrder.isPending}
                     style={{
                       width: 24,
                       height: 24,
@@ -86,13 +117,13 @@ export function PositionsPanel() {
                 {/* Details */}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, fontSize: 12 }}>
                   <div>
-                    <span style={{ color: "#71717a" }}>Mennyiség</span>
+                    <span style={{ color: "#71717a" }}>Amount</span>
                     <span className="price-ticker" style={{ color: "#fafafa", marginLeft: 4 }}>
                       {position.amount.toFixed(2)}
                     </span>
                   </div>
                   <div>
-                    <span style={{ color: "#71717a" }}>Ár</span>
+                    <span style={{ color: "#71717a" }}>Odds</span>
                     <span className="price-ticker" style={{ color: "#fafafa", marginLeft: 4 }}>
                       {(position.odds * 100).toFixed(0)}¢
                     </span>

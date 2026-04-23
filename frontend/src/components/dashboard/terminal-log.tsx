@@ -30,12 +30,20 @@ export function TerminalLog() {
   };
 
   return (
-    <div className="glass-card" style={{ padding: "1rem", height: 200, display: "flex", flexDirection: "column" }}>
+    <div
+      className="glass-card"
+      style={{
+        padding: "1rem",
+        height: 200,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Terminal size={16} style={{ color: "#6366f1" }} />
-          <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Terminál</span>
+          <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>Terminal</span>
         </div>
         <button
           type="button"
@@ -54,19 +62,32 @@ export function TerminalLog() {
           }}
         >
           <Trash2 size={12} />
-          Törlés
+          Clear
         </button>
       </div>
 
       {/* Log entries */}
-      <div className="terminal" style={{ flex: 1, overflow: "auto" }}>
+      <div
+        className="terminal"
+        style={{
+          flex: 1,
+          overflow: "auto",
+          background: "rgba(0, 0, 0, 0.6)",
+          border: "1px solid rgba(255, 255, 255, 0.05)",
+          borderRadius: 8,
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: "0.75rem",
+          lineHeight: 1.4,
+          padding: "0.5rem",
+        }}
+      >
         <AnimatePresence initial={false}>
           {logs.length === 0 ? (
             <div style={{ textAlign: "center", color: "#71717a", padding: "1rem" }}>
-              <span style={{ fontSize: 12 }}>Nincs aktivitás...</span>
+              <span style={{ fontSize: 12 }}>No activity...</span>
             </div>
           ) : (
-            logs.map((log, idx) => (
+            logs.slice(-20).map((log, idx) => (
               <motion.div
                 key={`${log.timestamp}-${idx}`}
                 initial={{ opacity: 0, x: -10 }}
@@ -79,10 +100,16 @@ export function TerminalLog() {
                   borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
                 }}
               >
-                <span className="price-ticker" style={{ fontSize: 11, color: "#71717a", minWidth: 70 }}>
+                <span
+                  className="price-ticker"
+                  style={{ fontSize: 11, color: "#71717a", minWidth: 70 }}
+                >
                   {formatTime(log.timestamp)}
                 </span>
-                <span className="price-ticker" style={{ fontSize: 11, color: getLevelColor(log.level), minWidth: 60 }}>
+                <span
+                  className="price-ticker"
+                  style={{ fontSize: 11, color: getLevelColor(log.level), minWidth: 60 }}
+                >
                   [{log.bot_name}]
                 </span>
                 <span style={{ fontSize: 11, color: "#fafafa" }}>

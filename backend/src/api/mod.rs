@@ -77,6 +77,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/bots/:id/status", get(monitoring::get_bot_status))
         .route("/orders", get(orders::list_orders))
         .route("/orders", post(orders::place_order))
+        .route("/orders/quick", post(orders::quick_trade))
         .route("/orders/cancel", post(orders::cancel_order))
         .route("/positions", get(positions::list_positions))
         .route("/positions/live", get(orders::get_live_positions))

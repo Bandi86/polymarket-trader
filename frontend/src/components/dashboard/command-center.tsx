@@ -1,50 +1,51 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { BeatPriceIndicator } from "@/components/dashboard/beat-price-indicator";
+import { CompactDataBar } from "@/components/dashboard/compact-data-bar";
 import { TradingPanel } from "@/components/dashboard/trading-panel";
-import { BotStatusGrid } from "@/components/dashboard/bot-status-grid";
-import { TerminalLog } from "@/components/dashboard/terminal-log";
 import { PositionsPanel } from "@/components/dashboard/positions-panel";
+import { TerminalLog } from "@/components/dashboard/terminal-log";
 
 export function CommandCenter() {
   return (
-    <div className="trading-grid h-full">
-      {/* Left Column - Beat Price & Bot Status */}
+    <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+      {/* Top: Compact Data Bar with all key info */}
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="space-y-4"
       >
-        {/* Beat Price Indicator */}
-        <BeatPriceIndicator />
-
-        {/* Bot Status Grid */}
-        <BotStatusGrid />
+        <CompactDataBar />
       </motion.div>
 
-      {/* Center Column - Trading Panel */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
-        className="space-y-4"
+      {/* Main Grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 380px",
+          gap: "1rem",
+        }}
       >
-        {/* Trading Panel with TradingView placeholder */}
-        <TradingPanel />
+        {/* Left: Trading Panel */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+          style={{ minHeight: 400 }}
+        >
+          <TradingPanel />
+        </motion.div>
 
-        {/* Terminal Log */}
-        <TerminalLog />
-      </motion.div>
-
-      {/* Right Column - Positions */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-      >
-        <PositionsPanel />
-      </motion.div>
+        {/* Right: Positions + Terminal */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2 }}
+          style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+        >
+          <PositionsPanel />
+          <TerminalLog />
+        </motion.div>
+      </div>
     </div>
   );
 }

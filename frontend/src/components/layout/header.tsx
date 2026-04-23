@@ -1,66 +1,56 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { Bell, Wallet, Activity, Bitcoin } from "lucide-react";
+import { Bell, Zap, Settings, LogOut } from "lucide-react";
 import { BotSelector } from "@/components/dashboard/bot-selector";
 import { useAppStore } from "@/store";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 
 export function Header() {
-  const { btcPrice, systemStatus } = useAppStore();
+  const router = useRouter();
+  const { clearAuth } = useAppStore();
 
-  const runningBots = 0;
-  const totalPnl = systemStatus?.total_pnl ?? 0;
-
-  const formatPrice = (p: number) =>
-    p > 0 ? `$${p.toLocaleString("en-US", { minimumFractionDigits: 2 })}` : "---";
+  const handleLogout = () => {
+    clearAuth();
+    toast.success("Logged out successfully");
+    router.push("/login");
+  };
 
   return (
-    <header className="glass-card" style={{ margin: 0, borderRadius: 0, borderBottom: "1px solid rgba(255, 255, 255, 0.08)" }}>
-      <div style={{ padding: "1rem 1.5rem" }} className="flex items-center justify-between gap-4">
-        {/* Bot Selector */}
-        <BotSelector />
-
-        {/* Stats */}
-        <div className="flex items-center gap-3 flex-1 justify-center">
-          {/* BTC Price */}
-          <div className="stat-card" style={{ borderColor: "rgba(247, 147, 26, 0.3)" }}>
-            <Activity size={16} style={{ color: "#f7931a" }} />
-            <div>
-              <span className="stat-label">BTC Ár</span>
-              <motion.span
-                key={btcPrice}
-                initial={{ scale: 1 }}
-                animate={{ scale: [1, 1.05, 1] }}
-                transition={{ duration: 0.3 }}
-                className="stat-value"
-                style={{ color: "#f7931a" }}
-              >
-                {formatPrice(btcPrice)}
-              </motion.span>
-            </div>
+    <header
+      className="glass-card"
+      style={{
+        margin: 0,
+        borderRadius: 0,
+        borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+        background: "rgba(11, 11, 15, 0.95)",
+        backdropFilter: "blur(20px)",
+      }}
+    >
+      <div style={{ padding: "0.75rem 1.5rem", maxWidth: 1600, margin: "0 auto" }} className="flex items-center justify-between gap-4">
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: "rgba(99, 102, 241, 0.15)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Zap size={18} style={{ color: "#6366f1" }} />
           </div>
+          <span style={{ fontWeight: 700, fontSize: 18, color: "#fafafa" }}>
+            Poly<span style={{ color: "#6366f1" }}>Trade</span>
+          </span>
+        </div>
 
-          {/* Running Bots */}
-          <div className="stat-card">
-            <Activity size={16} style={{ color: "#22c55e" }} />
-            <div>
-              <span className="stat-label">Futó Botok</span>
-              <span className="stat-value">
-                {runningBots} / 0
-              </span>
-            </div>
-          </div>
-
-          {/* Total PnL */}
-          <div className="stat-card">
-            <Wallet size={16} style={{ color: totalPnl >= 0 ? "#22c55e" : "#ef4444" }} />
-            <div>
-              <span className="stat-label">Összes PnL</span>
-              <span className="stat-value" style={{ color: totalPnl >= 0 ? "#22c55e" : "#ef4444" }}>
-                {totalPnl >= 0 ? "+" : ""}{totalPnl.toFixed(2)}
-              </span>
-            </div>
-          </div>
+        {/* Bot Selector - Centered */}
+        <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
+          <BotSelector />
         </div>
 
         {/* Actions */}
@@ -69,34 +59,57 @@ export function Header() {
           <button
             type="button"
             className="glass-card"
-            style={{ padding: "0.5rem", width: 40, height: 40, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
-          >
-            <Bell size={20} style={{ color: "#a1a1aa" }} />
-          </button>
-
-          {/* BTC Ticker */}
-          <div
-            className="glass-card"
             style={{
-              padding: "0.5rem 1rem",
+              padding: "0.5rem",
+              width: 36,
+              height: 36,
               display: "flex",
               alignItems: "center",
-              gap: "0.5rem",
-              borderColor: "rgba(247, 147, 26, 0.3)",
+              justifyContent: "center",
+              cursor: "pointer",
+              background: "rgba(255, 255, 255, 0.03)",
             }}
           >
-            <Bitcoin size={18} style={{ color: "#f7931a" }} />
-            <motion.span
-              key={btcPrice}
-              initial={{ scale: 1 }}
-              animate={{ scale: [1, 1.1, 1] }}
-              transition={{ duration: 0.4 }}
-              className="price-ticker"
-              style={{ fontWeight: 700, fontSize: 16 }}
-            >
-              {formatPrice(btcPrice)}
-            </motion.span>
-          </div>
+            <Bell size={18} style={{ color: "#a1a1aa" }} />
+          </button>
+
+          {/* Settings */}
+          <button
+            type="button"
+            onClick={() => router.push("/settings")}
+            className="glass-card"
+            style={{
+              padding: "0.5rem",
+              width: 36,
+              height: 36,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              background: "rgba(255, 255, 255, 0.03)",
+            }}
+          >
+            <Settings size={18} style={{ color: "#a1a1aa" }} />
+          </button>
+
+          {/* Logout */}
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="glass-card"
+            style={{
+              padding: "0.5rem",
+              width: 36,
+              height: 36,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+              background: "rgba(255, 255, 255, 0.03)",
+            }}
+          >
+            <LogOut size={18} style={{ color: "#a1a1aa" }} />
+          </button>
         </div>
       </div>
     </header>

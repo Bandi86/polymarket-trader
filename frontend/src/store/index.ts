@@ -19,11 +19,21 @@ interface AppState {
 
   // Market Data
   btcPrice: number;
+  startPrice: number; // BTC price at market start time (price to beat)
+  priceDelta: number; // Current - Start price
   beatPrice: number;
+  yesPrice: number;
+  noPrice: number;
+  marketQuestion: string;
   currentMarket: Market | null;
   timeRemaining: number;
   setBtcPrice: (price: number) => void;
+  setStartPrice: (price: number) => void;
+  setPriceDelta: (delta: number) => void;
   setBeatPrice: (price: number) => void;
+  setYesPrice: (price: number) => void;
+  setNoPrice: (price: number) => void;
+  setMarketQuestion: (question: string) => void;
   setCurrentMarket: (market: Market | null) => void;
   setTimeRemaining: (seconds: number) => void;
 
@@ -81,11 +91,21 @@ export const useAppStore = create<AppState>()(
 
       // Market Data
       btcPrice: 0,
+      startPrice: 0,
+      priceDelta: 0,
       beatPrice: 0,
+      yesPrice: 0.5,
+      noPrice: 0.5,
+      marketQuestion: "",
       currentMarket: null,
       timeRemaining: 0,
       setBtcPrice: (price) => set({ btcPrice: price }),
+      setStartPrice: (price) => set({ startPrice: price }),
+      setPriceDelta: (delta) => set({ priceDelta: delta }),
       setBeatPrice: (price) => set({ beatPrice: price }),
+      setYesPrice: (price) => set({ yesPrice: price }),
+      setNoPrice: (price) => set({ noPrice: price }),
+      setMarketQuestion: (question) => set({ marketQuestion: question }),
       setCurrentMarket: (market) => set({ currentMarket: market }),
       setTimeRemaining: (seconds) => set({ timeRemaining: seconds }),
 
