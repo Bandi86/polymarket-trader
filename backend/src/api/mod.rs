@@ -2,11 +2,13 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 
 use crate::db::Db;
 use crate::middleware::auth as auth_middleware;
+use crate::services::CredentialService;
 use crate::trading::BinanceClient;
 use crate::trading::orchestrator::{BotOrchestrator, BotEvent};
 
@@ -26,6 +28,22 @@ pub struct AppState {
     pub binance_client: Arc<RwLock<Option<BinanceClient>>>,
     pub orchestrator: Arc<BotOrchestrator>,
     pub event_receiver: Arc<RwLock<mpsc::UnboundedReceiver<BotEvent>>>,
+    /// In-memory credential cache for live order execution (keyed by user_id)
+    pub credential_cache: Arc<RwLock<HashMap<i64, CachedCredentials>>>,
+    /// Centralized credential service for secure decrypt and cache
+    pub credential_service: Arc<CredentialService>,
+}
+
+/// Cached trading credentials (decrypted, kept in memory only)
+#[derive(Clone)]
+pub struct CachedCredentials {
+    pub api_key: String,
+    pub api_secret: String,
+    pub api_passphrase: String,
+    pub private_key: String,
+    pub funder: Option<String>,
+    pub signature_type: u8,
+    pub wallet_address: String,
 }
 
 impl AppState {
@@ -38,6 +56,8 @@ impl AppState {
             binance_client: Arc::new(RwLock::new(None)),
             orchestrator: Arc::new(BotOrchestrator::new(db, event_sender)),
             event_receiver: Arc::new(RwLock::new(event_receiver)),
+            credential_cache: Arc::new(RwLock::new(HashMap::new())),
+            credential_service: Arc::new(CredentialService::new()),
         }
     }
 

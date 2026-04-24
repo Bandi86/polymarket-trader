@@ -4,7 +4,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto, db::queries, middleware::auth::Claims, trading::{PolymarketClient, ApiKeyCreds, ValidationResult}};
+use crate::{crypto, db::queries, middleware::auth::Claims, trading::PolymarketClient};
 use super::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -254,6 +254,23 @@ pub async fn store_credentials(
         Ok(_) => {
             tracing::info!("Stored credentials for user {} (wallet: {})", user_id, wallet_address);
 
+            // Populate in-memory credential cache for live trading
+            {
+                let mut cache = state.credential_cache.write().await;
+                cache.insert(user_id, crate::api::CachedCredentials {
+                    api_key: payload.api_key.clone(),
+                    api_secret: payload.api_secret.clone(),
+                    api_passphrase: payload.api_passphrase.clone(),
+                    private_key: payload.private_key.clone(),
+                    funder: payload.funder.clone(),
+                    signature_type,
+                    wallet_address: wallet_address.clone(),
+                });
+            }
+
+            // Also cache the password in credential service for future decryption
+            state.credential_service.set_password(user_id, payload.password).await;
+
             #[derive(Serialize)]
             struct StoreResponse {
                 success: bool,
@@ -283,19 +300,10 @@ pub async fn store_credentials(
 /// Get user settings (without sensitive data)
 pub async fn get_settings(
     State(state): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    Extension(claims): Extension<Claims>,
 ) -> Response {
     let db = state.db();
-
-    // Extract user_id from token payload (will be replaced with auth middleware)
-    let user_id = payload.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
-
-    if user_id == 0 {
-        return Json(ErrorResponse {
-            error: "Unauthorized".to_string(),
-        })
-        .into_response();
-    }
+    let user_id = claims.user_id;
 
     match queries::get_settings(&db, user_id).await {
         Ok(Some((api_key, encrypted_blob))) => {
@@ -408,6 +416,7 @@ pub async fn update_settings(
         "key": derived_creds.key,
         "secret": derived_creds.secret,
         "passphrase": derived_creds.passphrase,
+        "private_key": private_key,
         "funder": payload.funder,
         "signature_type": signature_type,
         "wallet_address": client.address(),
@@ -441,11 +450,26 @@ pub async fn update_settings(
     {
         Ok(_) => {
             tracing::info!("Successfully stored credentials for user {}", user_id);
+            state.credential_service.set_password(user_id, payload.password).await;
+            state.credential_service.invalidate_cache(user_id).await;
 
-            let message = if validation.is_some() {
+            {
+                let mut cache = state.credential_cache.write().await;
+                cache.insert(user_id, crate::api::CachedCredentials {
+                    api_key: derived_creds.key.clone(),
+                    api_secret: derived_creds.secret.clone(),
+                    api_passphrase: derived_creds.passphrase.clone(),
+                    private_key: private_key.to_string(),
+                    funder: payload.funder.clone(),
+                    signature_type,
+                    wallet_address: client.address(),
+                });
+            }
+
+            let message = if let Some(validation) = validation {
                 format!(
                     "Credentials validated successfully. Balance: {} USDC",
-                    validation.unwrap().balance
+                    validation.balance
                 )
             } else {
                 "Credentials derived and stored (validation skipped)".to_string()

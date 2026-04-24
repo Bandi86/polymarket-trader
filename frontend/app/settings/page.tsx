@@ -1,24 +1,24 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Settings,
-  Key,
+  AlertTriangle,
+  Check,
+  Edit3,
   Eye,
   EyeOff,
-  Check,
-  X,
+  Key,
   Loader2,
-  AlertTriangle,
+  Settings,
   Shield,
   Trash2,
-  Edit3,
+  X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { toast } from "sonner";
 
 type ApiKeyType = {
   id: string;
@@ -56,15 +56,12 @@ type StoredKey = {
   key_name: string;
   key_value: string;
   is_valid: boolean;
-  created_at: string;
-  last_validated: string;
 };
 
 export default function SettingsPage() {
   const router = useRouter();
   const { isAuthenticated } = useAppStore();
   const [apiKeys, setApiKeys] = useState<ApiKeyType[]>(API_KEYS_CONFIG);
-  const [storedKeys, setStoredKeys] = useState<StoredKey[]>([]);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [inputValues, setInputValues] = useState<Record<string, Record<string, string>>>({
     polymarket: { api_key: "", api_secret: "", passphrase: "" },
@@ -76,20 +73,9 @@ export default function SettingsPage() {
   });
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    // Check both store state and localStorage for auth
-    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
-    if (!isAuthenticated && !hasToken) {
-      router.push("/login");
-      return;
-    }
-    loadStoredKeys();
-  }, [isAuthenticated, router]);
-
-  const loadStoredKeys = async () => {
+  const loadStoredKeys = useCallback(async () => {
     try {
       const keys = await apiFetch<StoredKey[]>("/settings/keys", { method: "GET" });
-      setStoredKeys(keys);
 
       // Update status for each API key config
       setApiKeys((prev) =>
@@ -102,43 +88,49 @@ export default function SettingsPage() {
       );
 
       // Populate input values from stored keys
-      const newInputValues = { ...inputValues };
-      keys.forEach((stored) => {
-        const [provider, field] = stored.key_name.split("_");
-        if (newInputValues[provider] && field) {
-          newInputValues[provider][field] = stored.key_value;
-        }
+      setInputValues((prev) => {
+        const nextValues = structuredClone(prev);
+        keys.forEach((stored) => {
+          const [provider, ...fieldParts] = stored.key_name.split("_");
+          const field = fieldParts.join("_");
+          if (nextValues[provider] && field) {
+            nextValues[provider][field] = stored.key_value;
+          }
+        });
+        return nextValues;
       });
-      setInputValues(newInputValues);
     } catch (err) {
       console.error("Failed to load stored keys:", err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Check both store state and localStorage for auth
+    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
+    if (!isAuthenticated && !hasToken) {
+      router.push("/login");
+      return;
+    }
+    void loadStoredKeys();
+  }, [isAuthenticated, loadStoredKeys, router]);
 
   const validateKey = async (provider: string, field: string, value: string) => {
     if (!value) return false;
 
     setApiKeys((prev) =>
-      prev.map((config) =>
-        config.id === provider ? { ...config, status: "validating" } : config
-      )
+      prev.map((config) => (config.id === provider ? { ...config, status: "validating" } : config))
     );
 
     try {
-      const result = await apiFetch<{ valid: boolean; message?: string }>(
-        "/settings/validate",
-        {
-          method: "POST",
-          body: JSON.stringify({ key_name: `${provider}_${field}`, key_value: value }),
-        }
-      );
+      const result = await apiFetch<{ valid: boolean; message?: string }>("/settings/validate", {
+        method: "POST",
+        body: JSON.stringify({ key_name: `${provider}_${field}`, key_value: value }),
+      });
 
       if (!result.valid) {
         toast.error(result.message || `${field} validálása sikertelen`);
         setApiKeys((prev) =>
-          prev.map((config) =>
-            config.id === provider ? { ...config, status: "invalid" } : config
-          )
+          prev.map((config) => (config.id === provider ? { ...config, status: "invalid" } : config))
         );
         return false;
       }
@@ -147,9 +139,7 @@ export default function SettingsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Validálási hiba");
       setApiKeys((prev) =>
-        prev.map((config) =>
-          config.id === provider ? { ...config, status: "invalid" } : config
-        )
+        prev.map((config) => (config.id === provider ? { ...config, status: "invalid" } : config))
       );
       return false;
     }
@@ -192,16 +182,12 @@ export default function SettingsPage() {
       }
 
       toast.success(`${config.name} kulcsok sikeresen mentve!`);
-      setApiKeys((prev) =>
-        prev.map((c) => c.id === provider ? { ...c, status: "valid" } : c)
-      );
+      setApiKeys((prev) => prev.map((c) => (c.id === provider ? { ...c, status: "valid" } : c)));
       setEditingKey(null);
-      loadStoredKeys();
+      await loadStoredKeys();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Mentés sikertelen");
-      setApiKeys((prev) =>
-        prev.map((c) => c.id === provider ? { ...c, status: "invalid" } : c)
-      );
+      setApiKeys((prev) => prev.map((c) => (c.id === provider ? { ...c, status: "invalid" } : c)));
     } finally {
       setLoading(false);
     }
@@ -213,18 +199,20 @@ export default function SettingsPage() {
       toast.success(`${provider} kulcsok törölve`);
 
       // Clear input values
-      setInputValues((prev) => ({
-        ...prev,
-        [provider]: apiKeys.find((c) => c.id === provider)?.fields.reduce(
-          (acc, f) => ({ ...acc, [f.key]: "" }),
-          {}
-        ) || {},
-      }));
+      setInputValues((prev) => {
+        const clearedFields: Record<string, string> = {};
+        for (const field of apiKeys.find((c) => c.id === provider)?.fields ?? []) {
+          clearedFields[field.key] = "";
+        }
 
-      setApiKeys((prev) =>
-        prev.map((c) => c.id === provider ? { ...c, status: "empty" } : c)
-      );
-      loadStoredKeys();
+        return {
+          ...prev,
+          [provider]: clearedFields,
+        };
+      });
+
+      setApiKeys((prev) => prev.map((c) => (c.id === provider ? { ...c, status: "empty" } : c)));
+      await loadStoredKeys();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Törlés sikertelen");
     }
@@ -359,9 +347,13 @@ export default function SettingsPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                   {getStatusIcon(config.status)}
                   <span style={{ fontSize: 12, color: getStatusColor(config.status) }}>
-                    {config.status === "empty" ? "Nincs beállítva" :
-                     config.status === "valid" ? "Aktív" :
-                     config.status === "invalid" ? "Hibás" : "Validálás..."}
+                    {config.status === "empty"
+                      ? "Nincs beállítva"
+                      : config.status === "valid"
+                        ? "Aktív"
+                        : config.status === "invalid"
+                          ? "Hibás"
+                          : "Validálás..."}
                   </span>
                 </div>
               </div>
@@ -370,12 +362,21 @@ export default function SettingsPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                 {config.fields.map((field) => (
                   <div key={field.key}>
-                    <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+                    <label
+                      htmlFor={`${config.id}-${field.key}`}
+                      style={{
+                        fontSize: 14,
+                        color: "#a1a1aa",
+                        marginBottom: "0.5rem",
+                        display: "block",
+                      }}
+                    >
                       {field.label}
                       {field.required && <span style={{ color: "#ef4444" }}> *</span>}
                     </label>
                     <div style={{ position: "relative" }}>
                       <input
+                        id={`${config.id}-${field.key}`}
                         type={showValues[config.id]?.[field.key] ? "text" : "password"}
                         value={inputValues[config.id]?.[field.key] || ""}
                         onChange={(e) =>
@@ -394,7 +395,10 @@ export default function SettingsPage() {
                         onClick={() =>
                           setShowValues((prev) => ({
                             ...prev,
-                            [config.id]: { ...prev[config.id], [field.key]: !prev[config.id]?.[field.key] },
+                            [config.id]: {
+                              ...prev[config.id],
+                              [field.key]: !prev[config.id]?.[field.key],
+                            },
                           }))
                         }
                         style={{
@@ -409,7 +413,11 @@ export default function SettingsPage() {
                           padding: 4,
                         }}
                       >
-                        {showValues[config.id]?.[field.key] ? <EyeOff size={16} /> : <Eye size={16} />}
+                        {showValues[config.id]?.[field.key] ? (
+                          <EyeOff size={16} />
+                        ) : (
+                          <Eye size={16} />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -507,14 +515,24 @@ export default function SettingsPage() {
           <ul style={{ fontSize: 12, color: "#71717a", lineHeight: 1.8, paddingLeft: "1rem" }}>
             <li>
               <strong style={{ color: "#a1a1aa" }}>Polymarket:</strong> Lépjen a{" "}
-              <a href="https://polymarket.com/settings/api" target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1" }}>
+              <a
+                href="https://polymarket.com/settings/api"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#6366f1" }}
+              >
                 Polymarket API Settings
               </a>{" "}
               oldalra
             </li>
             <li>
               <strong style={{ color: "#a1a1aa" }}>Binance:</strong> Lépjen a{" "}
-              <a href="https://www.binance.com/en/my/settings/api-management" target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1" }}>
+              <a
+                href="https://www.binance.com/en/my/settings/api-management"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#6366f1" }}
+              >
                 Binance API Management
               </a>{" "}
               oldalra

@@ -1,13 +1,11 @@
 use axum::{
-    body::Body,
     extract::{Extension, State},
-    http::Request,
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto, db::{queries, OrderRecord}, middleware::auth::Claims, trading};
-use super::AppState;
+use crate::{db::queries, db::OrderRecord, middleware::auth::Claims, trading};
+use super::{AppState, CachedCredentials};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ErrorResponse {
@@ -69,6 +67,81 @@ pub async fn list_orders(
     }
 }
 
+/// Helper: Get decrypted credentials from state (cache or credential service)
+async fn get_decrypted_credentials(
+    state: &AppState,
+    user_id: i64,
+) -> Result<CachedCredentials, String> {
+    // First try the fast cache (already decrypted credentials)
+    {
+        let cache = state.credential_cache.read().await;
+        if let Some(creds) = cache.get(&user_id) {
+            return Ok(creds.clone());
+        }
+    }
+
+    // Fallback: use credential service to decrypt from database
+    let db = state.db();
+    match state.credential_service.get_credentials(&db, user_id).await {
+        Ok(creds) => {
+            // Also populate the fast cache for future requests
+            let cached = CachedCredentials {
+                api_key: creds.api_key.clone(),
+                api_secret: creds.api_secret.clone(),
+                api_passphrase: creds.api_passphrase.clone(),
+                private_key: creds.private_key.clone(),
+                funder: creds.funder.clone(),
+                signature_type: creds.signature_type,
+                wallet_address: creds.wallet_address.clone(),
+            };
+            {
+                let mut cache = state.credential_cache.write().await;
+                cache.insert(user_id, cached.clone());
+            }
+            Ok(cached)
+        }
+        Err(e) => Err(format!("Failed to get credentials: {}", e)),
+    }
+}
+
+fn create_polymarket_client(creds: &CachedCredentials) -> Result<trading::PolymarketClient, String> {
+    if creds.private_key.is_empty() {
+        return Err("Private key required for trading operations".to_string());
+    }
+
+    trading::PolymarketClient::from_api_credentials(
+        &creds.private_key,
+        creds.signature_type,
+        Some(trading::polymarket::ApiKeyCreds {
+            key: creds.api_key.clone(),
+            secret: creds.api_secret.clone(),
+            passphrase: creds.api_passphrase.clone(),
+        }),
+        creds.funder.as_deref(),
+    )
+    .map_err(|e| format!("Failed to create client: {}", e))
+}
+
+async fn submit_order(
+    client: &trading::PolymarketClient,
+    order_request: &trading::polymarket::OrderRequest,
+    fallback_prefix: &str,
+) -> Result<String, String> {
+    let signed_order = client
+        .create_order(order_request)
+        .await
+        .map_err(|e| format!("Failed to create order: {}", e))?;
+
+    let response = client
+        .post_order(&signed_order)
+        .await
+        .map_err(|e| format!("Failed to place order: {}", e))?;
+
+    Ok(response.order_id.unwrap_or_else(|| {
+        format!("{}_{}", fallback_prefix, chrono::Utc::now().timestamp_millis())
+    }))
+}
+
 // ============ NEW: Place Order, Cancel, Get Positions ============
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -93,7 +166,6 @@ pub async fn place_order(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<PlaceOrderRequest>,
 ) -> Response {
-    let db = state.db();
     let user_id = claims.user_id;
 
     // Validate side
@@ -129,99 +201,34 @@ pub async fn place_order(
         .into_response();
     }
 
-    // Get stored credentials
-    let settings = match queries::get_settings(&db, user_id).await {
-        Ok(Some((_api_key, encrypted_blob))) if !encrypted_blob.is_empty() => {
-            let password = "techno"; // TODO: get from auth session
-            let encryption_key = format!("{}_pm_creds", password);
-
-            match crypto::decrypt(&encrypted_blob, &encryption_key) {
-                Ok(json_str) => json_str,
-                Err(e) => {
-                    return Json(OrderResult {
-                        success: false,
-                        order_id: None,
-                        message: format!("Failed to decrypt credentials: {}", e),
-                        error_code: Some("CREDENTIALS_ERROR".to_string()),
-                    })
-                    .into_response();
-                }
-            }
-        }
-        Ok(None) | Ok(Some(_)) => {
-            return Json(OrderResult {
-                success: false,
-                order_id: None,
-                message: "No Polymarket credentials stored. Please add credentials first.".to_string(),
-                error_code: Some("NO_CREDENTIALS".to_string()),
-            })
-            .into_response();
-        }
-        Err(e) => {
-            return Json(OrderResult {
-                success: false,
-                order_id: None,
-                message: format!("Database error: {}", e),
-                error_code: Some("DB_ERROR".to_string()),
-            })
-            .into_response();
-        }
-    };
-
-    // Parse credentials
-    #[derive(Deserialize)]
-    struct StoredCreds {
-        key: String,
-        secret: String,
-        passphrase: String,
-        #[serde(default)]
-        private_key: String,
-    }
-
-    let creds: StoredCreds = match serde_json::from_str(&settings) {
+    // Get stored credentials (from cache or credential service)
+    let creds = match get_decrypted_credentials(&state, user_id).await {
         Ok(c) => c,
         Err(e) => {
             return Json(OrderResult {
                 success: false,
                 order_id: None,
-                message: format!("Failed to parse credentials: {}", e),
-                error_code: Some("CREDENTIALS_PARSE_ERROR".to_string()),
+                message: e,
+                error_code: Some("CREDENTIALS_ERROR".to_string()),
             })
             .into_response();
         }
     };
 
-    // Get private key - need it for real trading
-    let private_key = if !creds.private_key.is_empty() {
-        creds.private_key
-    } else if !creds.key.is_empty() {
-        // If only API key is stored, can't place real orders
-        return Json(OrderResult {
-            success: false,
-            order_id: None,
-            message: "Private key required for real trading. Please re-add credentials with private key.".to_string(),
-            error_code: Some("PRIVATE_KEY_REQUIRED".to_string()),
-        })
-        .into_response();
-    } else {
-        return Json(OrderResult {
-            success: false,
-            order_id: None,
-            message: "No valid credentials found".to_string(),
-            error_code: Some("NO_CREDENTIALS".to_string()),
-        })
-        .into_response();
-    };
+    let pm_client = match create_polymarket_client(&creds) {
+        Ok(client) => client,
+        Err(message) => {
+            let error_code = if message.contains("Private key required") {
+                "PRIVATE_KEY_REQUIRED"
+            } else {
+                "CLIENT_ERROR"
+            };
 
-    // Create Polymarket client with real private key
-    let pm_client = match trading::PolymarketClient::new(&private_key) {
-        Ok(c) => c,
-        Err(e) => {
             return Json(OrderResult {
                 success: false,
                 order_id: None,
-                message: format!("Failed to create client: {}", e),
-                error_code: Some("CLIENT_ERROR".to_string()),
+                message,
+                error_code: Some(error_code.to_string()),
             })
             .into_response();
         }
@@ -258,27 +265,8 @@ pub async fn place_order(
                 side: side.clone(),
             };
 
-            // Create and sign the order
-            let signed_order = match pm_client.create_order(&order_request).await {
-                Ok(order) => order,
-                Err(e) => {
-                    return Json(OrderResult {
-                        success: false,
-                        order_id: None,
-                        message: format!("Failed to create order: {}", e),
-                        error_code: Some("ORDER_CREATE_FAILED".to_string()),
-                    })
-                    .into_response();
-                }
-            };
-
-            // Post the order to Polymarket
-            match pm_client.post_order(&signed_order).await {
-                Ok(response) => {
-                    let order_id = response.order_id.unwrap_or_else(|| {
-                        format!("pending_{}", chrono::Utc::now().timestamp_millis())
-                    });
-
+            match submit_order(&pm_client, &order_request, "pending").await {
+                Ok(order_id) => {
                     tracing::info!(
                         "Real order placed: {} {} @ {} (value: {}) - ID: {}",
                         side, payload.size, payload.price, order_value, order_id
@@ -296,12 +284,12 @@ pub async fn place_order(
                     .into_response()
                 }
                 Err(e) => {
-                    tracing::error!("Failed to post order: {}", e);
+                    tracing::error!("{}", e);
                     Json(OrderResult {
                         success: false,
                         order_id: None,
-                        message: format!("Failed to place order: {}", e),
-                        error_code: Some("ORDER_POST_FAILED".to_string()),
+                        message: e,
+                        error_code: Some("ORDER_SUBMIT_FAILED".to_string()),
                     })
                     .into_response()
                 }
@@ -324,49 +312,24 @@ pub async fn get_live_positions(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Response {
-    let db = state.db();
     let user_id = claims.user_id;
 
-    // Get credentials
-    let settings = match queries::get_settings(&db, user_id).await {
-        Ok(Some((_api_key, encrypted_blob))) if !encrypted_blob.is_empty() => {
-            let password = "techno";
-            let encryption_key = format!("{}_pm_creds", password);
-
-            match crypto::decrypt(&encrypted_blob, &encryption_key) {
-                Ok(json_str) => json_str,
-                Err(e) => {
-                    return Json(ErrorResponse {
-                        error: format!("Failed to decrypt credentials: {}", e),
-                    })
-                    .into_response();
-                }
-            }
-        }
-        _ => {
+    // Get credentials (from cache or credential service)
+    let creds = match get_decrypted_credentials(&state, user_id).await {
+        Ok(c) => c,
+        Err(e) => {
             return Json(ErrorResponse {
-                error: "No credentials".to_string(),
+                error: e,
             })
             .into_response();
         }
     };
 
-    let _creds: StoredCreds = match serde_json::from_str(&settings) {
+    let pm_client = match create_polymarket_client(&creds) {
         Ok(c) => c,
-        Err(e) => {
+        Err(message) => {
             return Json(ErrorResponse {
-                error: format!("Failed to parse credentials: {}", e),
-            })
-            .into_response();
-        }
-    };
-
-    // Get balance from data-api
-    let pm_client = match trading::PolymarketClient::new("REMOVED_ADDRESS") {
-        Ok(c) => c,
-        Err(e) => {
-            return Json(ErrorResponse {
-                error: format!("Failed to create client: {}", e),
+                error: message,
             })
             .into_response();
         }
@@ -393,13 +356,6 @@ pub async fn get_live_positions(
             .into_response()
         }
     }
-}
-
-#[derive(Deserialize)]
-struct StoredCreds {
-    key: String,
-    secret: String,
-    passphrase: String,
 }
 
 /// Cancel an order
@@ -440,7 +396,6 @@ pub async fn quick_trade(
     Extension(claims): Extension<Claims>,
     Json(payload): Json<QuickTradeRequest>,
 ) -> Response {
-    let db = state.db();
     let user_id = claims.user_id;
 
     // Validate side
@@ -535,27 +490,40 @@ pub async fn quick_trade(
         .and_then(|arr| arr.get(1))
         .and_then(|id| id.as_str());
 
-    if yes_token_id.is_none() || no_token_id.is_none() {
-        return Json(QuickTradeResponse {
-            success: false,
-            message: "Could not find token IDs in market data".to_string(),
-            order_id: None,
-            btc_price: Some(btc_price),
-            beat_price: Some(beat_price),
-            side: side,
-            amount: payload.amount,
-            error_code: Some("TOKEN_ID_MISSING".to_string()),
-        })
-        .into_response();
-    }
-
-    // Determine which token to buy based on UP/DOWN
-    // UP = YES outcome = BTC will be ABOVE beat_price
-    // DOWN = NO outcome = BTC will be BELOW beat_price
-    let (token_id, outcome) = if side == "UP" {
-        (yes_token_id.unwrap(), "YES")
-    } else {
-        (no_token_id.unwrap(), "NO")
+    let (token_id, outcome) = match side.as_str() {
+        "UP" => match yes_token_id {
+            Some(token_id) => (token_id, "YES"),
+            None => {
+                return Json(QuickTradeResponse {
+                    success: false,
+                    message: "Could not find YES token ID in market data".to_string(),
+                    order_id: None,
+                    btc_price: Some(btc_price),
+                    beat_price: Some(beat_price),
+                    side,
+                    amount: payload.amount,
+                    error_code: Some("TOKEN_ID_MISSING".to_string()),
+                })
+                .into_response();
+            }
+        },
+        "DOWN" => match no_token_id {
+            Some(token_id) => (token_id, "NO"),
+            None => {
+                return Json(QuickTradeResponse {
+                    success: false,
+                    message: "Could not find NO token ID in market data".to_string(),
+                    order_id: None,
+                    btc_price: Some(btc_price),
+                    beat_price: Some(beat_price),
+                    side,
+                    amount: payload.amount,
+                    error_code: Some("TOKEN_ID_MISSING".to_string()),
+                })
+                .into_response();
+            }
+        },
+        _ => unreachable!(),
     };
 
     // Calculate price based on current probability
@@ -578,95 +546,42 @@ pub async fn quick_trade(
         side, outcome, trade_price, btc_price, beat_price
     );
 
-    // Get stored credentials
-    let settings = match queries::get_settings(&db, user_id).await {
-        Ok(Some((_api_key, encrypted_blob))) if !encrypted_blob.is_empty() => {
-            let password = "techno"; // TODO: get from auth session
-            let encryption_key = format!("{}_pm_creds", password);
-
-            match crypto::decrypt(&encrypted_blob, &encryption_key) {
-                Ok(json_str) => json_str,
-                Err(e) => {
-                    return Json(QuickTradeResponse {
-                        success: false,
-                        message: format!("Failed to decrypt credentials: {}", e),
-                        order_id: None,
-                        btc_price: Some(btc_price),
-                        beat_price: Some(beat_price),
-                        side: side,
-                        amount: payload.amount,
-                        error_code: Some("CREDENTIALS_ERROR".to_string()),
-                    })
-                    .into_response();
-                }
-            }
-        }
-        _ => {
+    // Get credentials (from cache or credential service)
+    let creds = match get_decrypted_credentials(&state, user_id).await {
+        Ok(c) => c,
+        Err(e) => {
             return Json(QuickTradeResponse {
                 success: false,
-                message: "No Polymarket credentials stored. Please add credentials in Settings.".to_string(),
+                message: e,
                 order_id: None,
                 btc_price: Some(btc_price),
                 beat_price: Some(beat_price),
                 side: side,
                 amount: payload.amount,
-                error_code: Some("NO_CREDENTIALS".to_string()),
+                error_code: Some("CREDENTIALS_ERROR".to_string()),
             })
             .into_response();
         }
     };
 
-    // Parse credentials to get private key
-    #[derive(Deserialize)]
-    struct StoredCredsFull {
-        #[serde(default)]
-        private_key: String,
-    }
-
-    let creds: StoredCredsFull = match serde_json::from_str(&settings) {
+    let pm_client = match create_polymarket_client(&creds) {
         Ok(c) => c,
-        Err(e) => {
+        Err(message) => {
+            let error_code = if message.contains("Private key required") {
+                "PRIVATE_KEY_REQUIRED"
+            } else {
+                "CLIENT_ERROR"
+            };
+
             return Json(QuickTradeResponse {
                 success: false,
-                message: format!("Failed to parse credentials: {}", e),
+                message,
                 order_id: None,
                 btc_price: Some(btc_price),
                 beat_price: Some(beat_price),
                 side: side,
                 amount: payload.amount,
-                error_code: Some("CREDENTIALS_PARSE_ERROR".to_string()),
-            })
-            .into_response();
-        }
-    };
-
-    if creds.private_key.is_empty() {
-        return Json(QuickTradeResponse {
-            success: false,
-            message: "Private key required for trading. Please re-add credentials with private key.".to_string(),
-            order_id: None,
-            btc_price: Some(btc_price),
-            beat_price: Some(beat_price),
-            side: side,
-            amount: payload.amount,
-            error_code: Some("PRIVATE_KEY_REQUIRED".to_string()),
-        })
-        .into_response();
-    }
-
-    // Create Polymarket client
-    let pm_client = match trading::PolymarketClient::new(&creds.private_key) {
-        Ok(c) => c,
-        Err(e) => {
-            return Json(QuickTradeResponse {
-                success: false,
-                message: format!("Failed to create trading client: {}", e),
-                order_id: None,
-                btc_price: Some(btc_price),
-                beat_price: Some(beat_price),
-                side: side,
-                amount: payload.amount,
-                error_code: Some("CLIENT_ERROR".to_string()),
+                error_code: Some(error_code.to_string()),
             })
             .into_response();
         }
@@ -697,14 +612,8 @@ pub async fn quick_trade(
                 side: "BUY".to_string(),
             };
 
-            match pm_client.create_order(&order_request).await {
-                Ok(signed_order) => {
-                    match pm_client.post_order(&signed_order).await {
-                        Ok(response) => {
-                            let order_id = response.order_id.unwrap_or_else(|| {
-                                format!("quick_{}", chrono::Utc::now().timestamp_millis())
-                            });
-
+            match submit_order(&pm_client, &order_request, "quick").await {
+                Ok(order_id) => {
                             tracing::info!(
                                 "Quick trade placed: {} {} @ {} = {} USDC - Order: {}",
                                 side, outcome, trade_price, payload.amount, order_id
@@ -724,32 +633,17 @@ pub async fn quick_trade(
                                 error_code: None,
                             })
                             .into_response()
-                        }
-                        Err(e) => {
-                            Json(QuickTradeResponse {
-                                success: false,
-                                message: format!("Failed to place order: {}", e),
-                                order_id: None,
-                                btc_price: Some(btc_price),
-                                beat_price: Some(beat_price),
-                                side: side,
-                                amount: payload.amount,
-                                error_code: Some("ORDER_POST_FAILED".to_string()),
-                            })
-                            .into_response()
-                        }
-                    }
                 }
                 Err(e) => {
                     Json(QuickTradeResponse {
                         success: false,
-                        message: format!("Failed to create order: {}", e),
+                        message: e,
                         order_id: None,
                         btc_price: Some(btc_price),
                         beat_price: Some(beat_price),
                         side: side,
                         amount: payload.amount,
-                        error_code: Some("ORDER_CREATE_FAILED".to_string()),
+                        error_code: Some("ORDER_SUBMIT_FAILED".to_string()),
                     })
                     .into_response()
                 }
@@ -814,104 +708,35 @@ pub async fn cancel_order(
     Json(payload): Json<CancelOrderRequest>,
 ) -> Response {
     let user_id = claims.user_id;
-    let db = state.db();
 
-    // Get credentials for Polymarket API
-    let settings = match queries::get_settings(&db, user_id).await {
-        Ok(Some((_api_key, encrypted_blob))) if !encrypted_blob.is_empty() => {
-            let password = "techno";
-            let encryption_key = format!("{}_pm_creds", password);
-
-            match crypto::decrypt(&encrypted_blob, &encryption_key) {
-                Ok(json_str) => json_str,
-                Err(e) => {
-                    return Json(OrderResult {
-                        success: false,
-                        order_id: None,
-                        message: format!("Failed to decrypt credentials: {}", e),
-                        error_code: Some("CREDENTIALS_ERROR".to_string()),
-                    })
-                    .into_response();
-                }
-            }
-        }
-        Ok(None) | Ok(Some(_)) => {
-            return Json(OrderResult {
-                success: false,
-                order_id: None,
-                message: "No Polymarket credentials stored. Please add credentials first.".to_string(),
-                error_code: Some("NO_CREDENTIALS".to_string()),
-            })
-            .into_response();
-        }
-        Err(e) => {
-            return Json(OrderResult {
-                success: false,
-                order_id: None,
-                message: format!("Database error: {}", e),
-                error_code: Some("DB_ERROR".to_string()),
-            })
-            .into_response();
-        }
-    };
-
-    // Parse credentials to get private key
-    #[derive(Deserialize)]
-    struct StoredCreds {
-        #[serde(default)]
-        key: String,
-        #[serde(default)]
-        secret: String,
-        #[serde(default)]
-        passphrase: String,
-        #[serde(default)]
-        private_key: String,
-    }
-
-    let creds: StoredCreds = match serde_json::from_str(&settings) {
+    // Get credentials (from cache or credential service)
+    let creds = match get_decrypted_credentials(&state, user_id).await {
         Ok(c) => c,
         Err(e) => {
             return Json(OrderResult {
                 success: false,
                 order_id: None,
-                message: format!("Failed to parse credentials: {}", e),
-                error_code: Some("CREDENTIALS_PARSE_ERROR".to_string()),
+                message: e,
+                error_code: Some("CREDENTIALS_ERROR".to_string()),
             })
             .into_response();
         }
     };
 
-    // Get private key - try different field names
-    let private_key = if !creds.private_key.is_empty() {
-        creds.private_key
-    } else if !creds.key.is_empty() {
-        // If only API key is stored, we can't cancel orders
-        return Json(OrderResult {
-            success: false,
-            order_id: None,
-            message: "Private key required for order cancellation. Please re-add credentials with private key.".to_string(),
-            error_code: Some("PRIVATE_KEY_REQUIRED".to_string()),
-        })
-        .into_response();
-    } else {
-        return Json(OrderResult {
-            success: false,
-            order_id: None,
-            message: "No valid credentials found".to_string(),
-            error_code: Some("NO_CREDENTIALS".to_string()),
-        })
-        .into_response();
-    };
-
-    // Create client and cancel order
-    let pm_client = match trading::PolymarketClient::new(&private_key) {
+    let pm_client = match create_polymarket_client(&creds) {
         Ok(c) => c,
-        Err(e) => {
+        Err(message) => {
+            let error_code = if message.contains("Private key required") {
+                "PRIVATE_KEY_REQUIRED"
+            } else {
+                "CLIENT_ERROR"
+            };
+
             return Json(OrderResult {
                 success: false,
                 order_id: None,
-                message: format!("Failed to create client: {}", e),
-                error_code: Some("CLIENT_ERROR".to_string()),
+                message,
+                error_code: Some(error_code.to_string()),
             })
             .into_response();
         }

@@ -1,20 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { Activity, Bot, Loader2, Play, Plus, Square, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import {
-  Bot,
-  Play,
-  Square,
-  Activity,
-  Loader2,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { toast } from "sonner";
 import type { Bot as BotType, StrategyType } from "@/types";
 
 type BotConfig = BotType & {
@@ -25,7 +17,11 @@ type BotConfig = BotType & {
 
 const STRATEGIES: { id: StrategyType; name: string; description: string }[] = [
   { id: "momentum", name: "Momentum", description: "BTC momentum alapú kereskedés" },
-  { id: "mean_reversion", name: "Mean Reversion", description: "Trend forduló pontokon kereskedés" },
+  {
+    id: "mean_reversion",
+    name: "Mean Reversion",
+    description: "Trend forduló pontokon kereskedés",
+  },
   { id: "last_seconds_scalp", name: "Scalping", description: "Rövid pozíciók, gyors profit" },
   { id: "binance_signal", name: "Binance Signal", description: "Binance szignál alapú" },
 ];
@@ -40,6 +36,32 @@ export default function BotsPage() {
   const [newBotStrategy, setNewBotStrategy] = useState<StrategyType>("momentum");
   const [newBotBetSize, setNewBotBetSize] = useState(10);
 
+  const loadBotConfigs = useCallback(async () => {
+    try {
+      const configs = await apiFetch<BotConfig[]>("/bots", { method: "GET" });
+      setBotConfigs(configs);
+      // Map to store Bot format
+      setBots(
+        configs.map((c) => ({
+          id: c.id,
+          name: c.name,
+          strategy: c.strategy,
+          enabled: c.enabled,
+          status: c.status,
+          bet_size: c.bet_size,
+          max_bet: c.max_bet,
+          use_kelly: c.use_kelly,
+          kelly_fraction: c.kelly_fraction,
+          interval_seconds: c.interval_seconds,
+          created_at: c.created_at,
+        }))
+      );
+    } catch (_err) {
+      // If no bots yet, show empty state
+      setBotConfigs([]);
+    }
+  }, [setBots]);
+
   useEffect(() => {
     // Check both store state and localStorage for auth
     const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
@@ -47,39 +69,15 @@ export default function BotsPage() {
       router.push("/login");
       return;
     }
-    loadBotConfigs();
-  }, [isAuthenticated, router]);
-
-  const loadBotConfigs = async () => {
-    try {
-      const configs = await apiFetch<BotConfig[]>("/bots", { method: "GET" });
-      setBotConfigs(configs);
-      // Map to store Bot format
-      setBots(configs.map((c) => ({
-        id: c.id,
-        name: c.name,
-        strategy: c.strategy,
-        enabled: c.enabled,
-        status: c.status,
-        bet_size: c.bet_size,
-        max_bet: c.max_bet,
-        use_kelly: c.use_kelly,
-        kelly_fraction: c.kelly_fraction,
-        interval_seconds: c.interval_seconds,
-        created_at: c.created_at,
-      })));
-    } catch (err) {
-      // If no bots yet, show empty state
-      setBotConfigs([]);
-    }
-  };
+    void loadBotConfigs();
+  }, [isAuthenticated, loadBotConfigs, router]);
 
   const startBot = async (botId: number) => {
     setLoading(true);
     try {
       await apiFetch(`/bots/${botId}/start`, { method: "POST" });
       toast.success("Bot elindítva!");
-      loadBotConfigs();
+      await loadBotConfigs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Bot indítása sikertelen");
     } finally {
@@ -92,7 +90,7 @@ export default function BotsPage() {
     try {
       await apiFetch(`/bots/${botId}/stop`, { method: "POST" });
       toast.success("Bot leállítva!");
-      loadBotConfigs();
+      await loadBotConfigs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Bot leállítása sikertelen");
     } finally {
@@ -125,7 +123,7 @@ export default function BotsPage() {
       setNewBotName("");
       setNewBotStrategy("momentum");
       setNewBotBetSize(10);
-      loadBotConfigs();
+      await loadBotConfigs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Bot létrehozása sikertelen");
     } finally {
@@ -137,7 +135,7 @@ export default function BotsPage() {
     try {
       await apiFetch(`/bots/${botId}`, { method: "DELETE" });
       toast.success("Bot törölve!");
-      loadBotConfigs();
+      await loadBotConfigs();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Bot törlése sikertelen");
     }
@@ -181,7 +179,14 @@ export default function BotsPage() {
         style={{ maxWidth: 1000, margin: "0 auto" }}
       >
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "2rem",
+          }}
+        >
           <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
             <div
               style={{
@@ -214,30 +219,73 @@ export default function BotsPage() {
         </div>
 
         {/* Stats summary */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem", marginBottom: "2rem" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "1rem",
+            marginBottom: "2rem",
+          }}
+        >
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Aktív botok</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#22c55e", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#22c55e",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               {botConfigs.filter((b) => b.status === "running").length}
             </span>
           </div>
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Összes PnL</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#fafafa", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#fafafa",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               ${botConfigs.reduce((sum, b) => sum + (b.pnl ?? 0), 0).toFixed(2)}
             </span>
           </div>
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Trades</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#fafafa", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#fafafa",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               {botConfigs.reduce((sum, b) => sum + (b.trades_count ?? 0), 0)}
             </span>
           </div>
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Avg Win Rate</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#fafafa", display: "block", marginTop: 8 }}>
-              {botConfigs.length > 0 && botConfigs.some(b => b.win_rate !== undefined)
-                ? `${(botConfigs.filter(b => b.win_rate !== undefined).reduce((sum, b) => sum + (b.win_rate ?? 0), 0) / botConfigs.filter(b => b.win_rate !== undefined).length * 100).toFixed(1)}%`
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#fafafa",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
+              {botConfigs.length > 0 && botConfigs.some((b) => b.win_rate !== undefined)
+                ? `${((botConfigs.filter((b) => b.win_rate !== undefined).reduce((sum, b) => sum + (b.win_rate ?? 0), 0) / botConfigs.filter((b) => b.win_rate !== undefined).length) * 100).toFixed(1)}%`
                 : "---"}
             </span>
           </div>
@@ -253,7 +301,9 @@ export default function BotsPage() {
               style={{ padding: "3rem", textAlign: "center" }}
             >
               <Bot size={48} style={{ color: "#71717a", marginBottom: "1rem" }} />
-              <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa", marginBottom: "0.5rem" }}>
+              <h3
+                style={{ fontWeight: 600, fontSize: 16, color: "#fafafa", marginBottom: "0.5rem" }}
+              >
                 Nincs bot konfiguráció
               </h3>
               <span style={{ fontSize: 14, color: "#71717a" }}>
@@ -270,7 +320,9 @@ export default function BotsPage() {
                 className="glass-card"
                 style={{ padding: "1.5rem", marginBottom: "1rem" }}
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                >
                   {/* Left: Bot info */}
                   <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
                     <div
@@ -278,11 +330,12 @@ export default function BotsPage() {
                         width: 40,
                         height: 40,
                         borderRadius: 10,
-                        background: bot.status === "running"
-                          ? "rgba(34, 197, 94, 0.15)"
-                          : bot.status === "error"
-                          ? "rgba(239, 68, 68, 0.15)"
-                          : "rgba(99, 102, 241, 0.15)",
+                        background:
+                          bot.status === "running"
+                            ? "rgba(34, 197, 94, 0.15)"
+                            : bot.status === "error"
+                              ? "rgba(239, 68, 68, 0.15)"
+                              : "rgba(99, 102, 241, 0.15)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -291,19 +344,29 @@ export default function BotsPage() {
                       <Activity size={20} style={{ color: getStatusColor(bot.status) }} />
                     </div>
                     <div>
-                      <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa" }}>{bot.name}</h3>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: 4 }}>
+                      <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa" }}>
+                        {bot.name}
+                      </h3>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.5rem",
+                          marginTop: 4,
+                        }}
+                      >
                         <span
                           style={{
                             fontSize: 10,
                             fontWeight: 600,
                             padding: "0.25rem 0.5rem",
                             borderRadius: 4,
-                            background: bot.status === "running"
-                              ? "rgba(34, 197, 94, 0.15)"
-                              : bot.status === "error"
-                              ? "rgba(239, 68, 68, 0.15)"
-                              : "rgba(113, 113, 122, 0.15)",
+                            background:
+                              bot.status === "running"
+                                ? "rgba(34, 197, 94, 0.15)"
+                                : bot.status === "error"
+                                  ? "rgba(239, 68, 68, 0.15)"
+                                  : "rgba(113, 113, 122, 0.15)",
                             color: getStatusColor(bot.status),
                           }}
                         >
@@ -332,13 +395,29 @@ export default function BotsPage() {
                     </div>
                     <div style={{ textAlign: "center" }}>
                       <span style={{ fontSize: 12, color: "#71717a" }}>Trades</span>
-                      <span className="price-ticker" style={{ fontSize: 16, fontWeight: 600, color: "#fafafa", display: "block" }}>
+                      <span
+                        className="price-ticker"
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: "#fafafa",
+                          display: "block",
+                        }}
+                      >
                         {bot.trades_count ?? 0}
                       </span>
                     </div>
                     <div style={{ textAlign: "center" }}>
                       <span style={{ fontSize: 12, color: "#71717a" }}>Win Rate</span>
-                      <span className="price-ticker" style={{ fontSize: 16, fontWeight: 600, color: "#fafafa", display: "block" }}>
+                      <span
+                        className="price-ticker"
+                        style={{
+                          fontSize: 16,
+                          fontWeight: 600,
+                          color: "#fafafa",
+                          display: "block",
+                        }}
+                      >
                         {bot.win_rate !== undefined ? `${(bot.win_rate * 100).toFixed(1)}%` : "---"}
                       </span>
                     </div>
@@ -355,7 +434,11 @@ export default function BotsPage() {
                         className="btn-red"
                         style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
                       >
-                        {loading ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} />}
+                        {loading ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <Square size={16} />
+                        )}
                         Leállítás
                       </motion.button>
                     ) : (
@@ -367,7 +450,11 @@ export default function BotsPage() {
                         className="btn-green"
                         style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
                       >
-                        {loading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+                        {loading ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <Play size={16} />
+                        )}
                         Indítás
                       </motion.button>
                     )}
@@ -422,16 +509,27 @@ export default function BotsPage() {
               style={{ padding: "2rem", width: 400 }}
               onClick={(e) => e.stopPropagation()}
             >
-              <h3 style={{ fontWeight: 600, fontSize: 18, color: "#fafafa", marginBottom: "1.5rem" }}>
+              <h3
+                style={{ fontWeight: 600, fontSize: 18, color: "#fafafa", marginBottom: "1.5rem" }}
+              >
                 Új bot létrehozása
               </h3>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                 <div>
-                  <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+                  <label
+                    htmlFor="new-bot-name"
+                    style={{
+                      fontSize: 14,
+                      color: "#a1a1aa",
+                      marginBottom: "0.5rem",
+                      display: "block",
+                    }}
+                  >
                     Bot neve
                   </label>
                   <input
+                    id="new-bot-name"
                     type="text"
                     value={newBotName}
                     onChange={(e) => setNewBotName(e.target.value)}
@@ -441,10 +539,19 @@ export default function BotsPage() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+                  <label
+                    htmlFor="new-bot-bet-size"
+                    style={{
+                      fontSize: 14,
+                      color: "#a1a1aa",
+                      marginBottom: "0.5rem",
+                      display: "block",
+                    }}
+                  >
                     Tét méret ($)
                   </label>
                   <input
+                    id="new-bot-bet-size"
                     type="number"
                     value={newBotBetSize}
                     onChange={(e) => setNewBotBetSize(Number(e.target.value))}
@@ -455,10 +562,21 @@ export default function BotsPage() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+                  <label
+                    htmlFor="new-bot-strategy"
+                    style={{
+                      fontSize: 14,
+                      color: "#a1a1aa",
+                      marginBottom: "0.5rem",
+                      display: "block",
+                    }}
+                  >
                     Stratégia
                   </label>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  <div
+                    id="new-bot-strategy"
+                    style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}
+                  >
                     {STRATEGIES.map((strat) => (
                       <motion.button
                         key={strat.id}
@@ -468,12 +586,14 @@ export default function BotsPage() {
                         style={{
                           padding: "1rem",
                           borderRadius: 8,
-                          background: newBotStrategy === strat.id
-                            ? "rgba(99, 102, 241, 0.15)"
-                            : "rgba(20, 20, 28, 0.6)",
-                          border: newBotStrategy === strat.id
-                            ? "1px solid rgba(99, 102, 241, 0.3)"
-                            : "1px solid rgba(255, 255, 255, 0.08)",
+                          background:
+                            newBotStrategy === strat.id
+                              ? "rgba(99, 102, 241, 0.15)"
+                              : "rgba(20, 20, 28, 0.6)",
+                          border:
+                            newBotStrategy === strat.id
+                              ? "1px solid rgba(99, 102, 241, 0.3)"
+                              : "1px solid rgba(255, 255, 255, 0.08)",
                           cursor: "pointer",
                           textAlign: "left",
                         }}
@@ -481,7 +601,9 @@ export default function BotsPage() {
                         <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>
                           {strat.name}
                         </span>
-                        <span style={{ fontSize: 12, color: "#71717a", display: "block", marginTop: 4 }}>
+                        <span
+                          style={{ fontSize: 12, color: "#71717a", display: "block", marginTop: 4 }}
+                        >
                           {strat.description}
                         </span>
                       </motion.button>
@@ -512,7 +634,13 @@ export default function BotsPage() {
                     onClick={createBot}
                     disabled={loading}
                     className="btn-primary"
-                    style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "0.5rem",
+                    }}
                   >
                     {loading ? <Loader2 size={16} className="animate-spin" /> : "Létrehozás"}
                   </motion.button>

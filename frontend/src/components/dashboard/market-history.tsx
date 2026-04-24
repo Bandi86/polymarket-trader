@@ -1,8 +1,15 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { AnimatePresence } from "framer-motion";
-import { BarChart3, ChevronDown, Clock, CheckCircle2, XCircle, TrendingUp, TrendingDown } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  BarChart3,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  TrendingDown,
+  TrendingUp,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { useAppStore } from "@/store";
 
@@ -33,9 +40,8 @@ export function MarketHistory() {
   const [isExpanded, setIsExpanded] = useState(true);
 
   const reversed = [...marketHistory].reverse().slice(0, 5);
-  const winRate = reversed.length > 0
-    ? (reversed.filter((r) => r.delta >= 0).length / reversed.length) * 100
-    : 0;
+  const winRate =
+    reversed.length > 0 ? (reversed.filter((r) => r.delta >= 0).length / reversed.length) * 100 : 0;
 
   return (
     <motion.div
@@ -54,7 +60,9 @@ export function MarketHistory() {
         <span className="text-sm font-semibold text-zinc-100">Market Results</span>
         <span className="ml-auto flex items-center gap-2">
           {reversed.length > 0 && (
-            <span className={`text-xs font-bold ${winRate >= 50 ? "text-green-500" : "text-amber-500"}`}>
+            <span
+              className={`text-xs font-bold ${winRate >= 50 ? "text-green-500" : "text-amber-500"}`}
+            >
               {winRate.toFixed(0)}% WR
             </span>
           )}
@@ -107,14 +115,18 @@ export function MarketHistory() {
                             ) : (
                               <XCircle className="h-3.5 w-3.5 text-red-500" />
                             )}
-                            <span className={`text-xs font-bold ${exceeded ? "text-green-500" : "text-red-500"}`}>
+                            <span
+                              className={`text-xs font-bold ${exceeded ? "text-green-500" : "text-red-500"}`}
+                            >
                               {exceeded ? "EXCEEDED" : "BELOW"}
                             </span>
                             <span className="text-[10px] text-zinc-500">
                               #{reversed.length - index}
                             </span>
                           </div>
-                          <span className="text-[10px] text-zinc-500">{timeAgo(result.endTime)}</span>
+                          <span className="text-[10px] text-zinc-500">
+                            {timeAgo(result.endTime)}
+                          </span>
                         </div>
 
                         {/* Price Details */}
@@ -133,8 +145,11 @@ export function MarketHistory() {
                           </div>
                           <div>
                             <span className="text-zinc-500">Delta</span>
-                            <p className={`font-mono font-bold text-[11px] ${exceeded ? "text-green-500" : "text-red-500"}`}>
-                              {exceeded ? "+" : ""}{formatBTCPrice(absDelta)}
+                            <p
+                              className={`font-mono font-bold text-[11px] ${exceeded ? "text-green-500" : "text-red-500"}`}
+                            >
+                              {exceeded ? "+" : ""}
+                              {formatBTCPrice(absDelta)}
                             </p>
                           </div>
                           <div>
@@ -145,7 +160,9 @@ export function MarketHistory() {
                               ) : (
                                 <TrendingDown className="h-3 w-3 text-red-500" />
                               )}
-                              <p className={`font-mono font-bold text-[11px] ${exceeded ? "text-green-500" : "text-red-500"}`}>
+                              <p
+                                className={`font-mono font-bold text-[11px] ${exceeded ? "text-green-500" : "text-red-500"}`}
+                              >
                                 {absDelta >= 100 ? "Big" : absDelta >= 50 ? "Medium" : "Small"}
                               </p>
                             </div>
@@ -164,14 +181,18 @@ export function MarketHistory() {
                     <div className="flex items-center gap-4">
                       <div>
                         <span className="text-zinc-500">Win Rate</span>
-                        <p className={`font-bold font-mono text-sm ${winRate >= 50 ? "text-green-500" : "text-amber-500"}`}>
+                        <p
+                          className={`font-bold font-mono text-sm ${winRate >= 50 ? "text-green-500" : "text-amber-500"}`}
+                        >
                           {winRate.toFixed(0)}%
                         </p>
                       </div>
                       <div>
                         <span className="text-zinc-500">Avg Δ</span>
                         <p className="font-bold font-mono text-sm text-zinc-100">
-                          {formatBTCPrice(reversed.reduce((sum, r) => sum + r.delta, 0) / reversed.length)}
+                          {formatBTCPrice(
+                            reversed.reduce((sum, r) => sum + r.delta, 0) / reversed.length
+                          )}
                         </p>
                       </div>
                       <div>

@@ -1,20 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Receipt,
-  TrendingUp,
-  TrendingDown,
-  Clock,
-  CheckCircle,
-  XCircle,
   AlertCircle,
+  CheckCircle,
+  Clock,
+  Receipt,
+  TrendingDown,
+  TrendingUp,
+  XCircle,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { toast } from "sonner";
 import type { Order } from "@/types";
 
 export default function OrdersPage() {
@@ -22,24 +21,16 @@ export default function OrdersPage() {
   const { isAuthenticated } = useAppStore();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filterStatus, setFilterStatus] = useState<"all" | "PENDING" | "FILLED" | "CANCELLED">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "PENDING" | "FILLED" | "CANCELLED">(
+    "all"
+  );
 
-  useEffect(() => {
-    // Check both store state and localStorage for auth
-    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
-    if (!isAuthenticated && !hasToken) {
-      router.push("/login");
-      return;
-    }
-    loadOrders();
-  }, [isAuthenticated, router]);
-
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiFetch<Order[]>("/orders", { method: "GET" });
       setOrders(data);
-    } catch (err) {
+    } catch (_err) {
       // Use mock data if no orders
       setOrders([
         {
@@ -77,7 +68,17 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Check both store state and localStorage for auth
+    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
+    if (!isAuthenticated && !hasToken) {
+      router.push("/login");
+      return;
+    }
+    void loadOrders();
+  }, [isAuthenticated, loadOrders, router]);
 
   const filteredOrders = orders.filter((order) => {
     if (filterStatus === "all") return true;
@@ -172,28 +173,71 @@ export default function OrdersPage() {
         </div>
 
         {/* Stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem", marginBottom: "1.5rem" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: "1rem",
+            marginBottom: "1.5rem",
+          }}
+        >
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Összes</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#fafafa", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#fafafa",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               {orders.length}
             </span>
           </div>
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Filled</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#22c55e", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#22c55e",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               {orders.filter((o) => o.status === "FILLED").length}
             </span>
           </div>
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Pending</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#f59e0b", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#f59e0b",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               {orders.filter((o) => o.status === "PENDING").length}
             </span>
           </div>
           <div className="glass-card" style={{ padding: "1rem" }}>
             <span style={{ fontSize: 12, color: "#71717a" }}>Cancelled</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#ef4444", display: "block", marginTop: 8 }}>
+            <span
+              className="price-ticker"
+              style={{
+                fontSize: 24,
+                fontWeight: 700,
+                color: "#ef4444",
+                display: "block",
+                marginTop: 8,
+              }}
+            >
               {orders.filter((o) => o.status === "CANCELLED").length}
             </span>
           </div>
@@ -211,7 +255,8 @@ export default function OrdersPage() {
                 borderRadius: 8,
                 fontSize: 14,
                 fontWeight: 500,
-                background: filterStatus === filter ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)",
+                background:
+                  filterStatus === filter ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)",
                 color: filterStatus === filter ? "#6366f1" : "#a1a1aa",
                 border: "none",
                 cursor: "pointer",
@@ -225,7 +270,11 @@ export default function OrdersPage() {
         {/* Orders list */}
         {loading ? (
           <div className="glass-card" style={{ padding: "3rem", textAlign: "center" }}>
-            <Clock size={32} style={{ color: "#71717a", marginBottom: "1rem" }} className="animate-spin" />
+            <Clock
+              size={32}
+              style={{ color: "#71717a", marginBottom: "1rem" }}
+              className="animate-spin"
+            />
             <span style={{ color: "#71717a" }}>Rendelések betöltése...</span>
           </div>
         ) : (
@@ -238,11 +287,20 @@ export default function OrdersPage() {
                 style={{ padding: "3rem", textAlign: "center" }}
               >
                 <Receipt size={48} style={{ color: "#71717a", marginBottom: "1rem" }} />
-                <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa", marginBottom: "0.5rem" }}>
+                <h3
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 16,
+                    color: "#fafafa",
+                    marginBottom: "0.5rem",
+                  }}
+                >
                   Nincs rendelés
                 </h3>
                 <span style={{ fontSize: 14, color: "#71717a" }}>
-                  {filterStatus !== "all" ? `Nincs ${filterStatus} rendelés` : "Még nem történt kereskedés"}
+                  {filterStatus !== "all"
+                    ? `Nincs ${filterStatus} rendelés`
+                    : "Még nem történt kereskedés"}
                 </span>
               </motion.div>
             ) : (
@@ -255,7 +313,13 @@ export default function OrdersPage() {
                   className="glass-card"
                   style={{ padding: "1.5rem", marginBottom: "1rem" }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
                     {/* Left: Order info */}
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
                       <div
@@ -263,18 +327,20 @@ export default function OrdersPage() {
                           width: 40,
                           height: 40,
                           borderRadius: 10,
-                          background: order.outcome === "YES"
-                            ? "rgba(34, 197, 94, 0.15)"
-                            : "rgba(239, 68, 68, 0.15)",
+                          background:
+                            order.outcome === "YES"
+                              ? "rgba(34, 197, 94, 0.15)"
+                              : "rgba(239, 68, 68, 0.15)",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
                         }}
                       >
-                        {order.outcome === "YES"
-                          ? <TrendingUp size={20} style={{ color: "#22c55e" }} />
-                          : <TrendingDown size={20} style={{ color: "#ef4444" }} />
-                        }
+                        {order.outcome === "YES" ? (
+                          <TrendingUp size={20} style={{ color: "#22c55e" }} />
+                        ) : (
+                          <TrendingDown size={20} style={{ color: "#ef4444" }} />
+                        )}
                       </div>
                       <div>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -290,9 +356,7 @@ export default function OrdersPage() {
                           <span style={{ color: "#71717a" }}>•</span>
                           <span style={{ color: "#a1a1aa" }}>{order.side}</span>
                         </div>
-                        <span style={{ fontSize: 12, color: "#71717a" }}>
-                          {order.market_id}
-                        </span>
+                        <span style={{ fontSize: 12, color: "#71717a" }}>{order.market_id}</span>
                       </div>
                     </div>
 
@@ -300,20 +364,44 @@ export default function OrdersPage() {
                     <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
                       <div style={{ textAlign: "center" }}>
                         <span style={{ fontSize: 12, color: "#71717a" }}>Ár</span>
-                        <span className="price-ticker" style={{ fontSize: 16, fontWeight: 600, color: "#fafafa", display: "block" }}>
+                        <span
+                          className="price-ticker"
+                          style={{
+                            fontSize: 16,
+                            fontWeight: 600,
+                            color: "#fafafa",
+                            display: "block",
+                          }}
+                        >
                           {order.price}¢
                         </span>
                       </div>
                       <div style={{ textAlign: "center" }}>
                         <span style={{ fontSize: 12, color: "#71717a" }}>Mennyiség</span>
-                        <span className="price-ticker" style={{ fontSize: 16, fontWeight: 600, color: "#fafafa", display: "block" }}>
+                        <span
+                          className="price-ticker"
+                          style={{
+                            fontSize: 16,
+                            fontWeight: 600,
+                            color: "#fafafa",
+                            display: "block",
+                          }}
+                        >
                           ${order.size}
                         </span>
                       </div>
                       <div style={{ textAlign: "center" }}>
                         <span style={{ fontSize: 12, color: "#71717a" }}>Összesen</span>
-                        <span className="price-ticker" style={{ fontSize: 16, fontWeight: 600, color: "#fafafa", display: "block" }}>
-                          ${(order.price * order.size / 100).toFixed(2)}
+                        <span
+                          className="price-ticker"
+                          style={{
+                            fontSize: 16,
+                            fontWeight: 600,
+                            color: "#fafafa",
+                            display: "block",
+                          }}
+                        >
+                          ${((order.price * order.size) / 100).toFixed(2)}
                         </span>
                       </div>
                     </div>

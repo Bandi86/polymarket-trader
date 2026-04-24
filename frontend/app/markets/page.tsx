@@ -1,20 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useRouter } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  TrendingUp,
-  TrendingDown,
-  Search,
   Activity,
-  DollarSign,
-  Clock,
   BarChart3,
+  Clock,
+  DollarSign,
+  Search,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { toast } from "sonner";
 import type { Market } from "@/types";
 
 export default function MarketsPage() {
@@ -25,22 +25,12 @@ export default function MarketsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOutcome, setFilterOutcome] = useState<"all" | "YES" | "NO">("all");
 
-  useEffect(() => {
-    // Check both store state and localStorage for auth
-    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
-    if (!isAuthenticated && !hasToken) {
-      router.push("/login");
-      return;
-    }
-    loadMarkets();
-  }, [isAuthenticated, router]);
-
-  const loadMarkets = async () => {
+  const loadMarkets = useCallback(async () => {
     setLoading(true);
     try {
       const data = await apiFetch<Market[]>("/markets", { method: "GET" });
       setMarkets(data);
-    } catch (err) {
+    } catch (_err) {
       // Use mock data if no markets
       setMarkets([
         {
@@ -74,7 +64,17 @@ export default function MarketsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // Check both store state and localStorage for auth
+    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
+    if (!isAuthenticated && !hasToken) {
+      router.push("/login");
+      return;
+    }
+    void loadMarkets();
+  }, [isAuthenticated, loadMarkets, router]);
 
   const filteredMarkets = markets.filter((market) => {
     if (searchQuery && !market.question.toLowerCase().includes(searchQuery.toLowerCase())) {
@@ -152,7 +152,16 @@ export default function MarketsPage() {
         {/* Search and filter */}
         <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
           <div style={{ position: "relative", flex: 1 }}>
-            <Search size={20} style={{ color: "#71717a", position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+            <Search
+              size={20}
+              style={{
+                color: "#71717a",
+                position: "absolute",
+                left: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+              }}
+            />
             <input
               type="text"
               value={searchQuery}
@@ -173,7 +182,8 @@ export default function MarketsPage() {
                   borderRadius: 8,
                   fontSize: 14,
                   fontWeight: 500,
-                  background: filterOutcome === filter ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)",
+                  background:
+                    filterOutcome === filter ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)",
                   color: filterOutcome === filter ? "#6366f1" : "#a1a1aa",
                   border: "none",
                   cursor: "pointer",
@@ -188,7 +198,11 @@ export default function MarketsPage() {
         {/* Markets grid */}
         {loading ? (
           <div className="glass-card" style={{ padding: "3rem", textAlign: "center" }}>
-            <Activity size={32} style={{ color: "#71717a", marginBottom: "1rem" }} className="animate-spin" />
+            <Activity
+              size={32}
+              style={{ color: "#71717a", marginBottom: "1rem" }}
+              className="animate-spin"
+            />
             <span style={{ color: "#71717a" }}>Piacok betöltése...</span>
           </div>
         ) : (
@@ -201,7 +215,14 @@ export default function MarketsPage() {
                 style={{ padding: "3rem", textAlign: "center" }}
               >
                 <BarChart3 size={48} style={{ color: "#71717a", marginBottom: "1rem" }} />
-                <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa", marginBottom: "0.5rem" }}>
+                <h3
+                  style={{
+                    fontWeight: 600,
+                    fontSize: 16,
+                    color: "#fafafa",
+                    marginBottom: "0.5rem",
+                  }}
+                >
                   Nincs elérhető piac
                 </h3>
                 <span style={{ fontSize: 14, color: "#71717a" }}>
@@ -222,7 +243,15 @@ export default function MarketsPage() {
                     style={{ padding: "1.5rem", cursor: "pointer" }}
                   >
                     {/* Market question */}
-                    <h3 style={{ fontWeight: 600, fontSize: 14, color: "#fafafa", marginBottom: "1rem", lineHeight: 1.4 }}>
+                    <h3
+                      style={{
+                        fontWeight: 600,
+                        fontSize: 14,
+                        color: "#fafafa",
+                        marginBottom: "1rem",
+                        lineHeight: 1.4,
+                      }}
+                    >
                       {market.question}
                     </h3>
 
@@ -238,11 +267,23 @@ export default function MarketsPage() {
                           border: "1px solid rgba(34, 197, 94, 0.2)",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            marginBottom: "0.5rem",
+                          }}
+                        >
                           <TrendingUp size={16} style={{ color: "#22c55e" }} />
-                          <span style={{ fontWeight: 600, fontSize: 12, color: "#22c55e" }}>YES</span>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#22c55e" }}>
+                            YES
+                          </span>
                         </div>
-                        <span className="price-ticker" style={{ fontSize: 20, fontWeight: 700, color: "#22c55e" }}>
+                        <span
+                          className="price-ticker"
+                          style={{ fontSize: 20, fontWeight: 700, color: "#22c55e" }}
+                        >
                           {(market.outcome_prices[0] * 100).toFixed(0)}¢
                         </span>
                       </div>
@@ -257,25 +298,46 @@ export default function MarketsPage() {
                           border: "1px solid rgba(239, 68, 68, 0.2)",
                         }}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.5rem" }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            marginBottom: "0.5rem",
+                          }}
+                        >
                           <TrendingDown size={16} style={{ color: "#ef4444" }} />
-                          <span style={{ fontWeight: 600, fontSize: 12, color: "#ef4444" }}>NO</span>
+                          <span style={{ fontWeight: 600, fontSize: 12, color: "#ef4444" }}>
+                            NO
+                          </span>
                         </div>
-                        <span className="price-ticker" style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}>
+                        <span
+                          className="price-ticker"
+                          style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}
+                        >
                           {(market.outcome_prices[1] * 100).toFixed(0)}¢
                         </span>
                       </div>
                     </div>
 
                     {/* Stats */}
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        fontSize: 12,
+                      }}
+                    >
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <DollarSign size={14} style={{ color: "#71717a" }} />
                         <span style={{ color: "#a1a1aa" }}>{formatVolume(market.volume)}</span>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                         <Clock size={14} style={{ color: "#71717a" }} />
-                        <span style={{ color: "#a1a1aa" }}>{formatTimeRemaining(market.expires_at)}</span>
+                        <span style={{ color: "#a1a1aa" }}>
+                          {formatTimeRemaining(market.expires_at)}
+                        </span>
                       </div>
                       {market.active && (
                         <div
@@ -288,7 +350,10 @@ export default function MarketsPage() {
                             background: "rgba(34, 197, 94, 0.15)",
                           }}
                         >
-                          <div className="status-dot status-dot-active" style={{ width: 6, height: 6 }} />
+                          <div
+                            className="status-dot status-dot-active"
+                            style={{ width: 6, height: 6 }}
+                          />
                           <span style={{ color: "#22c55e" }}>Aktív</span>
                         </div>
                       )}

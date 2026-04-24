@@ -1,20 +1,105 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Activity, BarChart3, Target, Trophy, Zap } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
+  Target,
+  Trophy,
+  Wallet,
+  Zap,
+} from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 import { ActivityTabs } from "@/components/dashboard/activity-tabs";
 import { ChartPanel } from "@/components/dashboard/chart-panel";
 import { CompactDataBar } from "@/components/dashboard/compact-data-bar";
 import { MarketHistory } from "@/components/dashboard/market-history";
 import { QuickTradePanel } from "@/components/dashboard/quick-trade-panel";
+import { useSettings } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function CommandCenter() {
   const [chartExpanded, setChartExpanded] = useState(false);
+  const { hasCredentials, userBalance } = useAppStore();
+  const { data: settings } = useSettings();
+
+  // Use settings hook data if available, otherwise fallback to store
+  const isConnected = hasCredentials || (settings?.has_credentials ?? false);
+  const walletAddress = settings?.wallet_address;
 
   return (
     <div className="flex flex-col gap-4">
+      {/* Connection Status Banner */}
+      {!isConnected ? (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/20">
+              <AlertTriangle className="h-5 w-5 text-amber-400" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-amber-200">Nincs csatlakoztatva</h3>
+              <p className="mt-1 text-sm text-amber-400/80">
+                A Polymarket API kulcsok hiányoznak. Add hozzá őket a Beállításokban a trading botok
+                használatához.
+              </p>
+              <div className="mt-3 flex items-center gap-2">
+                <Link
+                  href="/settings"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors"
+                >
+                  <Wallet className="h-3.5 w-3.5" />
+                  <span>Beállítások megnyitása</span>
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+                <span className="text-xs text-amber-400/60">vagy köss azonnali ügyletet lent</span>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      ) : (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/20">
+                <Wallet className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-emerald-200">
+                  Polymarket csatlakoztatva
+                </h3>
+                <p className="mt-0.5 text-sm text-emerald-400/80">
+                  {walletAddress && walletAddress !== "***"
+                    ? `Wallet: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+                    : "API kulcsok betöltve"}
+                  {userBalance !== null && userBalance !== undefined && (
+                    <span className="ml-3 font-mono font-semibold text-emerald-300">
+                      Egyenleg: {userBalance.toFixed(2)} USDC
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/settings"
+              className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              Beállítások →
+            </Link>
+          </div>
+        </motion.div>
+      )}
+
       {/* TOP: Market Data Bar - Full Width */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
         <CompactDataBar />

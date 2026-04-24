@@ -17,7 +17,7 @@ export function useLogin() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (credentials: { email: string; password: string }) =>
+    mutationFn: async (credentials: { username: string; password: string }) =>
       apiFetch<LoginResponse>("/auth/login", {
         method: "POST",
         body: JSON.stringify(credentials),
@@ -32,8 +32,9 @@ export function useLogin() {
 export function useUser() {
   return useQuery({
     queryKey: ["user"],
-    queryFn: () => apiFetch<{ id: number; email: string; username: string }>("/auth/me"),
-    enabled: !!localStorage.getItem("token"),
+    queryFn: () => apiFetch<{ id: number; username: string }>("/auth/me"),
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
+    retry: false, // Don't retry on 401 - user not logged in
   });
 }
 

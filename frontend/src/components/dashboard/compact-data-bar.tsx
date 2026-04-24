@@ -43,7 +43,18 @@ function formatVolume(volume: number): string {
 }
 
 export function CompactDataBar() {
-  const { btcPrice, startPrice, priceDelta, yesPrice, timeRemaining, volume, marketQuestion, bots, selectedBotId, setSelectedBot } = useAppStore();
+  const {
+    btcPrice,
+    startPrice,
+    priceDelta,
+    yesPrice,
+    timeRemaining,
+    volume,
+    marketQuestion,
+    bots,
+    selectedBotId,
+    setSelectedBot,
+  } = useAppStore();
   const [botDropdownOpen, setBotDropdownOpen] = useState(false);
   const startBot = useStartBot();
   const stopBot = useStopBot();
@@ -101,9 +112,7 @@ export function CompactDataBar() {
           </span>
         )}
         {!isUp && btcPrice > 0 && priceDelta !== 0 && (
-          <span className="text-xs font-mono text-red-500/80">
-            {formatPriceDelta(priceDelta)}
-          </span>
+          <span className="text-xs font-mono text-red-500/80">{formatPriceDelta(priceDelta)}</span>
         )}
       </div>
 
@@ -118,15 +127,9 @@ export function CompactDataBar() {
       {isBotRunning && (
         <div className="mx-4 mb-1 flex items-center justify-center gap-2 rounded-lg bg-green-500/10 border border-green-500/20 px-3 py-1">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-green-500" />
-          <span className="text-xs font-semibold text-green-400">
-            Bot Running
-          </span>
-          <span className="text-[10px] text-zinc-500">
-            • {selectedBot?.strategy}
-          </span>
-          <span className="text-[10px] text-zinc-600">
-            • Analyzing market
-          </span>
+          <span className="text-xs font-semibold text-green-400">Bot Running</span>
+          <span className="text-[10px] text-zinc-500">• {selectedBot?.strategy}</span>
+          <span className="text-[10px] text-zinc-600">• Analyzing market</span>
         </div>
       )}
 
@@ -185,10 +188,7 @@ export function CompactDataBar() {
           ${isUp ? "bg-green-500/10 border border-green-500/20" : "bg-red-500/10 border border-red-500/20"}`}
         >
           {priceDelta !== 0 && (
-            <motion.div
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.15 }}
-            >
+            <motion.div animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.15 }}>
               {isUp ? (
                 <TrendingUp className="h-3.5 w-3.5 text-green-500" />
               ) : (
@@ -206,20 +206,27 @@ export function CompactDataBar() {
         {/* Current BTC Price - Color based on position vs target */}
         <div
           className={`rounded-xl border-2 px-3 py-1.5 transition-all duration-300
-          ${isUp && btcPrice > 0
-            ? "bg-green-500/15 border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.15)]"
-            : btcPrice > 0
-              ? "bg-red-500/15 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.15)]"
-              : "bg-orange-500/10 border-orange-500/20"
+          ${
+            isUp && btcPrice > 0
+              ? "bg-green-500/15 border-green-500/50 shadow-[0_0_20px_rgba(34,197,94,0.15)]"
+              : btcPrice > 0
+                ? "bg-red-500/15 border-red-500/50 shadow-[0_0_20px_rgba(239,68,68,0.15)]"
+                : "bg-orange-500/10 border-orange-500/20"
           }`}
         >
           <div className="flex items-center gap-1.5">
-            <Bitcoin className={`h-3 w-3 ${isUp && btcPrice > 0 ? "text-green-400" : btcPrice > 0 ? "text-red-400" : "text-orange-400"}`} />
-            <span className={`text-[10px] font-semibold uppercase ${isUp && btcPrice > 0 ? "text-green-400" : btcPrice > 0 ? "text-red-400" : "text-orange-400"}`}>
+            <Bitcoin
+              className={`h-3 w-3 ${isUp && btcPrice > 0 ? "text-green-400" : btcPrice > 0 ? "text-red-400" : "text-orange-400"}`}
+            />
+            <span
+              className={`text-[10px] font-semibold uppercase ${isUp && btcPrice > 0 ? "text-green-400" : btcPrice > 0 ? "text-red-400" : "text-orange-400"}`}
+            >
               CURRENT
             </span>
           </div>
-          <span className={`text-base font-extrabold font-mono ${isUp && btcPrice > 0 ? "text-green-500" : btcPrice > 0 ? "text-red-500" : "text-orange-400"}`}>
+          <span
+            className={`text-base font-extrabold font-mono ${isUp && btcPrice > 0 ? "text-green-500" : btcPrice > 0 ? "text-red-500" : "text-orange-400"}`}
+          >
             ${btcPrice > 0 ? formatBTCPrice(btcPrice) : "---"}
           </span>
         </div>
@@ -291,9 +298,7 @@ export function CompactDataBar() {
               >
                 {bots.length === 0 ? (
                   <div className="p-4">
-                    <div className="text-center text-xs text-zinc-500 mb-3">
-                      No bots configured
-                    </div>
+                    <div className="text-center text-xs text-zinc-500 mb-3">No bots configured</div>
                     <a
                       href="/bots"
                       className="flex items-center justify-center gap-2 rounded-lg bg-violet-500/15 text-violet-400 px-3 py-2 text-xs font-semibold hover:bg-violet-500/25 transition-colors"

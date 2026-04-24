@@ -3,10 +3,13 @@
 import { useCallback, useEffect, useRef } from "react";
 import { createSSEConnection, useAppStore } from "@/store";
 
+// Module-level singleton to prevent multiple SSE connections
+let sharedEventSource: EventSource | null = null;
+let listenerCount = 0;
+
 export function useSSE() {
-  const eventSourceRef = useRef<EventSource | null>(null);
   const prevEventStartTimeRef = useRef<number>(0);
-  const prevStartPriceRef = useRef<number>(0);
+  const lastConfirmedStartPriceRef = useRef<number>(0);
 
   const {
     setBtcPrice,
@@ -22,14 +25,15 @@ export function useSSE() {
     addMarketResult,
   } = useAppStore();
 
-  const connect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+  const setupConnection = useCallback(() => {
+    // Singleton: reuse existing connection
+    if (sharedEventSource && sharedEventSource.readyState !== EventSource.CLOSED) {
+      listenerCount++;
+      return sharedEventSource;
     }
 
-    // Use addEventListener for named SSE events (backend uses event("market"), event("status"))
+    // Create new connection
     const eventSource = createSSEConnection((event: MessageEvent) => {
-      // Handle unnamed events (fallback)
       try {
         const data = JSON.parse(event.data);
         if (data.type === "connected") {
@@ -40,7 +44,6 @@ export function useSSE() {
       }
     });
 
-    // Handle named SSE events from backend
     eventSource.addEventListener("connected", () => {
       console.log("SSE connected event received");
     });
@@ -52,32 +55,45 @@ export function useSSE() {
         const eventStartTime = data.event_start_time || 0;
 
         // Detect new market start (event_start_time changed)
-        if (eventStartTime > 0 && prevEventStartTimeRef.current > 0 && eventStartTime !== prevEventStartTimeRef.current) {
+        if (
+          eventStartTime > 0 &&
+          prevEventStartTimeRef.current > 0 &&
+          eventStartTime !== prevEventStartTimeRef.current
+        ) {
           // Previous market just ended - save result
           addMarketResult({
             endTime: Date.now(),
-            targetPrice: prevStartPriceRef.current,
+            targetPrice: lastConfirmedStartPriceRef.current,
             finalPrice: data.btc_price,
-            delta: data.btc_price - prevStartPriceRef.current,
+            delta: data.btc_price - lastConfirmedStartPriceRef.current,
             duration: 300,
           });
-          // Reset start price ref for new market
-          prevStartPriceRef.current = 0;
+          // Keep last confirmed price to beat until new valid one arrives (avoid flickering)
+          // Do NOT reset lastConfirmedStartPriceRef - maintain last known good value
         }
 
-        // Track event start time for change detection
-        if (eventStartTime > 0 && prevEventStartTimeRef.current === 0) {
-          prevEventStartTimeRef.current = eventStartTime;
+        // Track event start time
+        if (eventStartTime > 0) {
+          if (
+            prevEventStartTimeRef.current === 0 ||
+            eventStartTime !== prevEventStartTimeRef.current
+          ) {
+            prevEventStartTimeRef.current = eventStartTime;
+          }
         }
 
-        // Save start price when it becomes available (for market result later)
-        if (newStartPrice > 0 && prevStartPriceRef.current === 0) {
-          prevStartPriceRef.current = newStartPrice;
+        // Only update start price if we have a valid new value
+        // This prevents flickering when new market starts but start_price is still 0
+        if (newStartPrice > 0) {
+          lastConfirmedStartPriceRef.current = newStartPrice;
+          setStartPrice(newStartPrice);
+          setPriceDelta(data.price_delta || 0);
+        } else if (lastConfirmedStartPriceRef.current > 0) {
+          // No new start price yet, but we have a confirmed one - use it for delta calculation
+          setPriceDelta(data.btc_price - lastConfirmedStartPriceRef.current);
         }
 
         setBtcPrice(data.btc_price);
-        setStartPrice(newStartPrice);
-        setPriceDelta(data.price_delta || 0);
         setBeatPrice(data.price_to_beat || data.beat_price);
         if (data.yes !== undefined) {
           setYesPrice(data.yes);
@@ -123,12 +139,12 @@ export function useSSE() {
 
     eventSource.onerror = () => {
       console.warn("SSE connection error, reconnecting...");
-      // SSE auto-reconnects, but reset refs to avoid stale state
-      prevEventStartTimeRef.current = 0;
-      prevStartPriceRef.current = 0;
+      // SSE auto-reconnects; keep last known prices until fresh data arrives
     };
 
-    eventSourceRef.current = eventSource;
+    sharedEventSource = eventSource;
+    listenerCount = 1;
+    return eventSource;
   }, [
     setBtcPrice,
     setStartPrice,
@@ -144,16 +160,21 @@ export function useSSE() {
   ]);
 
   const disconnect = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
+    listenerCount--;
+    if (listenerCount <= 0 && sharedEventSource) {
+      sharedEventSource.close();
+      sharedEventSource = null;
+      listenerCount = 0;
     }
   }, []);
 
   useEffect(() => {
-    connect();
+    setupConnection();
     return () => disconnect();
-  }, [connect, disconnect]);
+  }, [setupConnection, disconnect]);
 
-  return { connect, disconnect };
+  return {
+    connect: setupConnection,
+    disconnect,
+  };
 }

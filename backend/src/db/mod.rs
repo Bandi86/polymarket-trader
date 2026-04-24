@@ -306,6 +306,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query("ALTER TABLE bot_configs ADD COLUMN win_rate REAL DEFAULT 0.0")
         .execute(pool)
         .await.ok();
+    sqlx::query("ALTER TABLE bot_configs ADD COLUMN trading_mode TEXT DEFAULT 'paper'")
+        .execute(pool)
+        .await.ok();
 
     tracing::info!("Database migrations completed");
     Ok(())
@@ -452,13 +455,14 @@ pub mod queries {
         interval: i64,
         stop_loss: f64,
         take_profit: f64,
+        trading_mode: &str,
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r#"
             INSERT INTO bot_configs (
                 user_id, name, market_id, strategy_type, params,
-                bet_size, use_kelly, kelly_fraction, max_bet, interval, stop_loss, take_profit
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                bet_size, use_kelly, kelly_fraction, max_bet, interval, stop_loss, take_profit, trading_mode
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#
         )
         .bind(user_id)
@@ -473,6 +477,7 @@ pub mod queries {
         .bind(interval)
         .bind(stop_loss)
         .bind(take_profit)
+        .bind(trading_mode)
         .execute(db.as_ref())
         .await?;
 
@@ -487,7 +492,7 @@ pub mod queries {
             r#"
             SELECT id, user_id, name, market_id, strategy_type, params, status, created_at,
                    bet_size, use_kelly, kelly_fraction, max_bet, interval, stop_loss, take_profit,
-                   total_trades, winning_trades, losing_trades, win_rate
+                   total_trades, winning_trades, losing_trades, win_rate, trading_mode
             FROM bot_configs WHERE user_id = ? ORDER BY created_at DESC
             "#
         )
@@ -515,6 +520,7 @@ pub mod queries {
             winning_trades: row.get("winning_trades"),
             losing_trades: row.get("losing_trades"),
             win_rate: row.get("win_rate"),
+            trading_mode: row.get("trading_mode"),
         }).collect())
     }
 
@@ -527,7 +533,7 @@ pub mod queries {
             r#"
             SELECT id, user_id, name, market_id, strategy_type, params, status, created_at,
                    bet_size, use_kelly, kelly_fraction, max_bet, interval, stop_loss, take_profit,
-                   total_trades, winning_trades, losing_trades, win_rate
+                   total_trades, winning_trades, losing_trades, win_rate, trading_mode
             FROM bot_configs WHERE id = ? AND user_id = ?
             "#
         )
@@ -556,6 +562,7 @@ pub mod queries {
             winning_trades: row.get("winning_trades"),
             losing_trades: row.get("losing_trades"),
             win_rate: row.get("win_rate"),
+            trading_mode: row.get("trading_mode"),
         }))
     }
 
@@ -1364,6 +1371,8 @@ pub struct BotRecord {
     pub losing_trades: i64,
     #[sqlx(default)]
     pub win_rate: f64,
+    #[sqlx(default)]
+    pub trading_mode: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

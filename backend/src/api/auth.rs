@@ -1,10 +1,11 @@
 use axum::{
-    extract::State,
+    extract::{Extension, State},
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
 
 use crate::db::queries;
+use crate::middleware::auth::Claims;
 use super::AppState;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -160,6 +161,11 @@ pub async fn login(
         }
     };
 
+    state
+        .credential_service
+        .set_password(user.0, payload.password.clone())
+        .await;
+
     // Generate token
     match generate_token(user.0, &user.1) {
         Ok(token) => Json(AuthResponse {
@@ -180,12 +186,12 @@ pub async fn login(
 
 pub async fn me(
     State(state): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    Extension(claims): Extension<Claims>,
 ) -> Response {
     let db = state.db();
 
-    // This will be protected by auth middleware - user_id from token
-    let user_id = payload.get("user_id").and_then(|v| v.as_i64()).unwrap_or(0);
+    // user_id from JWT token claims (injected by auth middleware)
+    let user_id = claims.user_id;
 
     match queries::find_user_by_id(&db, user_id).await {
         Ok(Some((id, username))) => Json(UserResponse { id, username }).into_response(),
@@ -214,7 +220,9 @@ fn generate_token(user_id: i64, username: &str) -> Result<String, jsonwebtoken::
 
     let exp = chrono::Utc::now()
         .checked_add_signed(chrono::Duration::hours(24))
-        .unwrap()
+        .ok_or_else(|| {
+            jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::InvalidToken)
+        })?
         .timestamp();
 
     let claims = Claims {

@@ -5,8 +5,6 @@ use axum::{
 use serde::Serialize;
 use serde::Deserialize;
 
-use super::AppState;
-
 const GAMMA_API: &str = "https://gamma-api.polymarket.com";
 const CLOB_API: &str = "https://clob.polymarket.com";
 

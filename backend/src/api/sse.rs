@@ -66,12 +66,8 @@ async fn fetch_market_by_slug(slug: &str) -> Option<(serde_json::Value, String)>
                     }
 
                     // Get first market
-                    let markets = event.get("markets").and_then(|m| m.as_array());
-                    if markets.is_none() || markets.unwrap().is_empty() {
-                        return None;
-                    }
-
-                    let market = markets.unwrap().first()?.clone();
+                    let markets = event.get("markets").and_then(|m| m.as_array())?;
+                    let market = markets.first()?.clone();
 
                     // Check if market is active
                     if market.get("active").and_then(|a| a.as_bool()) != Some(true) {

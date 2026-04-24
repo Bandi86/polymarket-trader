@@ -31,10 +31,9 @@ pub async fn get_system_status(
     // Check Binance connection
     let binance_client = state.binance_client.read().await;
     let binance_connected = binance_client.is_some();
-    let btc_price = if binance_client.is_some() {
-        binance_client.as_ref().unwrap().get_current_price().await
-    } else {
-        None
+    let btc_price = match binance_client.as_ref() {
+        Some(client) => client.get_current_price().await,
+        None => None,
     };
 
     // Get stored credentials info

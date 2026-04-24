@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import { motion } from "framer-motion";
+import { Loader2, Lock, User, Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Zap, User, Lock, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -68,7 +68,9 @@ export default function LoginPage() {
         style={{ padding: "2rem", width: "100%", maxWidth: 400 }}
       >
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "2rem" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "2rem" }}
+        >
           <div
             style={{
               width: 48,
@@ -97,15 +99,31 @@ export default function LoginPage() {
         </p>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+        >
           {/* Username */}
           <div>
-            <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+            <label
+              htmlFor="username"
+              style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}
+            >
               Felhasználónév
             </label>
             <div style={{ position: "relative" }}>
-              <User size={20} style={{ color: "#71717a", position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+              <User
+                size={20}
+                style={{
+                  color: "#71717a",
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }}
+              />
               <input
+                id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -120,12 +138,25 @@ export default function LoginPage() {
 
           {/* Password */}
           <div>
-            <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+            <label
+              htmlFor="password"
+              style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}
+            >
               Jelszó
             </label>
             <div style={{ position: "relative" }}>
-              <Lock size={20} style={{ color: "#71717a", position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+              <Lock
+                size={20}
+                style={{
+                  color: "#71717a",
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }}
+              />
               <input
+                id="password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -143,7 +174,13 @@ export default function LoginPage() {
             type="submit"
             disabled={isLoading}
             className="btn-primary"
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.5rem",
+            }}
           >
             {isLoading ? <Loader2 size={20} className="animate-spin" /> : "Bejelentkezés"}
           </button>
@@ -167,34 +204,38 @@ export default function LoginPage() {
             border: "1px solid rgba(255, 255, 255, 0.08)",
           }}
         >
-          <p style={{ fontSize: 12, color: "#71717a", marginBottom: "0.5rem" }}>Demo mód (fejlesztés)</p>
+          <p style={{ fontSize: 12, color: "#71717a", marginBottom: "0.5rem" }}>
+            Demo mód (fejlesztés)
+          </p>
           <button
             type="button"
             onClick={() => {
               // Create a demo user in the backend first
-              apiFetch<{ token: string; user_id: number; username: string }>(
-                "/auth/register",
-                {
-                  method: "POST",
-                  body: JSON.stringify({ username: "demo_user", password: "demo123" }),
-                }
-              )
+              apiFetch<{ token: string; user_id: number; username: string }>("/auth/register", {
+                method: "POST",
+                body: JSON.stringify({ username: "demo_user", password: "demo123" }),
+              })
                 .then((result) => {
-                  setAuth(result.token, { id: result.user_id, email: "", username: result.username });
+                  setAuth(result.token, {
+                    id: result.user_id,
+                    email: "",
+                    username: result.username,
+                  });
                   toast.success("Demo fiók létrehozva!");
                   router.push("/");
                 })
                 .catch(() => {
                   // If user exists, try to login
-                  apiFetch<{ token: string; user_id: number; username: string }>(
-                    "/auth/login",
-                    {
-                      method: "POST",
-                      body: JSON.stringify({ username: "demo_user", password: "demo123" }),
-                    }
-                  )
+                  apiFetch<{ token: string; user_id: number; username: string }>("/auth/login", {
+                    method: "POST",
+                    body: JSON.stringify({ username: "demo_user", password: "demo123" }),
+                  })
                     .then((result) => {
-                      setAuth(result.token, { id: result.user_id, email: "", username: result.username });
+                      setAuth(result.token, {
+                        id: result.user_id,
+                        email: "",
+                        username: result.username,
+                      });
                       toast.success("Demo bejelentkezés sikeres!");
                       router.push("/");
                     })
@@ -203,7 +244,13 @@ export default function LoginPage() {
                     });
                 });
             }}
-            style={{ fontSize: 14, color: "#6366f1", background: "none", border: "none", cursor: "pointer" }}
+            style={{
+              fontSize: 14,
+              color: "#6366f1",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+            }}
           >
             Bejelentkezés demo módban →
           </button>

@@ -152,6 +152,25 @@ impl PolymarketClient {
         self
     }
 
+    pub fn from_api_credentials(
+        private_key: &str,
+        signature_type: u8,
+        creds: Option<ApiKeyCreds>,
+        funder: Option<&str>,
+    ) -> Result<Self, PolymarketError> {
+        let mut client = Self::new(private_key)?.with_signature_type(signature_type);
+
+        if let Some(creds) = creds {
+            client = client.with_creds(creds);
+        }
+
+        if let Some(funder) = funder {
+            client = client.with_funder(funder);
+        }
+
+        Ok(client)
+    }
+
     /// Get the wallet address
     pub fn address(&self) -> String {
         self.wallet.address().to_string()
@@ -199,8 +218,9 @@ impl PolymarketClient {
                 Ok(resp) => {
                     let status = resp.status();
                     let error_text = resp.text().await.unwrap_or_default();
-                    last_error = Some(format!("{}: {}", status, error_text));
-                    tracing::warn!("Endpoint {} failed: {}", endpoint, last_error.as_ref().unwrap());
+                    let error_message = format!("{}: {}", status, error_text);
+                    tracing::warn!("Endpoint {} failed: {}", endpoint, error_message);
+                    last_error = Some(error_message);
                 }
                 Err(e) => {
                     last_error = Some(e.to_string());
@@ -574,6 +594,55 @@ impl PolymarketClient {
     }
 }
 
+/// Check MATIC (gas fee) balance on Polygon network
+/// Returns balance in MATIC (not wei). Logs warning if below threshold.
+pub async fn check_matic_balance(wallet_address: &str) -> Result<f64, String> {
+    const MATIC_MIN_THRESHOLD: f64 = 0.01; // 0.01 MATIC minimum
+    const POLYGON_RPC: &str = "https://polygon-rpc.com";
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": [wallet_address, "latest"],
+        "id": 1
+    });
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(POLYGON_RPC)
+        .timeout(Duration::from_secs(5))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Polygon RPC error: {}", e))?;
+
+    let result: serde_json::Value = resp.json().await
+        .map_err(|e| format!("Failed to parse Polygon RPC response: {}", e))?;
+
+    let balance_hex = result.get("result")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Invalid balance response".to_string())?;
+
+    // Convert hex wei to MATIC (1 MATIC = 10^18 wei)
+    let balance_wei = u128::from_str_radix(balance_hex.trim_start_matches("0x"), 16)
+        .map_err(|e| format!("Failed to parse balance: {}", e))?;
+
+    let balance_matic = balance_wei as f64 / 1e18;
+
+    if balance_matic < MATIC_MIN_THRESHOLD {
+        tracing::warn!(
+            "Low MATIC balance: {:.6} (min recommended: {:.2}). Transactions may fail.",
+            balance_matic, MATIC_MIN_THRESHOLD
+        );
+    } else {
+        tracing::info!("MATIC balance: {:.6}", balance_matic);
+    }
+
+    Ok(balance_matic)
+}
+
+use tokio::time::Duration;
+
 /// Full credentials to store in database (encrypted)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredCredentials {
@@ -610,12 +679,14 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        // Valid private key (testnet) - 64 hex chars (32 bytes) without 0x prefix
-        let private_key = "REMOVED_PRIVATE_KEY";
+        // Valid private key format: 64 hex characters (32 bytes) without 0x prefix
+        // This is a deterministic test key - not used for real trading
+        let private_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let client = PolymarketClient::new(private_key).unwrap();
         let address = client.address();
         println!("Generated address: {:?}", address);
         assert!(address.len() > 0, "Address should not be empty");
+        assert!(address.starts_with("0x"), "Address should start with 0x");
     }
 
     #[test]

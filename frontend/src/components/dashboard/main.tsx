@@ -1,22 +1,34 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { AuthLanding } from "@/components/dashboard/auth-landing";
 import { CommandCenter } from "@/components/dashboard/command-center";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { AmbientGlow } from "@/components/ui/ambient-glow";
-import { useBots, useBtcPrice, usePositions, useSSE } from "@/hooks";
+import { useBots, useBtcPrice, usePositions, useSSE, useUser } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function Dashboard() {
-  const router = useRouter();
-  const { token, setBots, setBtcPrice, setPositions } = useAppStore();
+  const { token, isAuthenticated, user, setAuth, setBots, setBtcPrice, setPositions } =
+    useAppStore();
+  const { data: userData } = useUser();
+
+  // Sync user data from API to store (fixes missing user state after login)
+  useEffect(() => {
+    if (userData && (!user || user.username !== userData.username)) {
+      // Only update user data, don't overwrite token from localStorage
+      const storedToken = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      if (storedToken) {
+        setAuth(storedToken, { id: userData.id, email: "", username: userData.username });
+      }
+    }
+  }, [userData, user, setAuth]);
 
   // SSE connection for real-time data
   useSSE();
 
-  // Fetch initial data via API
+  // Fetch initial data via API (only when authenticated)
   const { data: botsData } = useBots();
   const { data: btcData } = useBtcPrice();
   const { data: positionsData } = usePositions();
@@ -34,15 +46,11 @@ export function Dashboard() {
     if (positionsData) setPositions(positionsData);
   }, [positionsData, setPositions]);
 
-  // Auth check - redirect to login if not authenticated
-  useEffect(() => {
-    const storedToken = localStorage.getItem("token");
-    if (!token && !storedToken) {
-      router.push("/login");
-    }
-  }, [token, router]);
-
   const { sidebarCollapsed } = useAppStore();
+  const isAuthed =
+    isAuthenticated ||
+    !!token ||
+    (typeof window !== "undefined" && !!localStorage.getItem("token"));
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">
@@ -61,7 +69,7 @@ export function Dashboard() {
           <Header />
           <main className="flex-1 overflow-auto">
             <div className="max-w-7xl mx-auto p-4 lg:p-6">
-              <CommandCenter />
+              {isAuthed ? <CommandCenter /> : <AuthLanding />}
             </div>
           </main>
         </div>

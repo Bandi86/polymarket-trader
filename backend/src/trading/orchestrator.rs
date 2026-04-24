@@ -12,6 +12,8 @@ use crate::db::queries;
 use crate::db::BotRecord;
 use crate::trading::bot_executor::strategies::{Signal, StrategyExecutor, StrategyContext};
 use crate::api::market::fetch_active_markets;
+use crate::api::CachedCredentials;
+use crate::trading::polymarket::{PolymarketClient, OrderRequest};
 
 /// Event types broadcasted by orchestrator
 #[derive(Debug, Clone, serde::Serialize)]
@@ -196,8 +198,11 @@ impl BotOrchestrator {
     /// Get all running bots for a user
     pub async fn get_running_bots(&self, user_id: i64) -> Vec<i64> {
         let running = self.running_bots.read().await;
-        // TODO: Filter by user_id - need to store user_id in RunningBot
-        running.keys().cloned().collect()
+        running
+            .iter()
+            .filter(|(_, rb)| rb.user_id == user_id)
+            .map(|(bot_id, _)| *bot_id)
+            .collect()
     }
 
     /// Check if a bot is running
@@ -207,19 +212,23 @@ impl BotOrchestrator {
     }
 
     /// Execute one cycle for a bot
-    pub async fn execute_cycle(&self, bot_id: i64, user_id: i64) -> Result<(), String> {
+    /// credential_cache: optional in-memory cache for live order credentials
+    pub async fn execute_cycle(
+        &self,
+        bot_id: i64,
+        user_id: i64,
+        credential_cache: Option<Arc<RwLock<HashMap<i64, CachedCredentials>>>>,
+    ) -> Result<(), String> {
         tracing::debug!("execute_cycle called for bot {} user {}", bot_id, user_id);
 
         let running = self.running_bots.read().await;
         let running_bot = running.get(&bot_id).cloned();
         drop(running);
 
-        if running_bot.is_none() {
+        let Some(rb) = running_bot else {
             tracing::warn!("Bot {} not found in running_bots", bot_id);
             return Ok(()); // Bot not running, skip
-        }
-
-        let rb = running_bot.unwrap();
+        };
         tracing::debug!("Bot {} running_bot found, session {}", bot_id, rb.session_id);
 
         // Get bot config
@@ -291,13 +300,10 @@ impl BotOrchestrator {
         tracing::debug!("Fetching active markets for timeframe {}", timeframe);
         let markets = fetch_active_markets(&timeframe).await;
 
-        let market = markets.first().cloned();
-        if market.is_none() {
+        let Some(market) = markets.first().cloned() else {
             tracing::debug!("No active market found, skipping cycle");
             return Ok(());
-        }
-
-        let market = market.unwrap();
+        };
         tracing::info!("Found market: {} (yes_price={:.3})", market.question, market.yes_price);
 
         // Get BTC price from Binance
@@ -391,8 +397,44 @@ impl BotOrchestrator {
                     reason,
                 }).ok();
 
-                // TODO: Execute actual order if in live mode
-                tracing::debug!("Bot {} signal: {} @ {:.2} (bet: {:.2})", bot_id, outcome, confidence, bet_size);
+                // Execute actual order if in live mode with credentials available
+                if bot.trading_mode == "live" {
+                    if let Some(ref cred_cache) = credential_cache {
+                        let cache = cred_cache.read().await;
+                        let creds = cache.get(&user_id).cloned();
+                        drop(cache);
+                        if let Some(creds) = creds {
+                            match Self::place_order(
+                                &market,
+                                outcome,
+                                bet_size,
+                                &creds,
+                            ).await {
+                                Ok(order_id) => {
+                                    tracing::info!("Bot {} order executed: {}", bot_id, order_id);
+                                    self.event_sender.send(BotEvent::OrderExecuted {
+                                        bot_id,
+                                        order_id: order_id.clone(),
+                                    }).ok();
+                                }
+                                Err(e) => {
+                                    tracing::error!("Bot {} order failed: {}", bot_id, e);
+                                    self.event_sender.send(BotEvent::Error {
+                                        bot_id,
+                                        message: format!("Order failed: {}", e),
+                                    }).ok();
+                                }
+                            }
+                        } else {
+                            tracing::warn!("Bot {} in live mode but no credentials for user {}", bot_id, user_id);
+                        }
+                    } else {
+                        tracing::warn!("Bot {} in live mode but no credential cache", bot_id);
+                    }
+                } else {
+                    tracing::debug!("Bot {} paper trading (signal: {} @ {:.2}, bet: {:.2})",
+                        bot_id, outcome, confidence, bet_size);
+                }
             }
             Signal::Hold(reason) => {
                 tracing::debug!("Bot {} holding: {}", bot_id, reason);
@@ -437,6 +479,69 @@ impl BotOrchestrator {
             .map_err(|e| format!("Failed to parse price: {}", e))
     }
 
+    /// Place an order on Polymarket CLOB
+    async fn place_order(
+        market: &crate::api::market::ActiveMarket,
+        outcome: &str,
+        bet_size: f64,
+        creds: &CachedCredentials,
+    ) -> Result<String, String> {
+        // Select token based on outcome (YES = UP token, NO = DOWN token)
+        let token_id = match outcome {
+            "YES" => &market.yes_token_id,
+            "NO" => &market.no_token_id,
+            _ => return Err(format!("Invalid outcome: {}", outcome)),
+        };
+
+        if token_id.is_empty() {
+            return Err("Empty token_id".to_string());
+        }
+
+        let client = PolymarketClient::from_api_credentials(
+            &creds.private_key,
+            creds.signature_type,
+            Some(crate::trading::polymarket::ApiKeyCreds {
+                key: creds.api_key.clone(),
+                secret: creds.api_secret.clone(),
+                passphrase: creds.api_passphrase.clone(),
+            }),
+            creds.funder.as_deref(),
+        )
+        .map_err(|e| format!("Failed to create client: {}", e))?;
+
+        // Get current midpoint price for limit order
+        // For a market order, we use a price slightly worse than midpoint to ensure fill
+        let current_price = market.yes_price;
+        let order_price = if outcome == "YES" {
+            // For YES buy, bid slightly above current to get filled
+            (current_price * 1.01).min(0.99)
+        } else {
+            // For NO buy, bid slightly above current to get filled
+            ((1.0 - current_price) * 1.01).min(0.99)
+        };
+
+        let order = OrderRequest {
+            token_id: token_id.clone(),
+            price: order_price,
+            size: bet_size,
+            side: "BUY".to_string(),
+        };
+
+        // Create and sign the order
+        let signed_order = client.create_order_v2(&order, false)
+            .await
+            .map_err(|e| format!("Failed to create order: {}", e))?;
+
+        // Post the order to CLOB
+        let response = client.post_order(&signed_order)
+            .await
+            .map_err(|e| format!("Failed to post order: {}", e))?;
+
+        response.order_id
+            .or(response.status)
+            .ok_or_else(|| "No order ID in response".to_string())
+    }
+
     /// Calculate drawdown from peak
     fn calculate_drawdown(&self, balance: f64, peak: f64) -> f64 {
         if peak > 0.0 {
@@ -475,6 +580,7 @@ pub async fn start_orchestrator_loop(
     bot_id: i64,
     user_id: i64,
     interval_secs: u64,
+    credential_cache: Option<Arc<RwLock<HashMap<i64, CachedCredentials>>>>,
 ) {
     tracing::info!("Starting orchestrator loop for bot {}", bot_id);
 
@@ -493,7 +599,7 @@ pub async fn start_orchestrator_loop(
 
         // Execute one cycle
         tracing::debug!("Executing cycle for bot {}", bot_id);
-        if let Err(e) = orchestrator.execute_cycle(bot_id, user_id).await {
+        if let Err(e) = orchestrator.execute_cycle(bot_id, user_id, credential_cache.clone()).await {
             tracing::error!("Bot {} cycle error: {}", bot_id, e);
         }
     }

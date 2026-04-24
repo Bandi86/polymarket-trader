@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import { motion } from "framer-motion";
+import { Loader2, Lock, User, Zap } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Zap, User, Lock, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { toast } from "sonner";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -85,7 +85,9 @@ export default function RegisterPage() {
         style={{ padding: "2rem", width: "100%", maxWidth: 400 }}
       >
         {/* Logo */}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "2rem" }}>
+        <div
+          style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "2rem" }}
+        >
           <div
             style={{
               width: 48,
@@ -114,15 +116,31 @@ export default function RegisterPage() {
         </p>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: "1rem" }}
+        >
           {/* Username */}
           <div>
-            <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+            <label
+              htmlFor="register-username"
+              style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}
+            >
               Felhasználónév
             </label>
             <div style={{ position: "relative" }}>
-              <User size={20} style={{ color: "#71717a", position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+              <User
+                size={20}
+                style={{
+                  color: "#71717a",
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }}
+              />
               <input
+                id="register-username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -137,12 +155,25 @@ export default function RegisterPage() {
 
           {/* Password */}
           <div>
-            <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+            <label
+              htmlFor="register-password"
+              style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}
+            >
               Jelszó
             </label>
             <div style={{ position: "relative" }}>
-              <Lock size={20} style={{ color: "#71717a", position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+              <Lock
+                size={20}
+                style={{
+                  color: "#71717a",
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }}
+              />
               <input
+                id="register-password"
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -157,12 +188,25 @@ export default function RegisterPage() {
 
           {/* Confirm Password */}
           <div>
-            <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>
+            <label
+              htmlFor="register-confirm-password"
+              style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}
+            >
               Jelszó megerősítése
             </label>
             <div style={{ position: "relative" }}>
-              <Lock size={20} style={{ color: "#71717a", position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)" }} />
+              <Lock
+                size={20}
+                style={{
+                  color: "#71717a",
+                  position: "absolute",
+                  left: 12,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }}
+              />
               <input
+                id="register-confirm-password"
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
@@ -179,7 +223,13 @@ export default function RegisterPage() {
             type="submit"
             disabled={isLoading}
             className="btn-primary"
-            style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+            style={{
+              width: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "0.5rem",
+            }}
           >
             {isLoading ? <Loader2 size={20} className="animate-spin" /> : "Regisztráció"}
           </button>

@@ -79,12 +79,13 @@ pub async fn auth_middleware(
     request: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    // Skip auth for public endpoints
+    // Skip auth for public endpoints (except /auth/me which requires auth)
     let path = request.uri().path();
-    if path.starts_with("/auth/")
-        || path.starts_with("/market/")
+    if path.starts_with("/market/")
         || path.starts_with("/binance/")
-        || path == "/binance/price" {
+        || path == "/binance/price"
+        || path == "/auth/register"
+        || path == "/auth/login" {
         return Ok(next.run(request).await);
     }
 
@@ -97,10 +98,11 @@ pub async fn auth_middleware(
     let token = match get_token_from_request(request.headers()) {
         Some(t) => t,
         None => {
-            return Ok(Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .body(Body::from(r#"{"error":"Missing authorization header"}"#))
-                .unwrap());
+            let mut response = Response::new(Body::from(
+                r#"{"error":"Missing authorization header"}"#,
+            ));
+            *response.status_mut() = StatusCode::UNAUTHORIZED;
+            return Ok(response);
         }
     };
 
@@ -121,10 +123,9 @@ pub async fn auth_middleware(
             Ok(next.run(new_request).await)
         }
         Err(e) => {
-            Ok(Response::builder()
-                .status(StatusCode::UNAUTHORIZED)
-                .body(Body::from(format!(r#"{{"error":"{}"}}"#, e)))
-                .unwrap())
+            let mut response = Response::new(Body::from(format!(r#"{{"error":"{}"}}"#, e)));
+            *response.status_mut() = StatusCode::UNAUTHORIZED;
+            Ok(response)
         }
     }
 }

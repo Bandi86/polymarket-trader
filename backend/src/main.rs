@@ -1,9 +1,8 @@
 use axum::{
-    routing::{get, post},
+    routing::get,
     Router,
 };
 use std::net::SocketAddr;
-use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -11,12 +10,13 @@ mod api;
 mod crypto;
 mod db;
 mod middleware;
+mod services;
 mod trading;
 
 use api::AppState;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize logging
     tracing_subscriber::registry()
         .with(
@@ -29,7 +29,7 @@ async fn main() {
     tracing::info!("Starting Polymarket V2 Backend");
 
     // Initialize database
-    let db = db::init_db().await.expect("Failed to initialize database");
+    let db = db::init_db().await?;
 
     // Initialize app state with db and binance client
     let app_state = AppState::new(db);
@@ -60,8 +60,9 @@ async fn main() {
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
     tracing::info!("Listening on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
 }
 
 async fn health_check() -> &'static str {
