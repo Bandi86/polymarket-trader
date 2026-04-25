@@ -3,7 +3,7 @@
 //! Provides system status, bot health, and activity logs
 
 use axum::{
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
@@ -22,7 +22,6 @@ pub struct ErrorResponse {
 pub async fn get_system_status(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(_payload): Json<serde_json::Value>,
 ) -> Response {
     let db = state.db();
 
@@ -79,23 +78,23 @@ pub struct GetLogsRequest {
 pub async fn get_logs(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(payload): Json<GetLogsRequest>,
+    Query(params): Query<GetLogsRequest>,
 ) -> Response {
     let db = state.db();
 
     let user_id = claims.user_id;
-    let limit = payload.limit.unwrap_or(50);
+    let limit = params.limit.unwrap_or(50);
 
     // Build query based on filters
     let mut query = String::from(
         "SELECT id, user_id, bot_id, level, message, metadata, created_at FROM activity_log WHERE user_id = ?"
     );
 
-    if payload.bot_id.is_some() {
+    if params.bot_id.is_some() {
         query.push_str(" AND bot_id = ?");
     }
 
-    if payload.level.is_some() {
+    if params.level.is_some() {
         query.push_str(" AND level = ?");
     }
 
@@ -104,11 +103,11 @@ pub async fn get_logs(
     // Execute query
     let mut q = sqlx::query(&query).bind(user_id);
 
-    if let Some(bot_id) = payload.bot_id {
+    if let Some(bot_id) = params.bot_id {
         q = q.bind(bot_id);
     }
 
-    if let Some(ref level) = payload.level {
+    if let Some(ref level) = params.level {
         q = q.bind(level);
     }
 
@@ -227,4 +226,121 @@ pub async fn get_bot_status(
             }).into_response()
         }
     }
+}
+
+// ==================== Risk Management Endpoints ====================
+
+#[derive(Serialize)]
+pub struct RiskStatusResponse {
+    pub bot_id: i64,
+    pub current_drawdown: f64,
+    pub daily_pnl: f64,
+    pub trades_today: u32,
+    pub paused: bool,
+    pub pause_reason: Option<String>,
+    pub warnings: Vec<RiskWarningResponse>,
+    pub actions: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct RiskWarningResponse {
+    pub bot_id: i64,
+    pub warning_type: String,
+    pub message: String,
+    pub severity: String,
+    pub timestamp: i64,
+}
+
+/// Get risk status for a specific bot
+pub async fn get_bot_risk_status(
+    Path((id,)): Path<(i64,)>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let user_id = claims.user_id;
+
+    // Check bot exists
+    let db = state.db();
+    match queries::get_bot_by_id(&db, id, user_id).await {
+        Ok(None) => return Json(ErrorResponse {
+            error: "Bot not found".to_string(),
+        }).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get bot: {}", e);
+            return Json(ErrorResponse {
+                error: "Failed to get bot".to_string(),
+            }).into_response();
+        }
+        _ => {}
+    }
+
+    // Get portfolio for balance info
+    let portfolio = match queries::get_portfolio(&db, id, user_id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return Json(ErrorResponse {
+            error: "No portfolio found for this bot".to_string(),
+        }).into_response(),
+        Err(_) => return Json(ErrorResponse {
+            error: "Failed to get portfolio".to_string(),
+        }).into_response(),
+    };
+
+    let mut rm = state.orchestrator.risk_manager.write().await;
+    let status = rm.get_bot_risk_status(id, portfolio.balance, portfolio.initial_balance);
+    let warnings: Vec<RiskWarningResponse> = status.warnings.into_iter().map(|w| RiskWarningResponse {
+        bot_id: w.bot_id,
+        warning_type: w.warning_type,
+        message: w.message,
+        severity: w.severity,
+        timestamp: w.timestamp,
+    }).collect();
+
+    Json(RiskStatusResponse {
+        bot_id: id,
+        current_drawdown: status.current_drawdown,
+        daily_pnl: status.daily_pnl,
+        trades_today: status.trades_today,
+        paused: status.paused,
+        pause_reason: status.pause_reason,
+        warnings,
+        actions: status.actions,
+    }).into_response()
+}
+
+/// Pause a bot's risk management
+pub async fn pause_bot_risk(
+    Path((id,)): Path<(i64,)>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let mut rm = state.orchestrator.risk_manager.write().await;
+    rm.pause_bot(id, "Manually paused".to_string());
+    Json(serde_json::json!({"success": true, "message": "Bot risk paused"})).into_response()
+}
+
+/// Resume a bot's risk management
+pub async fn resume_bot_risk(
+    Path((id,)): Path<(i64,)>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let mut rm = state.orchestrator.risk_manager.write().await;
+    rm.resume_bot(id);
+    Json(serde_json::json!({"success": true, "message": "Bot risk resumed"})).into_response()
+}
+
+/// Get all risk warnings
+pub async fn get_risk_warnings(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Response {
+    let rm = state.orchestrator.risk_manager.read().await;
+    let warnings: Vec<RiskWarningResponse> = rm.get_warnings(50).into_iter().map(|w| RiskWarningResponse {
+        bot_id: w.bot_id,
+        warning_type: w.warning_type,
+        message: w.message,
+        severity: w.severity,
+        timestamp: w.timestamp,
+    }).collect();
+    Json(warnings).into_response()
 }

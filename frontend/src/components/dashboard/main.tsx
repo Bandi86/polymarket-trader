@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AuthLanding } from "@/components/dashboard/auth-landing";
 import { CommandCenter } from "@/components/dashboard/command-center";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { AmbientGlow } from "@/components/ui/ambient-glow";
-import { useBots, useBtcPrice, usePositions, useSSE, useUser } from "@/hooks";
+import { useBtcPrice, usePositions, useSSE, useUser } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function Dashboard() {
-  const { token, isAuthenticated, user, setAuth, setBots, setBtcPrice, setPositions } =
+  const { token, isAuthenticated, user, setAuth, setBtcPrice, setPositions } =
     useAppStore();
   const { data: userData } = useUser();
 
@@ -29,15 +29,12 @@ export function Dashboard() {
   useSSE();
 
   // Fetch initial data via API (only when authenticated)
-  const { data: botsData } = useBots();
+  // NOTE: We no longer auto-load bots into store - bots are managed via /bots page
+  // and manual selection on the dashboard
   const { data: btcData } = useBtcPrice();
   const { data: positionsData } = usePositions();
 
   // Sync API data to store
-  useEffect(() => {
-    if (botsData) setBots(botsData);
-  }, [botsData, setBots]);
-
   useEffect(() => {
     if (btcData?.price) setBtcPrice(btcData.price);
   }, [btcData, setBtcPrice]);
@@ -47,10 +44,33 @@ export function Dashboard() {
   }, [positionsData, setPositions]);
 
   const { sidebarCollapsed } = useAppStore();
-  const isAuthed =
+
+  // Wait for mount to check localStorage - prevents hydration mismatch
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => { setIsMounted(true); }, []);
+
+  const isAuthed = isMounted && (
     isAuthenticated ||
     !!token ||
-    (typeof window !== "undefined" && !!localStorage.getItem("token"));
+    (typeof window !== "undefined" && !!localStorage.getItem("token"))
+  );
+
+  // Show loading state until mounted - prevents hydration mismatch
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-background relative overflow-hidden">
+        <AmbientGlow color="green" position="top-left" />
+        <AmbientGlow color="blue" position="bottom-right" />
+        <AmbientGlow color="primary" position="center" />
+        <div className="flex h-screen items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
+            <div className="h-12 w-12 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent" />
+            <p className="text-sm font-medium text-zinc-400">Betöltés...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background relative overflow-hidden">

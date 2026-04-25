@@ -35,7 +35,9 @@ pub async fn init_db() -> Result<Db, sqlx::Error> {
 
     run_migrations(&pool).await?;
 
-    Ok(Arc::new(pool))
+    let db = Arc::new(pool);
+
+    Ok(db)
 }
 
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -67,6 +69,30 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Prevent duplicate bot names per user
+    // First, delete duplicates keeping only the most recently created bot for each (user_id, name)
+    sqlx::query(
+        r#"
+        DELETE FROM bot_configs
+        WHERE id NOT IN (
+            SELECT MIN(id) FROM bot_configs
+            GROUP BY user_id, name
+        )
+        "#,
+    )
+    .execute(pool)
+    .await.ok(); // Best effort — if no duplicates, OK
+
+    // Now create unique index
+    sqlx::query(
+        r#"
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_bot_configs_user_name
+        ON bot_configs(user_id, name)
         "#,
     )
     .execute(pool)
@@ -314,6 +340,7 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+
 pub mod queries {
     use super::*;
     use sqlx::Row;
@@ -482,6 +509,50 @@ pub mod queries {
         .await?;
 
         Ok(result.last_insert_rowid())
+    }
+
+    /// Check if a bot with the given name exists for a user (for duplicate prevention)
+    pub async fn get_bot_by_name(
+        db: &Db,
+        user_id: i64,
+        name: &str,
+    ) -> Result<Option<BotRecord>, sqlx::Error> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, user_id, name, market_id, strategy_type, params, status, created_at,
+                   bet_size, use_kelly, kelly_fraction, max_bet, interval, stop_loss, take_profit,
+                   total_trades, winning_trades, losing_trades, win_rate, trading_mode
+            FROM bot_configs
+            WHERE user_id = ? AND name = ?
+            "#,
+        )
+        .bind(user_id)
+        .bind(name)
+        .fetch_optional(db.as_ref())
+        .await?;
+
+        Ok(row.map(|r| BotRecord {
+            id: r.get("id"),
+            user_id: r.get("user_id"),
+            name: r.get("name"),
+            market_id: r.get("market_id"),
+            strategy_type: r.get("strategy_type"),
+            params: r.get("params"),
+            status: r.get("status"),
+            created_at: r.get("created_at"),
+            bet_size: r.get("bet_size"),
+            use_kelly: r.get("use_kelly"),
+            kelly_fraction: r.get("kelly_fraction"),
+            max_bet: r.get("max_bet"),
+            interval: r.get("interval"),
+            stop_loss: r.get("stop_loss"),
+            take_profit: r.get("take_profit"),
+            total_trades: r.get("total_trades"),
+            winning_trades: r.get("winning_trades"),
+            losing_trades: r.get("losing_trades"),
+            win_rate: r.get("win_rate"),
+            trading_mode: r.get("trading_mode"),
+        }))
     }
 
     pub async fn get_bots_by_user(
@@ -990,13 +1061,12 @@ pub mod queries {
 
     // === Portfolio queries ===
 
-    /// Get or create portfolio for a bot
+    /// Get portfolio for a bot (returns None if no portfolio exists)
     pub async fn get_portfolio(
         db: &Db,
         bot_id: i64,
         user_id: i64,
-    ) -> Result<BotPortfolioRecord, sqlx::Error> {
-        // Try to get existing
+    ) -> Result<Option<BotPortfolioRecord>, sqlx::Error> {
         let existing = sqlx::query_as::<_, BotPortfolioRecord>(
             "SELECT * FROM bot_portfolios WHERE bot_id = ?"
         )
@@ -1004,23 +1074,42 @@ pub mod queries {
         .fetch_optional(db.as_ref())
         .await?;
 
-        if let Some(portfolio) = existing {
-            return Ok(portfolio);
-        }
+        Ok(existing)
+    }
 
-        // Create new with default 100 balance
+    /// Create or reset portfolio with a given starting balance
+    pub async fn ensure_portfolio(
+        db: &Db,
+        bot_id: i64,
+        user_id: i64,
+        initial_balance: f64,
+    ) -> Result<BotPortfolioRecord, sqlx::Error> {
         sqlx::query(
             r#"
             INSERT INTO bot_portfolios (bot_id, user_id, balance, initial_balance)
-            VALUES (?, ?, 100, 100)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(bot_id) DO UPDATE SET
+                balance = ?,
+                initial_balance = ?,
+                open_positions = 0,
+                total_trades = 0,
+                winning_trades = 0,
+                losing_trades = 0,
+                total_pnl = 0,
+                peak_balance = ?,
+                last_trade_time = NULL,
+                updated_at = datetime('now')
             "#
         )
         .bind(bot_id)
         .bind(user_id)
+        .bind(initial_balance)
+        .bind(initial_balance)
+        .bind(initial_balance)
+        .bind(initial_balance)
         .execute(db.as_ref())
         .await?;
 
-        // Return the new record
         let result = sqlx::query_as::<_, BotPortfolioRecord>(
             "SELECT * FROM bot_portfolios WHERE bot_id = ?"
         )

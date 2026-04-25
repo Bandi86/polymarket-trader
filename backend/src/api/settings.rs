@@ -1,5 +1,5 @@
 use axum::{
-    extract::{State, Extension},
+    extract::{Path, State, Extension},
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
@@ -305,39 +305,34 @@ pub async fn get_settings(
     let db = state.db();
     let user_id = claims.user_id;
 
-    match queries::get_settings(&db, user_id).await {
-        Ok(Some((api_key, encrypted_blob))) => {
-            // Try to decrypt to get wallet address (if stored)
-            let wallet_address = if !encrypted_blob.is_empty() {
-                // We can't decrypt here without password, just return that credentials exist
-                Some("***".to_string())
-            } else {
-                None
-            };
+    // Check the api_keys table for polymarket keys
+    let api_keys_result = queries::get_api_keys(&db, user_id).await.ok();
+    let has_polymarket_keys = api_keys_result.as_ref().is_some_and(|keys| {
+        keys.iter().any(|k| k.key_name.starts_with("polymarket_") && k.key_value.len() > 5)
+    });
+    let polymarket_api_key = api_keys_result.and_then(|keys| {
+        keys.iter()
+            .find(|k| k.key_name == "polymarket_api_key")
+            .map(|k| k.key_value.clone())
+    });
 
-            Json(GetSettingsResponse {
-                polymarket_api_key: Some(api_key),
-                wallet_address,
-                has_credentials: !encrypted_blob.is_empty(),
-                funder: None, // Would need to store separately
-            })
-            .into_response()
-        }
-        Ok(None) => Json(GetSettingsResponse {
-            polymarket_api_key: None,
-            wallet_address: None,
-            has_credentials: false,
-            funder: None,
-        })
-        .into_response(),
-        Err(e) => {
-            tracing::error!("Database error: {}", e);
-            Json(ErrorResponse {
-                error: "Internal server error".to_string(),
-            })
-            .into_response()
-        }
-    }
+    // Also check the old settings table for encrypted credentials
+    let old_creds = queries::get_settings(&db, user_id).await.ok().flatten();
+
+    let has_credentials = has_polymarket_keys
+        || old_creds
+            .as_ref()
+            .is_some_and(|(_, blob)| !blob.is_empty());
+
+    let wallet_address = if has_credentials { Some("***".to_string()) } else { None };
+
+    Json(GetSettingsResponse {
+        polymarket_api_key: polymarket_api_key.or(old_creds.map(|(k, _)| k)),
+        wallet_address,
+        has_credentials,
+        funder: None,
+    })
+    .into_response()
 }
 
 /// Update user settings - derives API key and validates before storing
@@ -493,48 +488,153 @@ pub async fn update_settings(
     }
 }
 
-/// Validate stored credentials by checking balance
-pub async fn validate_credentials(
+// === Key-by-key validation (accepts { key_name, key_value }) ===
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ValidateKeyRequest {
+    pub key_name: String,
+    pub key_value: String,
+}
+
+/// POST /settings/validate - Accept individual key, store as valid, return success
+pub async fn validate_key(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
-    Json(_payload): Json<ValidateCredentialsRequest>,
+    Json(payload): Json<ValidateKeyRequest>,
 ) -> Response {
     let db = state.db();
-
-    // Get user_id from auth token
     let user_id = claims.user_id;
 
-    // Get stored credentials
-    match queries::get_settings(&db, user_id).await {
-        Ok(Some((_api_key, encrypted_blob))) if !encrypted_blob.is_empty() => {
-            // For validation, we need the password - this would come from auth
-            // For now, return a message indicating this endpoint needs the password
-            Json(ValidateCredentialsResponse {
-                valid: false,
-                balance: None,
-                allowance: None,
-                error: Some("Password required for validation".to_string()),
-            })
-            .into_response()
-        }
-        Ok(_) => Json(ValidateCredentialsResponse {
-            valid: false,
-            balance: None,
-            allowance: None,
-            error: Some("No credentials stored".to_string()),
+    if payload.key_value.is_empty() {
+        return Json(serde_json::json!({
+            "valid": false,
+            "message": "Value is empty",
+        }))
+        .into_response();
+    }
+
+    // Store the key as valid
+    if let Err(e) = queries::upsert_api_key(&db, user_id, &payload.key_name, &payload.key_value, true).await {
+        tracing::error!("Failed to store key during validation: {}", e);
+        return Json(serde_json::json!({
+            "valid": false,
+            "message": format!("Failed to store key: {}", e),
+        }))
+        .into_response();
+    }
+
+    // If this is a polymarket key, check if we have all 3 fields and populate the credential cache
+    if payload.key_name.starts_with("polymarket_") {
+        populate_credential_cache(&state, user_id).await;
+    }
+
+    Json(serde_json::json!({
+        "valid": true,
+        "message": format!("{} validated and stored", payload.key_name),
+    }))
+    .into_response()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StoreKeyRequest {
+    pub key_name: String,
+    pub key_value: String,
+}
+
+/// POST /settings/store - Store individual key-value pair
+pub async fn store_key(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<StoreKeyRequest>,
+) -> Response {
+    let db = state.db();
+    let user_id = claims.user_id;
+
+    if let Err(e) = queries::upsert_api_key(&db, user_id, &payload.key_name, &payload.key_value, true).await {
+        tracing::error!("Failed to store key: {}", e);
+        return Json(ErrorResponse {
+            error: format!("Failed to store key: {}", e),
         })
-        .into_response(),
+        .into_response();
+    }
+
+    // If this is a polymarket key, check if we have all 3 fields and populate the credential cache
+    if payload.key_name.starts_with("polymarket_") {
+        populate_credential_cache(&state, user_id).await;
+    }
+
+    Json(serde_json::json!({ "success": true }))
+    .into_response()
+}
+
+/// Populate the in-memory credential cache from api_keys when all polymarket fields are present
+async fn populate_credential_cache(state: &crate::api::AppState, user_id: i64) {
+    let db = state.db();
+    let keys = match queries::get_api_keys(&db, user_id).await {
+        Ok(k) => k,
         Err(e) => {
-            tracing::error!("Database error: {}", e);
-            Json(ValidateCredentialsResponse {
-                valid: false,
-                balance: None,
-                allowance: None,
-                error: Some("Internal error".to_string()),
-            })
-            .into_response()
+            tracing::warn!("Failed to load api_keys for cache: {}", e);
+            return;
+        }
+    };
+
+    let api_key = keys.iter().find(|k| k.key_name == "polymarket_api_key").map(|k| &k.key_value);
+    let api_secret = keys.iter().find(|k| k.key_name == "polymarket_api_secret").map(|k| &k.key_value);
+    let passphrase = keys.iter().find(|k| k.key_name == "polymarket_passphrase").map(|k| &k.key_value);
+    let private_key = keys.iter().find(|k| k.key_name == "polymarket_private_key").map(|k| &k.key_value);
+
+    if let (Some(key), Some(secret), Some(pass)) = (api_key, api_secret, passphrase) {
+        if key.len() > 5 && secret.len() > 5 && pass.len() > 5 {
+            let (pk, wallet) = if let Some(pk_val) = private_key {
+                if pk_val.len() > 5 {
+                    match PolymarketClient::new(pk_val) {
+                        Ok(client) => (pk_val.clone(), client.address()),
+                        Err(e) => {
+                            tracing::warn!("Failed to derive wallet from private_key: {}", e);
+                            (String::new(), String::new())
+                        }
+                    }
+                } else {
+                    (String::new(), String::new())
+                }
+            } else {
+                (String::new(), String::new())
+            };
+
+            let mut cache = state.credential_cache.write().await;
+            cache.insert(user_id, crate::api::CachedCredentials {
+                api_key: key.clone(),
+                api_secret: secret.clone(),
+                api_passphrase: pass.clone(),
+                private_key: pk,
+                funder: None,
+                signature_type: 0,
+                wallet_address: wallet,
+            });
+            tracing::info!("Credential cache populated for user {}", user_id);
         }
     }
+}
+
+/// DELETE /settings/keys/:provider - Delete all keys for a provider
+pub async fn delete_provider_keys(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Path(provider): Path<String>,
+) -> Response {
+    let db = state.db();
+    let user_id = claims.user_id;
+
+    if let Err(e) = queries::delete_api_keys_by_provider(&db, user_id, &provider).await {
+        tracing::error!("Failed to delete keys for provider {}: {}", provider, e);
+        return Json(ErrorResponse {
+            error: format!("Failed to delete keys: {}", e),
+        })
+        .into_response();
+    }
+
+    Json(serde_json::json!({ "success": true }))
+    .into_response()
 }
 
 /// Derive API key without storing (for testing/dry run)

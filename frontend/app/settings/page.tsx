@@ -37,6 +37,7 @@ const API_KEYS_CONFIG: ApiKeyType[] = [
       { key: "api_key", label: "API Key", placeholder: "pm_api_xxxxx", required: true },
       { key: "api_secret", label: "API Secret", placeholder: "pm_secret_xxxxx", required: true },
       { key: "passphrase", label: "Passphrase", placeholder: "your_passphrase", required: true },
+      { key: "private_key", label: "Private Key", placeholder: "0x...", required: true },
     ],
     status: "empty",
   },
@@ -64,11 +65,11 @@ export default function SettingsPage() {
   const [apiKeys, setApiKeys] = useState<ApiKeyType[]>(API_KEYS_CONFIG);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [inputValues, setInputValues] = useState<Record<string, Record<string, string>>>({
-    polymarket: { api_key: "", api_secret: "", passphrase: "" },
+    polymarket: { api_key: "", api_secret: "", passphrase: "", private_key: "" },
     binance: { api_key: "", api_secret: "" },
   });
   const [showValues, setShowValues] = useState<Record<string, Record<string, boolean>>>({
-    polymarket: { api_key: false, api_secret: false, passphrase: false },
+    polymarket: { api_key: false, api_secret: false, passphrase: false, private_key: false },
     binance: { api_key: false, api_secret: false },
   });
   const [loading, setLoading] = useState(false);

@@ -10,12 +10,15 @@ export interface User {
 export interface Bot {
   id: number;
   name: string;
+  market_id: string;
   strategy: StrategyType;
-  enabled: boolean;
+  strategy_type: string;
+  trading_mode: string;
   bet_size: number;
   max_bet: number;
   use_kelly: boolean;
   kelly_fraction: number;
+  interval: number;
   interval_seconds: number;
   volatility_threshold?: number;
   btc_confirmation?: boolean;
@@ -23,17 +26,55 @@ export interface Bot {
   status: BotStatus;
   run_time?: number;
   created_at: string;
+  pnl?: number;
+  trades_count?: number;
+  win_rate?: number;
+  stop_loss: number;
+  take_profit: number;
 }
 
 export type StrategyType =
-  | "random"
+  | "window_delta"
+  | "fair_value"
+  | "last_seconds_scalp"
   | "momentum"
+  | "binance_signal"
+  | "contrarian"
+  | "smart_trend"
+  | "ultra_low_entry"
+  | "volatility_breakout"
+  | "trend_pullback"
+  | "price_reversion"
+  | "binance_velocity"
+  | "sniper_value"
+  | "odds_swing"
+  | "bayesian_ev"
   | "mean_reversion"
   | "trend"
-  | "fair_value"
-  | "window_delta"
-  | "binance_signal"
-  | "last_seconds_scalp";
+  | "volatility"
+  | "random";
+
+export const STRATEGY_LABELS: Record<StrategyType, { name: string; category: string; description: string }> = {
+  window_delta:      { name: "Window Delta",     category: "Momentum",      description: "BTC ár vs ablak nyitóár alapján" },
+  fair_value:        { name: "Fair Value Arb",   category: "Arbitrage",     description: "Piac félreárazást keres" },
+  last_seconds_scalp:{ name: "T-10 Sniper",      category: "Arbitrage",     description: "Utolsó 10-30mp-ban lép" },
+  momentum:          { name: "BTC Momentum",     category: "Momentum",      description: "BTC momentum alapú kereskedés" },
+  binance_signal:    { name: "Oracle Lag",       category: "Momentum",      description: "Binance valós idejű BTC ár előnye" },
+  contrarian:        { name: "Contrarian",       category: "Mean Rev",      description: "Piac követ – nem igazi contrarian" },
+  smart_trend:       { name: "Smart Trend",      category: "Trend",         description: "Multi-timeframe trend + BTC megerősítés" },
+  ultra_low_entry:   { name: "Ultra Low Entry",  category: "Mean Rev",      description: "Vásárlás 4-15¢-nél" },
+  volatility_breakout:{ name: "Vol Breakout",    category: "Momentum",      description: "Csak extrém volatilitásnál kereskedik" },
+  trend_pullback:    { name: "Trend Pullback",   category: "Momentum",      description: "Magas meggyőzési órákon kereskedik" },
+  price_reversion:   { name: "Price Reversion",  category: "Mean Rev",      description: "Polymarket ár visszatérés" },
+  binance_velocity:  { name: "Binance Velocity", category: "Momentum",      description: "BTC sebesség alapú" },
+  sniper_value:      { name: "Sniper Value",     category: "Mean Rev",      description: "Extremális áraknál kereskedik" },
+  odds_swing:        { name: "Odds Swing",       category: "Other",         description: "Vásárol <15¢ alatt, kilép 2x-nél" },
+  bayesian_ev:       { name: "Bayesian EV",      category: "Arbitrage",     description: "Bayesian valószínűség + EV szűrő + Kelly" },
+  mean_reversion:    { name: "Mean Reversion",   category: "Mean Rev",      description: "Extrém elmozdulás után visszatérés" },
+  trend:             { name: "Multi-level Trend",category: "Trend",         description: "Trend követés" },
+  volatility:        { name: "Volatility",       category: "Momentum",      description: "Volatilitás kitörés" },
+  random:            { name: "Random",           category: "Other",         description: "Véletlen kereskedés" },
+};
 
 export type BotStatus = "idle" | "running" | "stopped" | "error";
 
@@ -65,6 +106,24 @@ export interface Portfolio {
   matic_balance?: number;
   positions: Position[];
   closed_positions: Position[];
+}
+
+export interface PortfolioResponse {
+  bot_id: number;
+  balance: number;
+  initial_balance: number;
+  open_positions: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  total_pnl: number;
+  peak_balance: number;
+  win_rate: number;
+  roi_percent: number;
+  drawdown_percent: number;
+  avg_pnl_per_trade: number;
+  unrealized_pnl: number;
+  total_position_value: number;
 }
 
 export interface Position {
@@ -178,4 +237,24 @@ export interface PlaceOrderRequest {
   price: number;
   size: number;
   bot_id?: number;
+}
+
+// Risk Management Types
+export interface RiskWarning {
+  bot_id: number;
+  warning_type: string;
+  message: string;
+  severity: "warning" | "critical";
+  timestamp: number;
+}
+
+export interface BotRiskStatus {
+  bot_id: number;
+  current_drawdown: number;
+  daily_pnl: number;
+  trades_today: number;
+  paused: boolean;
+  pause_reason: string | null;
+  warnings: RiskWarning[];
+  actions: string[];
 }

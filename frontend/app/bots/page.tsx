@@ -45,14 +45,22 @@ export default function BotsPage() {
         configs.map((c) => ({
           id: c.id,
           name: c.name,
-          strategy: c.strategy,
-          enabled: c.enabled,
+          strategy: (c.strategy_type || "momentum") as StrategyType,
+          strategy_type: c.strategy_type || "momentum",
+          trading_mode: c.trading_mode || "paper",
+          market_id: c.market_id || "btc-5m",
+          interval: c.interval || 300000,
           status: c.status,
           bet_size: c.bet_size,
           max_bet: c.max_bet,
           use_kelly: c.use_kelly,
           kelly_fraction: c.kelly_fraction,
-          interval_seconds: c.interval_seconds,
+          interval_seconds: (c.interval || 300000) / 1000,
+          stop_loss: c.stop_loss ?? 0.1,
+          take_profit: c.take_profit ?? 0.2,
+          pnl: c.pnl,
+          trades_count: c.trades_count,
+          win_rate: c.win_rate,
           created_at: c.created_at,
         }))
       );
@@ -104,18 +112,30 @@ export default function BotsPage() {
       return;
     }
 
+    // Check for duplicate bot name
+    const exists = botConfigs.some((b) => b.name.toLowerCase() === newBotName.toLowerCase());
+    if (exists) {
+      toast.error("Botnév már létezik. Válassz másik nevet.");
+      return;
+    }
+
     setLoading(true);
     try {
       await apiFetch<BotConfig>("/bots", {
         method: "POST",
         body: JSON.stringify({
           name: newBotName,
-          strategy: newBotStrategy,
+          market_id: "btc-5m",
+          strategy_type: newBotStrategy,
+          params: "{}",
           bet_size: newBotBetSize,
           max_bet: 100,
           use_kelly: false,
           kelly_fraction: 0.5,
-          interval_seconds: 300,
+          interval: 300000,
+          stop_loss: 0.1,
+          take_profit: 0.2,
+          trading_mode: "paper",
         }),
       });
       toast.success("Bot létrehozva!");

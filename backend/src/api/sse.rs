@@ -9,12 +9,14 @@ use axum::{
 use futures_util::stream::Stream;
 use std::convert::Infallible;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, broadcast};
 
 use super::AppState;
+use crate::trading::orchestrator::BotEvent;
 
 const GAMMA_API: &str = "https://gamma-api.polymarket.com";
 const CLOB_API: &str = "https://clob.polymarket.com";
+const BINANCE_API: &str = "https://api.binance.com/api/v3";
 const TIMEFRAME_DURATION_SECS: i64 = 300; // 5 minutes
 
 /// Fetch current BTC price from Binance
@@ -37,6 +39,38 @@ async fn fetch_btc_price() -> Option<f64> {
             match resp.json::<BinancePrice>().await {
                 Ok(data) => data.price.parse::<f64>().ok(),
                 Err(_) => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// Fetch historical BTC price at specific timestamp from Binance (1m kline open price)
+async fn fetch_btc_price_at_timestamp(timestamp: i64) -> Option<f64> {
+    let client = reqwest::Client::new();
+
+    // Binance expects milliseconds
+    let start_time_ms = timestamp * 1000;
+
+    let result = client
+        .get(format!(
+            "{}/klines?symbol=BTCUSDT&interval=1m&startTime={}&limit=1",
+            BINANCE_API, start_time_ms
+        ))
+        .timeout(std::time::Duration::from_secs(3))
+        .send()
+        .await;
+
+    match result {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.json::<Vec<Vec<serde_json::Value>>>().await {
+                Ok(klines) if !klines.is_empty() => {
+                    // Kline format: [open_time, open, high, low, close, ...]
+                    klines[0].get(1)
+                        .and_then(|v| v.as_str())
+                        .and_then(|s| s.parse::<f64>().ok())
+                }
+                _ => None,
             }
         }
         _ => None,
@@ -214,6 +248,9 @@ pub async fn bot_events_stream(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let state_clone = state.clone();
 
+    // Subscribe to bot events from broadcast channel
+    let mut bot_event_subscriber = state.bot_event_broadcaster.subscribe();
+
     // Shared state
     let last_btc_price = Arc::new(RwLock::new(0.0));
     let last_start_price = Arc::new(RwLock::new(0.0)); // BTC price at market start time
@@ -247,12 +284,22 @@ pub async fn bot_events_stream(
             let market_id = market.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
             let yes_token = market.get("yes_token_id").and_then(|t| t.as_str()).unwrap_or("").to_string();
 
-            // Get eventStartTime - the start of the 5-minute window
-            let event_start_time = market.get("eventStartTime")
-                .and_then(|t| t.as_str())
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|dt| dt.timestamp())
+            // Extract event_start_time from slug (format: btc-updown-5m-{timestamp})
+            let event_start_time: i64 = slug
+                .strip_prefix("btc-updown-5m-")
+                .or_else(|| slug.strip_prefix("eth-updown-5m-"))
+                .and_then(|ts| ts.parse::<i64>().ok())
                 .unwrap_or(0);
+
+            // Fetch HISTORICAL BTC price at market start time (this is the TRUE price_to_beat)
+            let start_price = if event_start_time > 0 {
+                fetch_btc_price_at_timestamp(event_start_time).await.unwrap_or(0.0)
+            } else {
+                0.0
+            };
+
+            // Fetch current BTC price
+            let current_btc = fetch_btc_price().await.unwrap_or(0.0);
 
             let mut market_lock = last_market.write().await;
             *market_lock = Some(market.clone());
@@ -263,13 +310,97 @@ pub async fn bot_events_stream(
             let mut start_time_lock = last_event_start_time.write().await;
             *start_time_lock = event_start_time;
 
-            tracing::info!("Initial market: {} (starts at {})",
+            // Update shared prices
+            let mut btc_lock = last_btc_price.write().await;
+            *btc_lock = current_btc;
+            let mut start_price_lock = last_start_price.write().await;
+            *start_price_lock = start_price;
+
+            tracing::info!("Initial market: {} (event_start={}, price_to_beat=${:.2}, current_btc=${:.2})",
                 market.get("question").and_then(|q| q.as_str()).unwrap_or(""),
-                event_start_time);
+                event_start_time, start_price, current_btc);
         }
 
         loop {
             tokio::select! {
+                // Bot events from broadcast channel
+                bot_event_result = bot_event_subscriber.recv() => {
+                    match bot_event_result {
+                        Ok(event) => {
+                            let event_data = match &event {
+                                BotEvent::SessionStarted { bot_id, session_id, bot_name } => {
+                                    serde_json::json!({
+                                        "type": "session_started",
+                                        "bot_id": bot_id,
+                                        "session_id": session_id,
+                                        "bot_name": bot_name,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                                BotEvent::SessionEnded { bot_id, session_id, final_balance, total_pnl } => {
+                                    serde_json::json!({
+                                        "type": "session_ended",
+                                        "bot_id": bot_id,
+                                        "session_id": session_id,
+                                        "final_balance": final_balance,
+                                        "total_pnl": total_pnl,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                                BotEvent::TradeDecision { bot_id, outcome, confidence, bet_size, reason } => {
+                                    serde_json::json!({
+                                        "type": "trade_decision",
+                                        "bot_id": bot_id,
+                                        "outcome": outcome,
+                                        "confidence": confidence,
+                                        "bet_size": bet_size,
+                                        "reason": reason,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                                BotEvent::OrderExecuted { bot_id, order_id } => {
+                                    serde_json::json!({
+                                        "type": "order_executed",
+                                        "bot_id": bot_id,
+                                        "order_id": order_id,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                                BotEvent::BalanceUpdated { bot_id, balance } => {
+                                    serde_json::json!({
+                                        "type": "balance_updated",
+                                        "bot_id": bot_id,
+                                        "balance": balance,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                                BotEvent::Error { bot_id, message } => {
+                                    serde_json::json!({
+                                        "type": "error",
+                                        "bot_id": bot_id,
+                                        "message": message,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                                BotEvent::MarketTransition { new_market_slug } => {
+                                    serde_json::json!({
+                                        "type": "market_transition",
+                                        "new_market_slug": new_market_slug,
+                                        "timestamp": chrono::Utc::now().to_rfc3339()
+                                    })
+                                }
+                            };
+
+                            yield Ok(Event::default()
+                                .event("bot")
+                                .data(event_data.to_string()));
+                        }
+                        Err(e) => {
+                            tracing::warn!("Bot event broadcast error: {}", e);
+                        }
+                    }
+                }
+
                 // Market discovery (every 5s)
                 _ = discovery_interval.tick() => {
                     let current_market = last_market.read().await.clone();

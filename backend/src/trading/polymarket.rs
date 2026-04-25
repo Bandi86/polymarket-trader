@@ -415,23 +415,26 @@ impl PolymarketClient {
         // Generate order parameters
         let salt: u64 = rand::random();
         let expiration: i64 = chrono::Utc::now().timestamp() + 86400; // 24 hours
-        let nonce: u64 = rand::random();
-        let fee_rate_bps: u64 = 0; // V2: fees collected onchain, not in signed order
+        let timestamp_ms = chrono::Utc::now().timestamp_millis();
+        let metadata = "0x0000000000000000000000000000000000000000000000000000000000000000";
+        let builder = "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+        let side_val = if order.side == "BUY" { 0 } else { 1 };
 
         // V2 Order type fields
         let order_data = serde_json::json!({
             "salt": salt.to_string(),
             "maker": self.funder.as_ref().unwrap_or(&self.address()),
             "signer": self.address(),
-            "taker": "0x0000000000000000000000000000000000000000", // Anyone can fill
             "tokenId": order.token_id,
             "makerAmount": (order.size * 1000000.0).to_string(), // Convert to base units
             "takerAmount": (order.size * order.price * 1000000.0).to_string(),
             "expiration": expiration,
-            "nonce": nonce,
-            "feeRateBps": fee_rate_bps,
-            "side": order.side, // "BUY" or "SELL"
+            "side": side_val,
             "signatureType": self.signature_type,
+            "timestamp": timestamp_ms,
+            "metadata": metadata,
+            "builder": builder,
         });
 
         // EIP-712 Domain for V2 Exchange
@@ -456,15 +459,15 @@ impl PolymarketClient {
                     {"name": "salt", "type": "uint256"},
                     {"name": "maker", "type": "address"},
                     {"name": "signer", "type": "address"},
-                    {"name": "taker", "type": "address"},
                     {"name": "tokenId", "type": "uint256"},
                     {"name": "makerAmount", "type": "uint256"},
                     {"name": "takerAmount", "type": "uint256"},
                     {"name": "expiration", "type": "uint256"},
-                    {"name": "nonce", "type": "uint256"},
-                    {"name": "feeRateBps", "type": "uint256"},
                     {"name": "side", "type": "uint8"},
-                    {"name": "signatureType", "type": "uint8"}
+                    {"name": "signatureType", "type": "uint8"},
+                    {"name": "timestamp", "type": "uint256"},
+                    {"name": "metadata", "type": "bytes32"},
+                    {"name": "builder", "type": "bytes32"}
                 ]
             },
             "primaryType": "Order",
@@ -502,15 +505,15 @@ impl PolymarketClient {
                 "salt": salt.to_string(),
                 "maker": self.funder.as_ref().unwrap_or(&self.address()),
                 "signer": self.address(),
-                "taker": "0x0000000000000000000000000000000000000000",
                 "tokenId": order.token_id,
                 "makerAmount": (order.size * 1000000.0).to_string(),
                 "takerAmount": (order.size * order.price * 1000000.0).to_string(),
-                "expiration": expiration,
-                "nonce": nonce,
-                "feeRateBps": fee_rate_bps,
-                "side": if order.side == "BUY" { 0 } else { 1 },
+                "expiration": expiration.to_string(),
+                "side": order.side, // "BUY" or "SELL"
                 "signatureType": self.signature_type,
+                "timestamp": timestamp_ms.to_string(),
+                "metadata": metadata,
+                "builder": builder,
                 "signature": signature.to_string(),
             },
             "orderType": "GTC", // Good Till Cancelled

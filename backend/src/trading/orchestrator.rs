@@ -11,6 +11,9 @@ use crate::db::Db;
 use crate::db::queries;
 use crate::db::BotRecord;
 use crate::trading::bot_executor::strategies::{Signal, StrategyExecutor, StrategyContext};
+use crate::trading::risk_manager::RiskManager;
+use crate::trading::bot_loss_tracker::BotLossTrackerManager;
+use crate::trading::strategy_coordinator::StrategyCoordinator;
 use crate::api::market::fetch_active_markets;
 use crate::api::CachedCredentials;
 use crate::trading::polymarket::{PolymarketClient, OrderRequest};
@@ -47,7 +50,11 @@ pub struct BotOrchestrator {
     db: Db,
     running_bots: Arc<RwLock<HashMap<i64, RunningBot>>>,
     event_sender: mpsc::UnboundedSender<BotEvent>,
-    auto_save_interval: Duration,
+    pub auto_save_interval: Duration,
+    // Risk management
+    pub risk_manager: Arc<RwLock<RiskManager>>,
+    pub loss_tracker: Arc<RwLock<BotLossTrackerManager>>,
+    pub coordinator: Arc<RwLock<StrategyCoordinator>>,
 }
 
 impl BotOrchestrator {
@@ -57,6 +64,9 @@ impl BotOrchestrator {
             running_bots: Arc::new(RwLock::new(HashMap::new())),
             event_sender,
             auto_save_interval: Duration::from_secs(30),
+            risk_manager: Arc::new(RwLock::new(RiskManager::new_paper())),
+            loss_tracker: Arc::new(RwLock::new(BotLossTrackerManager::new())),
+            coordinator: Arc::new(RwLock::new(StrategyCoordinator::default_with_config())),
         }
     }
 
@@ -77,22 +87,68 @@ impl BotOrchestrator {
         base_bet_size: f64,
     ) -> f64 {
         if !use_kelly {
-            // Fixed bet size
             return base_bet_size.min(balance * max_bet);
         }
 
-        // Kelly criterion for binary outcome
-        // win probability = confidence, lose probability = 1 - confidence
         let kelly = (2.0 * confidence - 1.0).max(0.0);
-
-        // Apply Kelly fraction (fractional Kelly to reduce variance)
         let fractional_kelly = kelly * kelly_fraction;
-
-        // Calculate bet amount
         let bet_amount = balance * fractional_kelly;
-
-        // Apply max bet limit and minimum
         bet_amount.min(balance * max_bet).max(1.0).min(balance)
+    }
+
+    /// Enhanced bet size with odds-aware multipliers (from demo strategy-executor.ts)
+    /// Higher odds (60-80 cent): 1.2x (higher win rate, can bet more)
+    /// Higher odds (80-95 cent): 0.8x (still high win rate, less upside)
+    /// Lower odds (0-40 cent): 0.5x (lottery tickets, bet less)
+    fn calculate_bet_size_enhanced(
+        confidence: f64,
+        balance: f64,
+        entry_price: f64,
+        use_kelly: bool,
+        kelly_fraction: f64,
+        max_bet: f64,
+        base_bet_size: f64,
+        risk_multiplier: f64,
+    ) -> f64 {
+        if !use_kelly {
+            let odds_mult = Self::odds_multiplier(entry_price);
+            return (base_bet_size * odds_mult * risk_multiplier).min(balance * max_bet);
+        }
+
+        // Kelly with odds-aware multiplier
+        let price = if entry_price > 0.0 && entry_price < 1.0 {
+            entry_price
+        } else {
+            0.5
+        };
+        let b = (1.0 - price) / price;
+        let p = confidence;
+        let q = 1.0 - p;
+        let mut kelly = (b * p - q) / b;
+        if kelly <= 0.0 {
+            return base_bet_size.min(balance * max_bet);
+        }
+
+        // Apply half-Kelly for safety, plus user's fraction, plus odds multiplier
+        let odds_mult = Self::odds_multiplier(entry_price);
+        let adjusted_kelly = kelly * 0.5 * kelly_fraction * odds_mult * risk_multiplier;
+        let kelly_bet = balance * adjusted_kelly;
+
+        let max_bet_amount = balance * max_bet;
+        kelly_bet.min(max_bet_amount).max(1.0).min(balance)
+    }
+
+    /// Odds-aware multiplier (from demo strategy-executor.ts)
+    fn odds_multiplier(price: f64) -> f64 {
+        if price >= 0.60 && price <= 0.80 {
+            1.2 // Sweet spot
+        } else if price > 0.80 {
+            0.8 // Expensive
+        } else if price < 0.40 {
+            0.5 // Cheap / lottery
+        } else {
+            1.0 // Neutral
+        }
     }
 
     /// Start a bot session
@@ -108,9 +164,12 @@ impl BotOrchestrator {
         }
         drop(running);
 
-        // Create portfolio if needed and reset for new session
-        queries::get_portfolio(&self.db, bot.id, bot.user_id).await
-            .map_err(|e| format!("Failed to get portfolio: {}", e))?;
+        // Reset portfolio for new session (portfolio must already exist — created by API)
+        let portfolio = match queries::get_portfolio(&self.db, bot.id, bot.user_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => return Err("Portfolio does not exist — must be created before starting bot".to_string()),
+            Err(e) => return Err(format!("Failed to check portfolio: {}", e)),
+        };
         queries::reset_portfolio(&self.db, bot.id, initial_balance).await
             .map_err(|e| format!("Failed to reset portfolio: {}", e))?;
 
@@ -162,8 +221,24 @@ impl BotOrchestrator {
 
         if let Some(rb) = running_bot {
             // Get final portfolio state
-            let portfolio = queries::get_portfolio(&self.db, bot_id, user_id).await
-                .map_err(|e| format!("Failed to get portfolio: {}", e))?;
+            let portfolio = match queries::get_portfolio(&self.db, bot_id, user_id).await {
+                Ok(Some(p)) => p,
+                Ok(None) => {
+                    tracing::warn!("Bot {} has no portfolio on stop, skipping session end", bot_id);
+                    // Still end session with zeroed values
+                    let session_id = rb.session_id;
+                    queries::end_session(&self.db, session_id, 0.0, 0, 0, 0, 0.0, 0.0).await.ok();
+                    queries::update_bot_status(&self.db, bot_id, user_id, "stopped").await.ok();
+                    self.event_sender.send(BotEvent::SessionEnded {
+                        bot_id,
+                        session_id,
+                        final_balance: 0.0,
+                        total_pnl: 0.0,
+                    }).ok();
+                    return Ok(());
+                },
+                Err(e) => return Err(format!("Failed to get portfolio: {}", e)),
+            };
 
             // End session
             queries::end_session(
@@ -241,8 +316,14 @@ impl BotOrchestrator {
         };
 
         // Get current portfolio for stop-loss/take-profit checks
-        let portfolio = queries::get_portfolio(&self.db, bot_id, user_id).await
-            .map_err(|e| format!("Failed to get portfolio: {}", e))?;
+        let portfolio = match queries::get_portfolio(&self.db, bot_id, user_id).await {
+            Ok(Some(p)) => p,
+            Ok(None) => {
+                tracing::warn!("Bot {} has no portfolio, skipping cycle", bot_id);
+                return Ok(());
+            },
+            Err(e) => return Err(format!("Failed to get portfolio: {}", e)),
+        };
 
         // Update running bot balance
         {
@@ -295,10 +376,21 @@ impl BotOrchestrator {
         }
 
         // === NORMAL TRADING CYCLE ===
-        // Fetch active market
+        // Fetch active markets for this bot's asset
         let timeframe = self.extract_timeframe(&bot.market_id);
-        tracing::debug!("Fetching active markets for timeframe {}", timeframe);
-        let markets = fetch_active_markets(&timeframe).await;
+        let asset = if bot.market_id.contains("btc") {
+            "BTC"
+        } else if bot.market_id.contains("eth") {
+            "ETH"
+        } else if bot.market_id.contains("sol") {
+            "SOL"
+        } else if bot.market_id.contains("xrp") {
+            "XRP"
+        } else {
+            "BTC" // Default
+        };
+        let all_markets = fetch_active_markets(&timeframe).await;
+        let markets: Vec<_> = all_markets.into_iter().filter(|m| m.asset == asset).collect();
 
         let Some(market) = markets.first().cloned() else {
             tracing::debug!("No active market found, skipping cycle");
@@ -357,17 +449,79 @@ impl BotOrchestrator {
                     _ => "YES",
                 };
 
-                // Calculate bet size using Kelly criterion
-                let bet_size = Self::calculate_bet_size(
-                    confidence,
+                // === RISK LAYER: Adjust confidence based on performance ===
+                let adjusted_confidence = {
+                    let mut tracker = self.loss_tracker.write().await;
+                    let conf = tracker.adjust_confidence(bot_id, confidence, rb.current_balance);
+                    let risk_mult = tracker.get_risk_multiplier(bot_id, rb.current_balance);
+                    drop(tracker);
+                    if risk_mult == 0.0 {
+                        tracing::warn!("Bot {} blocked by loss tracker risk multiplier", bot_id);
+                        return Ok(());
+                    }
+                    (conf, risk_mult)
+                };
+                let (adjusted_confidence, risk_mult) = adjusted_confidence;
+
+                // === RISK LAYER: Check if we can open position ===
+                let price = if outcome == "YES" { market.yes_price } else { market.no_price };
+                {
+                    let mut rm = self.risk_manager.write().await;
+                    let (allowed, reason) = rm.can_open_position(
+                        bot_id,
+                        bot.bet_size,
+                        adjusted_confidence,
+                        rb.current_balance,
+                        portfolio.initial_balance,
+                    );
+                    if !allowed {
+                        let reason_str = reason.unwrap_or_else(|| "Risk check failed".to_string());
+                        tracing::info!("Bot {} risk check blocked: {}", bot_id, reason_str);
+                        return Ok(());
+                    }
+                }
+
+                // === RISK LAYER: Strategy coordinator check ===
+                let market_slug_str = format!("btc-updown-5m-{}", market.end_time);
+                let adjusted_bet = if risk_mult < 1.0 {
+                    bot.bet_size * risk_mult
+                } else {
+                    bot.bet_size
+                };
+                {
+                    let mut coord = self.coordinator.write().await;
+                    let result = coord.register_decision(
+                        &market_slug_str, bot_id, &bot.name, &bot.strategy_type,
+                        outcome, adjusted_confidence, adjusted_bet, rb.current_balance,
+                    );
+                    if !result.allowed {
+                        tracing::info!("Bot {} coordinator blocked: {}", bot_id, result.reason);
+                        return Ok(());
+                    }
+                    if let Some(reduced) = result.adjusted_bet_size {
+                        tracing::debug!("Bot {} bet reduced to ${:.2}", bot_id, reduced);
+                    }
+                    if let Some(ref warnings) = result.warnings {
+                        for w in warnings {
+                            tracing::debug!("Bot {} coordinator warning: {}", bot_id, w);
+                        }
+                    }
+                }
+
+                // Calculate bet size using Kelly with odds-aware multipliers (from demo)
+                let bet_size = Self::calculate_bet_size_enhanced(
+                    adjusted_confidence,
                     rb.current_balance,
+                    price,
                     bot.use_kelly != 0,
                     bot.kelly_fraction,
                     bot.max_bet,
                     bot.bet_size,
+                    risk_mult,
                 );
 
-                let reason = format!("{:.2} confidence for {}, bet size: {:.2}", confidence, outcome, bet_size);
+                let reason = format!("{:.2} confidence (adjusted: {:.2}) for {}, bet size: {:.2}, risk_mult: {:.2}",
+                    confidence, adjusted_confidence, outcome, bet_size, risk_mult);
 
                 // Log the decision
                 queries::log_trade_decision(
@@ -404,25 +558,101 @@ impl BotOrchestrator {
                         let creds = cache.get(&user_id).cloned();
                         drop(cache);
                         if let Some(creds) = creds {
-                            match Self::place_order(
-                                &market,
-                                outcome,
-                                bet_size,
-                                &creds,
-                            ).await {
-                                Ok(order_id) => {
-                                    tracing::info!("Bot {} order executed: {}", bot_id, order_id);
-                                    self.event_sender.send(BotEvent::OrderExecuted {
-                                        bot_id,
-                                        order_id: order_id.clone(),
-                                    }).ok();
+                            let mut proceed_with_order = true;
+                            
+                            // 1. MATIC BALANCE CHECK
+                            match crate::trading::polymarket::check_matic_balance(&creds.wallet_address).await {
+                                Ok(matic) if matic < 0.01 => {
+                                    tracing::warn!("Bot {} has critical MATIC balance: {:.6}", bot_id, matic);
+                                    let mut running = self.running_bots.write().await;
+                                    if let Some(rb) = running.get_mut(&bot_id) {
+                                        rb.consecutive_errors += 1;
+                                        if rb.consecutive_errors >= 3 {
+                                            drop(running);
+                                            tracing::error!("Bot {} stopped due to insufficient MATIC (3 errors)", bot_id);
+                                            self.event_sender.send(BotEvent::Error {
+                                                bot_id,
+                                                message: "Stopped: Insufficient MATIC for gas".to_string(),
+                                            }).ok();
+                                            let _ = self.stop_bot(bot_id, user_id).await;
+                                            return Ok(());
+                                        }
+                                    }
+                                    proceed_with_order = false;
                                 }
                                 Err(e) => {
-                                    tracing::error!("Bot {} order failed: {}", bot_id, e);
-                                    self.event_sender.send(BotEvent::Error {
-                                        bot_id,
-                                        message: format!("Order failed: {}", e),
-                                    }).ok();
+                                    tracing::warn!("Bot {} MATIC check failed: {}", bot_id, e);
+                                    // Proceed anyway, let place_order fail if it's a real out-of-gas issue
+                                }
+                                Ok(_) => {} // MATIC is fine
+                            }
+
+                            // 2. PLACE ORDER
+                            if proceed_with_order {
+                                match Self::place_order(
+                                    &market,
+                                    outcome,
+                                    bet_size,
+                                    &creds,
+                                ).await {
+                                    Ok(order_id) => {
+                                        tracing::info!("Bot {} order executed: {}", bot_id, order_id);
+
+                                        // Confirm execution with coordinator
+                                        {
+                                            let mut coord = self.coordinator.write().await;
+                                            coord.confirm_execution(
+                                                &market_slug_str, bot_id, outcome, bet_size,
+                                            );
+                                        }
+
+                                        // Mark trade as sent for loss tracker
+                                        {
+                                            let mut tracker = self.loss_tracker.write().await;
+                                            tracker.mark_trade_sent(bot_id);
+                                        }
+                                        
+                                        // Reset consecutive errors on success
+                                        let mut running = self.running_bots.write().await;
+                                        if let Some(rb) = running.get_mut(&bot_id) {
+                                            rb.consecutive_errors = 0;
+                                        }
+                                        drop(running);
+
+                                        self.event_sender.send(BotEvent::OrderExecuted {
+                                            bot_id,
+                                            order_id: order_id.clone(),
+                                        }).ok();
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Bot {} order failed: {}", bot_id, e);
+
+                                        // Cancel decision with coordinator
+                                        {
+                                            let mut coord = self.coordinator.write().await;
+                                            coord.cancel_decision(&market_slug_str, bot_id);
+                                        }
+                                        
+                                        let mut running = self.running_bots.write().await;
+                                        if let Some(rb) = running.get_mut(&bot_id) {
+                                            rb.consecutive_errors += 1;
+                                            if rb.consecutive_errors >= 3 {
+                                                drop(running);
+                                                tracing::error!("Bot {} stopped due to 3 consecutive errors", bot_id);
+                                                self.event_sender.send(BotEvent::Error {
+                                                    bot_id,
+                                                    message: format!("Stopped: 3 consecutive errors: {}", e),
+                                                }).ok();
+                                                let _ = self.stop_bot(bot_id, user_id).await;
+                                            } else {
+                                                drop(running);
+                                                self.event_sender.send(BotEvent::Error {
+                                                    bot_id,
+                                                    message: format!("Order failed: {}", e),
+                                                }).ok();
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         } else {
@@ -437,7 +667,7 @@ impl BotOrchestrator {
                 }
             }
             Signal::Hold(reason) => {
-                tracing::debug!("Bot {} holding: {}", bot_id, reason);
+                tracing::info!("Bot {} holding: {}", bot_id, reason);
             }
         }
 
@@ -557,7 +787,7 @@ impl BotOrchestrator {
 
         for (bot_id, rb) in running.iter() {
             // Get current portfolio using stored user_id
-            if let Ok(portfolio) = queries::get_portfolio(&self.db, *bot_id, rb.user_id).await {
+            if let Ok(Some(portfolio)) = queries::get_portfolio(&self.db, *bot_id, rb.user_id).await {
                 queries::update_running_session(
                     &self.db,
                     rb.session_id,

@@ -1,13 +1,16 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/utils";
 import type {
   Bot,
+  BotRiskStatus,
   CreateBotRequest,
   LoginResponse,
   Market,
   Order,
   PlaceOrderRequest,
+  PortfolioResponse,
   Position,
+  RiskWarning,
   Settings,
   SystemStatus,
 } from "@/types";
@@ -44,6 +47,7 @@ export function useBots() {
     queryKey: ["bots"],
     queryFn: () => apiFetch<Bot[]>("/bots"),
     refetchInterval: 5000,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -111,6 +115,49 @@ export function useStopAllBots() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bots"] });
     },
+  });
+}
+
+export function usePortfolio(botId: number | null) {
+  return useQuery({
+    queryKey: ["portfolio", botId],
+    queryFn: () => apiFetch<PortfolioResponse>(`/bots/${botId}/portfolio`),
+    enabled: botId !== null && botId > 0,
+    refetchInterval: 5000,
+  });
+}
+
+export function useAggregatePortfolio() {
+  return useQuery({
+    queryKey: ["aggregate-portfolio"],
+    queryFn: () =>
+      apiFetch<{
+        total_bots: number;
+        running_bots: number;
+        total_balance: number;
+        total_initial: number;
+        total_pnl: number;
+        total_trades: number;
+        overall_win_rate: number;
+        overall_roi_percent: number;
+        avg_pnl_per_trade: number;
+        unrealized_pnl: number;
+        total_position_value: number;
+      }>("/bots/aggregate"),
+    refetchInterval: 5000,
+    retry: false,
+  });
+}
+
+// User
+export function useUserBalance() {
+  return useQuery({
+    queryKey: ["user-balance"],
+    queryFn: () => apiFetch<{ balance: number; wallet_address: string; has_credentials: boolean }>(
+      "/user/balance"
+    ),
+    refetchInterval: 15000,
+    retry: false,
   });
 }
 
@@ -268,5 +315,45 @@ export function useLogs() {
   return useQuery({
     queryKey: ["logs"],
     queryFn: () => apiFetch<{ logs: unknown[] }>("/system/logs"),
+  });
+}
+
+// Risk Management
+export function useBotRiskStatus(botId: number | null) {
+  return useQuery({
+    queryKey: ["risk-status", botId],
+    queryFn: () => apiFetch<BotRiskStatus>(`/risk/bots/${botId}`),
+    enabled: botId !== null && botId > 0,
+    refetchInterval: 5000,
+  });
+}
+
+export function useRiskWarnings() {
+  return useQuery({
+    queryKey: ["risk-warnings"],
+    queryFn: () => apiFetch<RiskWarning[]>("/risk/warnings"),
+    refetchInterval: 10000,
+  });
+}
+
+export function usePauseBotRisk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number) => apiFetch(`/risk/bots/${id}/pause`, { method: "POST" }),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["risk-status", id] });
+    },
+  });
+}
+
+export function useResumeBotRisk() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: number) => apiFetch(`/risk/bots/${id}/resume`, { method: "POST" }),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["risk-status", id] });
+    },
   });
 }

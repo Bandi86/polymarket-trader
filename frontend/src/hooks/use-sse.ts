@@ -23,6 +23,8 @@ export function useSSE() {
     setSystemStatus,
     setVolume,
     addMarketResult,
+    addLog,
+    updateBot,
   } = useAppStore();
 
   const setupConnection = useCallback(() => {
@@ -68,8 +70,6 @@ export function useSSE() {
             delta: data.btc_price - lastConfirmedStartPriceRef.current,
             duration: 300,
           });
-          // Keep last confirmed price to beat until new valid one arrives (avoid flickering)
-          // Do NOT reset lastConfirmedStartPriceRef - maintain last known good value
         }
 
         // Track event start time
@@ -83,39 +83,23 @@ export function useSSE() {
         }
 
         // Only update start price if we have a valid new value
-        // This prevents flickering when new market starts but start_price is still 0
         if (newStartPrice > 0) {
           lastConfirmedStartPriceRef.current = newStartPrice;
           setStartPrice(newStartPrice);
           setPriceDelta(data.price_delta || 0);
         } else if (lastConfirmedStartPriceRef.current > 0) {
-          // No new start price yet, but we have a confirmed one - use it for delta calculation
           setPriceDelta(data.btc_price - lastConfirmedStartPriceRef.current);
         }
 
         setBtcPrice(data.btc_price);
         setBeatPrice(data.price_to_beat || data.beat_price);
-        if (data.yes !== undefined) {
-          setYesPrice(data.yes);
-        }
-        if (data.no !== undefined) {
-          setNoPrice(data.no);
-        }
-        if (data.yes_price !== undefined) {
-          setYesPrice(data.yes_price);
-        }
-        if (data.no_price !== undefined) {
-          setNoPrice(data.no_price);
-        }
-        if (data.market_question) {
-          setMarketQuestion(data.market_question);
-        }
-        if (data.time_remaining !== undefined) {
-          setTimeRemaining(data.time_remaining);
-        }
-        if (data.volume !== undefined) {
-          setVolume(data.volume);
-        }
+        if (data.yes !== undefined) setYesPrice(data.yes);
+        if (data.no !== undefined) setNoPrice(data.no);
+        if (data.yes_price !== undefined) setYesPrice(data.yes_price);
+        if (data.no_price !== undefined) setNoPrice(data.no_price);
+        if (data.market_question) setMarketQuestion(data.market_question);
+        if (data.time_remaining !== undefined) setTimeRemaining(data.time_remaining);
+        if (data.volume !== undefined) setVolume(data.volume);
       } catch (err) {
         console.error("Failed to parse market event:", err);
       }
@@ -137,9 +121,95 @@ export function useSSE() {
       }
     });
 
+    // Handle bot lifecycle and trading events
+    eventSource.addEventListener("bot", (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+
+        switch (data.type) {
+          case "session_started": {
+            addLog({
+              bot_id: data.bot_id,
+              bot_name: data.bot_name || `Bot ${data.bot_id}`,
+              message: `Session started (ID: ${data.session_id})`,
+              timestamp: Date.now(),
+              level: "success",
+            });
+            updateBot(data.bot_id, { status: "running" });
+            break;
+          }
+
+          case "session_ended": {
+            addLog({
+              bot_id: data.bot_id,
+              bot_name: `Bot ${data.bot_id}`,
+              message: `Session ended. PnL: $${data.total_pnl.toFixed(2)}`,
+              timestamp: Date.now(),
+              level: "info",
+            });
+            updateBot(data.bot_id, { status: "stopped" });
+            break;
+          }
+
+          case "trade_decision": {
+            const outcomeText = data.outcome === "YES" ? "UP" : "DOWN";
+            const confidencePct = (data.confidence * 100).toFixed(0);
+            addLog({
+              bot_id: data.bot_id,
+              bot_name: `Bot ${data.bot_id}`,
+              message: `Decision: ${outcomeText} @ $${data.bet_size.toFixed(2)} (confidence: ${confidencePct}%). ${data.reason}`,
+              timestamp: Date.now(),
+              level: data.confidence > 0.7 ? "success" : "info",
+            });
+            break;
+          }
+
+          case "order_executed": {
+            addLog({
+              bot_id: data.bot_id,
+              bot_name: `Bot ${data.bot_id}`,
+              message: `Order placed: ${data.order_id}`,
+              timestamp: Date.now(),
+              level: "success",
+            });
+            break;
+          }
+
+          case "balance_updated": {
+            // Portfolio balance updates are fetched via /bots/:id/portfolio API
+            break;
+          }
+
+          case "error": {
+            addLog({
+              bot_id: data.bot_id,
+              bot_name: `Bot ${data.bot_id}`,
+              message: data.message,
+              timestamp: Date.now(),
+              level: "error",
+            });
+            updateBot(data.bot_id, { status: "error" });
+            break;
+          }
+
+          case "market_transition": {
+            addLog({
+              bot_id: 0,
+              bot_name: "System",
+              message: `Market transition: ${data.new_market_slug}`,
+              timestamp: Date.now(),
+              level: "info",
+            });
+            break;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to parse bot event:", err);
+      }
+    });
+
     eventSource.onerror = () => {
       console.warn("SSE connection error, reconnecting...");
-      // SSE auto-reconnects; keep last known prices until fresh data arrives
     };
 
     sharedEventSource = eventSource;
@@ -157,6 +227,8 @@ export function useSSE() {
     setSystemStatus,
     setVolume,
     addMarketResult,
+    addLog,
+    updateBot,
   ]);
 
   const disconnect = useCallback(() => {

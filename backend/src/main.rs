@@ -14,6 +14,7 @@ mod services;
 mod trading;
 
 use api::AppState;
+use crate::trading::orchestrator::BotEvent;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,6 +34,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize app state with db and binance client
     let app_state = AppState::new(db);
+
+    // Spawn event broadcaster: reads from orchestrator event_receiver and broadcasts to all SSE clients
+    let event_receiver = app_state.event_receiver.clone();
+    let bot_event_broadcaster = app_state.bot_event_broadcaster.clone();
+    tokio::spawn(async move {
+        tracing::info!("Event broadcaster started");
+        loop {
+            // Lock the RwLock to get mutable access to the underlying receiver
+            let mut receiver_lock = event_receiver.write().await;
+            // recv() returns Option<BotEvent> — None means channel closed
+            match receiver_lock.recv().await {
+                Some(event) => {
+                    // Broadcast to all SSE subscribers (non-blocking; ignore if no subscribers)
+                    let _ = bot_event_broadcaster.send(event);
+                }
+                None => {
+                    tracing::error!("Orchestrator event channel closed");
+                    break;
+                }
+            }
+        }
+        tracing::error!("Event broadcaster stopped");
+    });
 
     // Start auto-save loop for running sessions
     let orchestrator = app_state.orchestrator.clone();

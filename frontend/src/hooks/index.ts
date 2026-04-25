@@ -1,5 +1,6 @@
 export {
   useActiveMarkets,
+  useAggregatePortfolio,
   useBot,
   useBots,
   useBtcPrice,
@@ -11,6 +12,7 @@ export {
   useMarkets,
   useOrders,
   usePlaceOrder,
+  usePortfolio,
   usePositions,
   useRunAllBots,
   useSettings,
@@ -20,6 +22,7 @@ export {
   useSystemStatus,
   useUpdateSettings,
   useUser,
+  useUserBalance,
   useValidateCredentials,
 } from "./use-api";
 export { useSSE } from "./use-sse";

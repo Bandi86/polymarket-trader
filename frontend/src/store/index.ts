@@ -12,9 +12,11 @@ interface AppState {
 
   // Bots
   bots: Bot[];
-  selectedBotId: number | null;
+  selectedBotIds: number[];
   setBots: (bots: Bot[]) => void;
-  setSelectedBot: (id: number | null) => void;
+  setSelectedBotIds: (ids: number[]) => void;
+  addSelectedBot: (id: number) => void;
+  removeSelectedBot: (id: number) => void;
   updateBot: (id: number, updates: Partial<Bot>) => void;
 
   // Market Data
@@ -98,9 +100,16 @@ export const useAppStore = create<AppState>()(
 
       // Bots
       bots: [],
-      selectedBotId: null,
+      selectedBotIds: [],
       setBots: (bots) => set({ bots }),
-      setSelectedBot: (id) => set({ selectedBotId: id }),
+      setSelectedBotIds: (ids) => set({ selectedBotIds: ids }),
+      addSelectedBot: (id) => set((state) => {
+        if (state.selectedBotIds.length >= 2 || state.selectedBotIds.includes(id)) return state;
+        return { selectedBotIds: [...state.selectedBotIds, id] };
+      }),
+      removeSelectedBot: (id) => set((state) => ({
+        selectedBotIds: state.selectedBotIds.filter((bid) => bid !== id),
+      })),
       updateBot: (id, updates) =>
         set((state) => ({
           bots: state.bots.map((bot) => (bot.id === id ? { ...bot, ...updates } : bot)),

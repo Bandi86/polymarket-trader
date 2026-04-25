@@ -267,6 +267,24 @@ pub async fn create_bot(
         .into_response();
     }
 
+    // Check for duplicate bot name for this user
+    match queries::get_bot_by_name(&db, user_id, &payload.name).await {
+        Ok(Some(_)) => {
+            return Json(ErrorResponse {
+                error: format!("Bot with name '{}' already exists", payload.name),
+            })
+            .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to check duplicate bot: {}", e);
+            return Json(ErrorResponse {
+                error: "Failed to create bot".to_string(),
+            })
+            .into_response();
+        }
+        _ => {} // No duplicate, proceed
+    }
+
     let strategy = payload.strategy_type.unwrap_or_else(|| "btc_5min".to_string());
     let params = payload.params.unwrap_or_else(|| "{}".to_string());
 
@@ -460,41 +478,134 @@ pub async fn start_bot(
         }).into_response();
     }
 
-    // Get portfolio balance and check if sufficient
-    let portfolio = match queries::get_portfolio(&db, id, user_id).await {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::error!("Failed to get portfolio: {}", e);
+    // For paper trading mode, skip credential/balance checks
+    let is_paper = bot.trading_mode == "paper";
+    let initial_balance = if is_paper {
+        // Paper trading: use default balance of $1000 for simulation
+        tracing::info!("Bot {} running in paper mode — using simulated $1000 balance", id);
+        // Ensure portfolio exists — create if missing, reset if present
+        match queries::get_portfolio(&db, id, user_id).await {
+            Ok(Some(_)) => {
+                if let Err(e) = queries::reset_portfolio(&db, id, 1000.0).await {
+                    tracing::warn!("Failed to reset portfolio: {}", e);
+                }
+            }
+            _ => {
+                if queries::ensure_portfolio(&db, id, user_id, 1000.0).await.is_err() {
+                    return Json(ErrorResponse {
+                        error: "Failed to create paper trading portfolio".to_string(),
+                    }).into_response();
+                }
+            }
+        }
+        1000.0
+    } else {
+        // Live trading: require credentials and real wallet balance
+        // Fetch current wallet USDC balance via CLOB API (using API key)
+        let cache = state.credential_cache.read().await;
+        let creds = cache.get(&user_id).cloned();
+        drop(cache);
+
+        let Some(creds) = creds else {
             return Json(ErrorResponse {
-                error: "Failed to get portfolio".to_string(),
+                error: "Cannot start bot: no credentials found. Add API keys in Settings.".to_string(),
+            }).into_response();
+        };
+
+        if creds.api_key.is_empty() {
+            return Json(ErrorResponse {
+                error: "Cannot start bot: API key missing. Add your API key in Settings.".to_string(),
             }).into_response();
         }
+
+        // Get actual USDC balance from Polymarket via CLOB /balance endpoint
+        let clob_client = crate::trading::client::ClobClient::new(Some(creds.api_key.clone()));
+        let balance_response = match clob_client.get_balance().await {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::warn!("Failed to fetch balance from CLOB: {}", e);
+                return Json(ErrorResponse {
+                    error: format!("Failed to fetch wallet balance: {}", e),
+                }).into_response();
+            }
+        };
+
+        // Extract USDC available balance
+        let wallet_balance = balance_response.balances.iter()
+            .find(|b| b.asset == "USDC" || b.asset == "PUSD")
+            .map(|b| b.available)
+            .unwrap_or(0.0);
+
+        if wallet_balance <= 0.0 {
+            return Json(ErrorResponse {
+                error: "Insufficient USDC balance. Please deposit USDC to your Polymarket wallet.".to_string(),
+            }).into_response();
+        }
+
+        tracing::info!("User {} wallet balance: ${:.2}", user_id, wallet_balance);
+
+        // Get or create/update portfolio with current wallet balance
+        let portfolio = match queries::get_portfolio(&db, id, user_id).await {
+            Ok(Some(mut p)) => {
+                // Portfolio exists — update balance to current wallet balance if it's 0 or stale
+                if p.balance <= 0.0 || (wallet_balance > p.balance && p.balance < wallet_balance * 0.5) {
+                    tracing::info!("Updating portfolio {} balance from ${:.2} to ${:.2}", p.bot_id, p.balance, wallet_balance);
+                    if let Err(e) = queries::update_portfolio_balance(&db, id, wallet_balance).await {
+                        tracing::warn!("Failed to update portfolio balance: {}", e);
+                    } else {
+                        p.balance = wallet_balance;
+                    }
+                }
+                p
+            }
+            Ok(None) => {
+                // No portfolio yet — create with wallet balance
+                tracing::info!("Bot {} creating portfolio with wallet balance: ${:.2}", id, wallet_balance);
+                match queries::ensure_portfolio(&db, id, user_id, wallet_balance).await {
+                    Ok(_) => {
+                        // Fetch the created portfolio
+                        if let Ok(Some(p)) = queries::get_portfolio(&db, id, user_id).await {
+                            p
+                        } else {
+                            return Json(ErrorResponse {
+                                error: "Failed to retrieve created portfolio".to_string(),
+                            }).into_response();
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to create portfolio: {}", e);
+                        return Json(ErrorResponse {
+                            error: "Failed to create portfolio".to_string(),
+                        }).into_response();
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to get portfolio: {}", e);
+                return Json(ErrorResponse {
+                    error: "Failed to get portfolio".to_string(),
+                }).into_response();
+            }
+        };
+
+        // Balance validation — ensure bot has enough to cover at least one bet
+        let min_required = bot.bet_size.max(1.0);
+        if portfolio.balance < min_required {
+            return Json(ErrorResponse {
+                error: format!("Insufficient balance: need at least ${:.2} to run this bot (bet size: ${:.2})", min_required, bot.bet_size),
+            }).into_response();
+        }
+
+        // For live mode, also check MATIC balance
+        let wallet = creds.wallet_address.clone();
+        match crate::trading::check_matic_balance(&wallet).await {
+            Ok(matic) => tracing::info!("Bot {} MATIC balance check: {:.6}", id, matic),
+            Err(e) => tracing::warn!("Bot {} MATIC balance check failed: {}", id, e),
+        }
+
+        portfolio.balance
     };
 
-    // Balance validation - cannot start with 0 balance
-    if portfolio.balance <= 0.0 {
-        return Json(ErrorResponse {
-            error: "Insufficient balance - bot cannot be started with 0 balance".to_string(),
-        }).into_response();
-    }
-
-    // MATIC balance check for live trading (warn but don't block)
-    if bot.trading_mode == "live" {
-        let cache = state.credential_cache.read().await;
-        if let Some(creds) = cache.get(&user_id) {
-            let wallet = creds.wallet_address.clone();
-            drop(cache);
-            match crate::trading::check_matic_balance(&wallet).await {
-                Ok(matic) => tracing::info!("Bot {} MATIC balance check: {:.6}", id, matic),
-                Err(e) => tracing::warn!("Bot {} MATIC balance check failed: {}", id, e),
-            }
-        } else {
-            tracing::warn!("Bot {} in live mode but no credentials in cache", id);
-        }
-    }
-
-    // Use orchestrator to start the bot with current portfolio balance
-    let initial_balance = portfolio.balance;
     match state.orchestrator.start_bot(&bot, initial_balance).await {
         Ok(session_id) => {
             tracing::info!("Bot {} started with session {} (balance: {:.2})", id, session_id, initial_balance);
@@ -650,7 +761,12 @@ pub async fn get_portfolio(
     let user_id = claims.user_id;
 
     let portfolio = match queries::get_portfolio(&db, id, user_id).await {
-        Ok(p) => p,
+        Ok(Some(p)) => p,
+        Ok(None) => {
+            return Json(ErrorResponse {
+                error: "No portfolio found for this bot".to_string(),
+            }).into_response();
+        },
         Err(e) => {
             tracing::error!("Failed to get portfolio: {}", e);
             return Json(ErrorResponse {
@@ -749,11 +865,37 @@ pub async fn run_all_bots(
     let db = state.db();
     let user_id = claims.user_id;
 
+    // Fetch actual wallet balance once
+    let cache = state.credential_cache.read().await;
+    let creds = cache.get(&user_id).cloned();
+    drop(cache);
+
+    let (wallet_balance, has_api_key) = match &creds {
+        Some(c) if !c.api_key.is_empty() => {
+            let clob = crate::trading::client::ClobClient::new(Some(c.api_key.clone()));
+            match clob.get_balance().await {
+                Ok(resp) => {
+                    let bal = resp.balances.iter()
+                        .find(|b| b.asset == "USDC" || b.asset == "PUSD")
+                        .map(|b| b.available)
+                        .unwrap_or(0.0);
+                    (bal, true)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to fetch wallet balance for run_all: {}", e);
+                    (0.0, false)
+                }
+            }
+        }
+        _ => (0.0, false),
+    };
+
     match queries::get_bots_by_user(&db, user_id).await {
         Ok(bots) => {
             let total = bots.len();
             let mut started = 0;
             let mut skipped_zero_balance = 0;
+            let mut skipped_no_creds = 0;
 
             for bot in bots {
                 // Check if already running
@@ -761,29 +903,54 @@ pub async fn run_all_bots(
                     continue;
                 }
 
-                // Check portfolio balance
-                if let Ok(portfolio) = queries::get_portfolio(&db, bot.id, user_id).await {
-                    if portfolio.balance <= 0.0 {
-                        tracing::warn!("Bot {} has 0 balance, skipping", bot.id);
-                        skipped_zero_balance += 1;
+                // Get bot's portfolio (may be stale)
+                let portfolio = match queries::get_portfolio(&db, bot.id, user_id).await {
+                    Ok(Some(p)) => p,
+                    Ok(None) => {
+                        // Create portfolio with current wallet balance
+                        if wallet_balance <= 0.0 {
+                            skipped_zero_balance += 1;
+                            continue;
+                        }
+                        if let Err(e) = queries::ensure_portfolio(&db, bot.id, user_id, wallet_balance).await {
+                            tracing::error!("Failed to create portfolio for bot {}: {}", bot.id, e);
+                            continue;
+                        }
+                        // Continue to start
+                        let p = queries::get_portfolio(&db, bot.id, user_id).await.ok().flatten().unwrap();
+                        p
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to get portfolio for bot {}: {}", bot.id, e);
                         continue;
                     }
+                };
 
-                    // Start with current balance
-                    if state.orchestrator.start_bot(&bot, portfolio.balance).await.is_ok() {
-                        // Use bot's configured interval
-                        let interval_secs = (bot.interval / 1000).max(10) as u64;
-
-                        let orchestrator = state.orchestrator.clone();
-                        let cred_cache = state.credential_cache.clone();
-                        let bot_id = bot.id;
-                        tokio::spawn(async move {
-                            crate::trading::orchestrator::start_orchestrator_loop(
-                                orchestrator, bot_id, user_id, interval_secs, Some(cred_cache)
-                            ).await;
-                        });
-                        started += 1;
+                // Check if we have sufficient balance (use wallet balance, not stale portfolio)
+                if wallet_balance <= 0.0 {
+                    if has_api_key {
+                        tracing::warn!("Bot {} has zero wallet balance, skipping", bot.id);
+                        skipped_zero_balance += 1;
+                    } else {
+                        skipped_no_creds += 1;
                     }
+                    continue;
+                }
+
+                // Start bot with current wallet balance as initial_balance
+                if state.orchestrator.start_bot(&bot, wallet_balance).await.is_ok() {
+                    // Use bot's configured interval
+                    let interval_secs = (bot.interval / 1000).max(10) as u64;
+
+                    let orchestrator = state.orchestrator.clone();
+                    let cred_cache = state.credential_cache.clone();
+                    let bot_id = bot.id;
+                    tokio::spawn(async move {
+                        crate::trading::orchestrator::start_orchestrator_loop(
+                            orchestrator, bot_id, user_id, interval_secs, Some(cred_cache)
+                        ).await;
+                    });
+                    started += 1;
                 }
             }
 
@@ -791,7 +958,8 @@ pub async fn run_all_bots(
                 "success": true,
                 "started": started,
                 "total": total,
-                "skipped_zero_balance": skipped_zero_balance
+                "skipped_zero_balance": skipped_zero_balance,
+                "skipped_no_creds": skipped_no_creds
             })).into_response()
         },
         Err(e) => {
@@ -847,7 +1015,8 @@ pub async fn get_aggregate_portfolio(
             let mut bot_portfolios = Vec::new();
 
             for bot in &bots {
-                if let Ok(portfolio) = queries::get_portfolio(&db, bot.id, user_id).await {
+                // Only include bots that have an actual portfolio
+                if let Ok(Some(portfolio)) = queries::get_portfolio(&db, bot.id, user_id).await {
                     total_balance += portfolio.balance;
                     total_initial += portfolio.initial_balance;
                     total_pnl += portfolio.total_pnl;
@@ -862,6 +1031,24 @@ pub async fn get_aggregate_portfolio(
                 if state.orchestrator.is_running(bot.id).await {
                     running_bots += 1;
                 }
+            }
+
+            // Only return aggregate data if there's actual trading history
+            if total_trades == 0 {
+                return Json(serde_json::json!({
+                    "total_bots": bots.len(),
+                    "running_bots": running_bots,
+                    "total_balance": 0.0,
+                    "total_initial": 0.0,
+                    "total_pnl": 0.0,
+                    "total_trades": 0,
+                    "overall_win_rate": 0.0,
+                    "overall_roi_percent": 0.0,
+                    "avg_pnl_per_trade": 0.0,
+                    "unrealized_pnl": 0.0,
+                    "total_position_value": 0.0,
+                    "bots": []
+                })).into_response();
             }
 
             let overall_win_rate = if total_trades > 0 {

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
   BarChart3,
@@ -18,153 +18,11 @@ import {
   Zap,
 } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 import { useBots, usePortfolio, useStartBot, useStopBot } from "@/hooks";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import type { Bot as BotType, PortfolioResponse } from "@/types";
-import { toast } from "sonner";
-
-const STRATEGY_COLORS: Record<string, string> = {
-  momentum: "#8b5cf6",
-  mean_reversion: "#06b6d4",
-  last_seconds_scalp: "#f59e0b",
-  binance_signal: "#22c55e",
-  contrarian: "#ec4899",
-  smart_trend: "#3b82f6",
-  default: "#71717a",
-};
-
-function getStrategyColor(strategy: string): string {
-  return STRATEGY_COLORS[strategy] || STRATEGY_COLORS.default;
-}
-
-function SquareIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor">
-      <rect x="1" y="1" width="10" height="10" rx="1" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M2.5 6l2.5 2.5 4.5-5" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M6 2v8M2 6h8" />
-    </svg>
-  );
-}
-
-// ── Bot Grid Pill (compact card in the always-visible grid) ──
-
-function BotPill({
-  bot,
-  isSelected,
-  onToggle,
-  onStart,
-  onStop,
-  isMutating,
-}: {
-  bot: BotType;
-  isSelected: boolean;
-  onToggle: () => void;
-  onStart: (id: number) => void;
-  onStop: (id: number) => void;
-  isMutating: boolean;
-}) {
-  const isRunning = bot.status === "running";
-  const color = getStrategyColor(bot.strategy_type);
-
-  return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className={`group flex items-center gap-2 rounded-xl border px-3 py-2.5 transition-all cursor-pointer ${
-        isSelected
-          ? "border-indigo-500/40 bg-indigo-500/10"
-          : "border-white/8 bg-white/3 hover:bg-white/6 hover:border-white/15"
-      }`}
-      onClick={!isRunning ? onToggle : undefined}
-    >
-      {/* Status icon */}
-      <div
-        className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-        style={{ background: `${color}15` }}
-      >
-        {isRunning ? (
-          <Activity className="h-4 w-4" style={{ color }} />
-        ) : (
-          <Activity className="h-4 w-4 text-zinc-500" />
-        )}
-        {isRunning && (
-          <div className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-green-400 animate-ping opacity-40" />
-        )}
-      </div>
-
-      {/* Info */}
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate text-sm font-semibold text-zinc-200">{bot.name}</span>
-        <span
-          className="shrink-0 rounded-md px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
-          style={{ background: `${color}20`, color }}
-        >
-          {bot.strategy_type}
-        </span>
-      </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-        {isRunning ? (
-          <button
-            type="button"
-            onClick={() => onStop(bot.id)}
-            disabled={isMutating}
-            className="flex h-7 w-7 items-center justify-center rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
-            title="Stop"
-          >
-            <SquareIcon />
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onStart(bot.id)}
-            disabled={isMutating}
-            className="flex h-7 w-7 items-center justify-center rounded-md bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors cursor-pointer"
-            title="Start"
-          >
-            <Play className="h-3.5 w-3.5" />
-          </button>
-        )}
-        {!isRunning && (
-          <button
-            type="button"
-            onClick={onToggle}
-            disabled={isMutating}
-            className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors cursor-pointer ${
-              isSelected
-                ? "bg-indigo-500/20 text-indigo-400"
-                : "bg-white/5 text-zinc-500 hover:bg-white/10"
-            }`}
-            title={isSelected ? "Deselect" : "Select"}
-          >
-            {isSelected ? <CheckIcon /> : <PlusIcon />}
-          </button>
-        )}
-      </div>
-    </motion.div>
-  );
-}
-
-// ── Detailed Bot Card (from fleet panel) ──
 
 function BotDetailCard({
   bot,
@@ -298,11 +156,13 @@ function BotDetailCard({
 
         {/* Trading config row */}
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1">
-            <DollarSign className="h-3 w-3 text-zinc-400" />
-            <span className="text-xs text-zinc-400">Bet:</span>
-            <span className="text-xs font-mono font-bold text-zinc-200">${bot.bet_size.toFixed(2)}</span>
-          </div>
+           <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1">
+             <DollarSign className="h-3 w-3 text-zinc-400" />
+             <span className="text-xs text-zinc-400">Bet:</span>
+             <span className="text-xs font-mono font-bold text-zinc-200">
+               ${bot.bet_size.toFixed(2)}
+             </span>
+           </div>
           {bot.use_kelly && (
             <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1">
               <Zap className="h-3 w-3 text-amber-400" />
@@ -367,7 +227,9 @@ function BotDetailCard({
                 <BarChart3 className="h-3 w-3 text-blue-400" />
                 <span className="text-[10px] uppercase text-zinc-500 font-semibold">Trades</span>
               </div>
-              <div className="text-lg font-extrabold font-mono text-blue-400">{portfolio.total_trades}</div>
+              <div className="text-lg font-extrabold font-mono text-blue-400">
+                {portfolio.total_trades}
+              </div>
               <div className="flex gap-1 mt-0.5">
                 <span className="text-[9px] text-green-400">{portfolio.winning_trades}W</span>
                 <span className="text-[9px] text-red-400">{portfolio.losing_trades}L</span>
@@ -395,7 +257,8 @@ function BotDetailCard({
                     portfolio.roi_percent >= 0 ? "text-green-400" : "text-red-400"
                   }`}
                 >
-                  {portfolio.roi_percent >= 0 ? "+" : ""}{portfolio.roi_percent.toFixed(1)}%
+                  {portfolio.roi_percent >= 0 ? "+" : ""}
+                  {portfolio.roi_percent.toFixed(1)}%
                 </span>
               </div>
               <div className="flex items-center gap-1">
@@ -449,16 +312,18 @@ function BotCardWithPortfolio({
   );
 }
 
-// ── Main Component ──
-
-export function BotSelector() {
-  const { data: botsFromApi, isLoading, isFetching, refetch } = useBots();
-  const { selectedBotIds, setSelectedBotIds } = useAppStore();
+export function BotFleetPanel() {
+  const { bots, selectedBotIds } = useAppStore();
   const startBotMutation = useStartBot();
   const stopBotMutation = useStopBot();
+  const { refetch } = useBots();
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
-  const botList = botsFromApi ?? [];
+  // Show selected bots, or if none selected, show all running bots
+  const displayBots = selectedBotIds.length > 0
+    ? bots.filter((b) => selectedBotIds.includes(b.id))
+    : bots.filter((b) => b.status === "running");
+
   const isMutating = startBotMutation.isPending || stopBotMutation.isPending;
 
   const startBot = (id: number) => {
@@ -475,24 +340,11 @@ export function BotSelector() {
     });
   };
 
-  const handleToggle = (id: number) => {
-    if (selectedBotIds.includes(id)) {
-      setSelectedBotIds(selectedBotIds.filter((bid) => bid !== id));
-    } else if (selectedBotIds.length < 2) {
-      setSelectedBotIds([...selectedBotIds, id]);
-    } else {
-      toast.error("Maximum 2 bot választható ki egyszerre");
-    }
-  };
-
   const deleteBot = async (id: number) => {
     setDeletingId(id);
     try {
       await apiFetch(`/bots/${id}`, { method: "DELETE" });
       toast.success("Bot törölve!");
-      if (selectedBotIds.includes(id)) {
-        setSelectedBotIds(selectedBotIds.filter((bid) => bid !== id));
-      }
       refetch();
     } catch (_err) {
       toast.error("Hiba a bot törlésekor");
@@ -501,90 +353,50 @@ export function BotSelector() {
     }
   };
 
-   const selectedBots = botList.filter((b: BotType) => selectedBotIds.includes(b.id));
-
-   // Only show loading spinner on the VERY FIRST load (keepPreviousData ensures refetches don't trigger this)
-  if (isLoading) {
+  if (displayBots.length === 0) {
     return (
-      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl p-4">
-        <div className="flex items-center gap-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-          <span className="text-sm text-zinc-500">Botok betöltése...</span>
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="rounded-2xl border border-white/8 bg-white/3 backdrop-blur-xl p-10 flex flex-col items-center justify-center text-center"
+      >
+        <div className="h-16 w-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mb-4">
+          <Bot className="h-8 w-8 text-violet-400" />
         </div>
-      </div>
-    );
-  }
-
-  if (botList.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl p-6 text-center">
-        <Crosshair className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
-        <p className="text-sm font-medium text-zinc-400">Nincsenek botok</p>
-        <p className="text-xs text-zinc-600 mt-1">
-          Hozz létre egy botot a{" "}
-          <a href="/bots" className="text-indigo-400 hover:underline">Botok</a> oldalon
+        <h3 className="text-lg font-bold text-zinc-200">Nincs aktív bot</h3>
+        <p className="text-sm text-zinc-500 mt-1.5 max-w-sm">
+          Válassz ki 1-2 botot a fenti Bot Selectorból, vagy indíts el egyet a /bots oldalon.
         </p>
-      </div>
+      </motion.div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl overflow-hidden">
-      {/* Header - always visible, shows refetch indicator */}
-      <div className="flex items-center justify-between px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-500/15">
-            <Crosshair className="h-4 w-4 text-indigo-400" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-zinc-200">Botok</span>
-            <span className="text-xs text-zinc-500">
-              {botList.length} db • {selectedBotIds.length}/2 kiválasztva
-            </span>
-          </div>
+    <div className="space-y-3">
+      {/* Active count */}
+      {displayBots.length > 0 && (
+        <div className="flex items-center gap-2 px-1">
+          <div className="h-2 w-2 rounded-full bg-green-400 animate-pulse" />
+          <span className="text-xs font-semibold text-green-400">
+            {displayBots.length} bot active
+          </span>
         </div>
-        {isFetching && !isLoading && (
-          <Loader2 className="h-3.5 w-3.5 text-zinc-600 animate-spin" />
-        )}
-      </div>
+      )}
 
-      <div className="border-t border-white/5 px-4 py-3">
-        {/* ── Bot Grid: All bots always visible ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {botList.map((bot) => (
-            <BotPill
-              key={bot.id}
-              bot={bot}
-              isSelected={selectedBotIds.includes(bot.id)}
-              onToggle={() => handleToggle(bot.id)}
-              onStart={startBot}
-              onStop={stopBot}
-              isMutating={isMutating}
-            />
-          ))}
-        </div>
-
-        {/* ── Detailed Fleet Cards for selected bots ── */}
-        {selectedBots.length > 0 && (
-          <div className="mt-4 space-y-3 border-t border-white/5 pt-4">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-600">
-              Bot Részletek
-            </span>
-            {selectedBots.map((bot) => (
-              <BotCardWithPortfolio
-                key={bot.id}
-                bot={bot}
-                isRunning={bot.status === "running"}
-                onStart={startBot}
-                onStop={stopBot}
-                onDelete={deleteBot}
-                isDeleting={deletingId === bot.id}
-                isMutating={isMutating}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <AnimatePresence>
+        {displayBots.map((bot) => (
+          <BotCardWithPortfolio
+            key={bot.id}
+            bot={bot}
+            isRunning={bot.status === "running"}
+            onStart={startBot}
+            onStop={stopBot}
+            onDelete={deleteBot}
+            isDeleting={deletingId === bot.id}
+            isMutating={isMutating}
+          />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
