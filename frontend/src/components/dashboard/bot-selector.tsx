@@ -328,8 +328,7 @@ function BotDetailCard({
           </div>
         </div>
 
-        {/* Stats grid from portfolio */}
-        {portfolio && (
+        {portfolio && portfolio.balance != null && (
           <div className="mt-4 grid grid-cols-4 gap-2 border-t border-white/5 pt-4">
             <div className="rounded-xl bg-green-500/5 border border-green-500/10 px-3 py-2">
               <div className="flex items-center gap-1.5 mb-1">
@@ -377,14 +376,14 @@ function BotDetailCard({
         )}
 
         {/* Empty state */}
-        {!portfolio && (
+        {(!portfolio || portfolio.balance == null) && (
           <div className="mt-4 rounded-xl bg-white/3 border border-white/5 px-4 py-3 text-center">
             <span className="text-xs text-zinc-500">Még nincsenek trading adatok</span>
           </div>
         )}
 
         {/* Bottom info */}
-        {portfolio && (
+        {portfolio && portfolio.balance != null && (
           <div className="mt-3 flex items-center justify-between border-t border-white/5 pt-3">
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1">

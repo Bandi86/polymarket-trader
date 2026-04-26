@@ -30,6 +30,16 @@ pub enum BotEvent {
     Error { bot_id: i64, message: String },
 }
 
+/// Pending paper trade bet — settled when market changes
+#[derive(Debug, Clone)]
+pub struct PendingBet {
+    pub side: String,       // "YES" or "NO"
+    pub bet_size: f64,
+    pub start_price: f64,   // BTC price when market opened (window open)
+    pub entry_price: f64,   // Market yes_price at entry
+    pub decision_id: i64,   // trade_decisions row ID
+}
+
 /// Running bot state
 #[derive(Debug, Clone)]
 pub struct RunningBot {
@@ -42,6 +52,7 @@ pub struct RunningBot {
     pub last_btc_price: Option<f64>,
     pub btc_window_open: Option<f64>,
     pub current_balance: f64,  // Track balance for Kelly calculations
+    pub pending_bet: Option<PendingBet>,
 }
 
 /// Bot Orchestrator - manages multiple bots per user
@@ -196,6 +207,7 @@ impl BotOrchestrator {
             last_btc_price: None,
             btc_window_open: None,
             current_balance: initial_balance,
+            pending_bet: None,
         };
 
         let mut running = self.running_bots.write().await;
@@ -220,6 +232,31 @@ impl BotOrchestrator {
         let running_bot = running.remove(&bot_id);
 
         if let Some(rb) = running_bot {
+            // Settle any pending paper bet immediately at current price
+            if let Some(ref bet) = rb.pending_bet {
+                let price_direction = if bet.start_price > 0.0 {
+                    rb.last_btc_price.map(|current| (current - bet.start_price) / bet.start_price * 100.0)
+                } else {
+                    None
+                };
+                if let Some(direction) = price_direction {
+                    let won = if bet.side == "YES" { direction > 0.0 } else { direction < 0.0 };
+                    let pnl = if won {
+                        bet.bet_size * (1.0 - bet.entry_price) / bet.entry_price
+                    } else {
+                        -bet.bet_size
+                    };
+                    let decision_id = bet.decision_id;
+                    drop(running);
+                    if let Err(e) = queries::record_paper_settlement(
+                        &self.db, bot_id, decision_id, won, pnl,
+                    ).await {
+                        tracing::error!("Failed to settle paper bet on bot stop: {}", e);
+                    }
+                    running = self.running_bots.write().await;
+                }
+            }
+
             // Get final portfolio state
             let portfolio = match queries::get_portfolio(&self.db, bot_id, user_id).await {
                 Ok(Some(p)) => p,
@@ -406,9 +443,67 @@ impl BotOrchestrator {
         let btc_change = rb.last_btc_price.map(|last| (btc_price - last) / last);
         tracing::debug!("BTC change: {:?}", btc_change);
 
-        // Check if market changed - reset window open price
+        // Check if market changed - settle pending paper bet, reset window open price
         let market_slug = format!("btc-updown-5m-{}", market.end_time);
-        let btc_window_open = if rb.last_market_slug.as_ref() != Some(&market_slug) {
+        let market_changed = rb.last_market_slug.as_ref() != Some(&market_slug);
+
+        // === PAPER TRADING: Settle pending bet on market change ===
+        if market_changed {
+            let mut running = self.running_bots.write().await;
+            if let Some(rb) = running.get_mut(&bot_id) {
+                if let Some(ref bet) = rb.pending_bet {
+                    // Determine win/loss based on BTC price direction from bet entry
+                    let price_direction = if bet.start_price > 0.0 {
+                        (btc_price - bet.start_price) / bet.start_price * 100.0
+                    } else {
+                        0.0
+                    };
+                    let won = if bet.side == "YES" {
+                        price_direction > 0.0
+                    } else {
+                        price_direction < 0.0
+                    };
+                    let pnl = if won {
+                        // Win: gain proportional to inverse of entry price
+                        bet.bet_size * (1.0 - bet.entry_price) / bet.entry_price
+                    } else {
+                        // Loss: lose the bet amount
+                        -bet.bet_size
+                    };
+
+                    tracing::info!(
+                        "Paper bet settled: bot {} {} {:.2} @ {:.3} → {} (Δ{:.4}%, pnl={:.2})",
+                        bot_id, bet.side, bet.bet_size, bet.entry_price,
+                        if won { "WIN" } else { "LOSS" },
+                        price_direction * 100.0, pnl
+                    );
+
+                    // Record in DB
+                    let decision_id = bet.decision_id;
+                    let bet_size = bet.bet_size;
+                    let side = bet.side.clone();
+                    drop(running);
+
+                    if let Err(e) = queries::record_paper_settlement(
+                        &self.db, bot_id, decision_id, won, pnl,
+                    ).await {
+                        tracing::error!("Failed to record paper settlement: {}", e);
+                    } else {
+                        self.event_sender.send(BotEvent::TradeDecision {
+                            bot_id,
+                            outcome: format!("{} ({})", side, if won { "WIN" } else { "LOSS" }),
+                            confidence: 1.0,
+                            bet_size,
+                            reason: format!("Paper settlement: price Δ{:.4}%, pnl=${:.2}", price_direction * 100.0, pnl),
+                        }).ok();
+                    }
+                } else {
+                    drop(running);
+                }
+            }
+        }
+
+        let btc_window_open = if market_changed {
             // New market, set window open to current BTC price
             tracing::info!("New market detected, setting window open price to {}", btc_price);
             Some(btc_price)
@@ -548,7 +643,7 @@ impl BotOrchestrator {
                     outcome: outcome.to_string(),
                     confidence,
                     bet_size,
-                    reason,
+                    reason: reason.clone(),
                 }).ok();
 
                 // Execute actual order if in live mode with credentials available
@@ -662,8 +757,54 @@ impl BotOrchestrator {
                         tracing::warn!("Bot {} in live mode but no credential cache", bot_id);
                     }
                 } else {
-                    tracing::debug!("Bot {} paper trading (signal: {} @ {:.2}, bet: {:.2})",
-                        bot_id, outcome, confidence, bet_size);
+                    // PAPER TRADING: Record bet, settle on market change
+                    let decision_id_log = queries::log_trade_decision(
+                        &self.db,
+                        bot_id,
+                        rb.session_id,
+                        user_id,
+                        &format!("btc-updown-5m-{}", market.end_time),
+                        &market.condition_id,
+                        outcome,
+                        &bot.strategy_type,
+                        confidence,
+                        Some(btc_price),
+                        btc_change,
+                        Some(market.yes_price),
+                        Some(market.no_price),
+                        Some(market.time_remaining),
+                        &format!("paper: {}", reason),
+                    ).await;
+
+                    let decision_id = match decision_id_log {
+                        Ok(id) => id,
+                        Err(e) => {
+                            tracing::error!("Bot {} failed to log paper decision: {}", bot_id, e);
+                            return Ok(());
+                        }
+                    };
+
+                    // Deduct bet from portfolio immediately
+                    queries::update_portfolio_balance(&self.db, bot_id, rb.current_balance - bet_size)
+                        .await
+                        .map_err(|e| format!("Failed to update portfolio for paper bet: {}", e))?;
+
+                    tracing::info!(
+                        "Paper bet placed: {} {} {:.2} @ {:.3} (decision #{}, balance: {:.2})",
+                        bot_id, outcome, bet_size, price, decision_id, rb.current_balance - bet_size
+                    );
+
+                    // Set pending bet for settlement on market change
+                    let mut running = self.running_bots.write().await;
+                    if let Some(rb) = running.get_mut(&bot_id) {
+                        rb.pending_bet = Some(PendingBet {
+                            side: outcome.to_string(),
+                            bet_size,
+                            start_price: btc_window_open.unwrap_or(btc_price),
+                            entry_price: price,
+                            decision_id,
+                        });
+                    }
                 }
             }
             Signal::Hold(reason) => {

@@ -1257,6 +1257,70 @@ pub mod queries {
         Ok(result)
     }
 
+    /// Record paper trade settlement: update portfolio + trade_decisions
+    /// Returns the net balance change (positive = win, negative = loss)
+    pub async fn record_paper_settlement(
+        db: &Db,
+        bot_id: i64,
+        decision_id: i64,
+        won: bool,
+        pnl: f64,
+    ) -> Result<(), sqlx::Error> {
+        let pool = db.as_ref();
+        let sign = if won { 1 } else { -1 };
+
+        // Update trade_decision PnL
+        sqlx::query("UPDATE trade_decisions SET pnl = ? WHERE id = ?")
+            .bind(pnl)
+            .bind(decision_id)
+            .execute(pool)
+            .await?;
+
+        // Update portfolio stats
+        if won {
+            sqlx::query(
+                r#"
+                UPDATE bot_portfolios SET
+                    balance = balance + ?,
+                    winning_trades = winning_trades + 1,
+                    total_trades = total_trades + 1,
+                    total_pnl = total_pnl + ?,
+                    peak_balance = MAX(peak_balance, balance + ?),
+                    last_trade_time = datetime('now'),
+                    updated_at = datetime('now')
+                WHERE bot_id = ?
+                "#,
+            )
+            .bind(pnl)
+            .bind(pnl)
+            .bind(pnl)
+            .bind(bot_id)
+            .execute(pool)
+            .await?;
+        } else {
+            let loss = pnl.abs();
+            sqlx::query(
+                r#"
+                UPDATE bot_portfolios SET
+                    balance = balance - ?,
+                    losing_trades = losing_trades + 1,
+                    total_trades = total_trades + 1,
+                    total_pnl = total_pnl - ?,
+                    last_trade_time = datetime('now'),
+                    updated_at = datetime('now')
+                WHERE bot_id = ?
+                "#,
+            )
+            .bind(loss)
+            .bind(loss)
+            .bind(bot_id)
+            .execute(pool)
+            .await?;
+        }
+
+        Ok(())
+    }
+
     /// Update bot-level stats (aggregated from sessions)
     pub async fn update_bot_stats(
         db: &Db,

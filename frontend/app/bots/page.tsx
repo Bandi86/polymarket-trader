@@ -65,8 +65,7 @@ export default function BotsPage() {
         }))
       );
     } catch (_err) {
-      // If no bots yet, show empty state
-      setBotConfigs([]);
+      // Silently fail — keep existing configs to avoid flashing empty state between refetches
     }
   }, [setBots]);
 

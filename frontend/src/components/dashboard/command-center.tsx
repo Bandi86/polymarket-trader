@@ -145,10 +145,13 @@ export function CommandCenter() {
   const isConnected = isMounted && (hasCredentials || (settings?.has_credentials ?? false));
   const walletAddress = settings?.wallet_address;
 
+  // Hide banner during initial load to prevent flickering between connected/disconnected states
+  const bannerHidden = !isMounted;
+
   return (
     <div className="flex flex-col gap-4">
       {/* Connection Status Banner */}
-      {!isConnected ? (
+      {!bannerHidden && !isConnected ? (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -178,7 +181,7 @@ export function CommandCenter() {
             </div>
           </div>
         </motion.div>
-      ) : (
+      ) : bannerHidden ? null : (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
