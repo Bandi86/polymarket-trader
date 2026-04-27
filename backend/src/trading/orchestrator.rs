@@ -140,7 +140,7 @@ impl BotOrchestrator {
         let b = (1.0 - price) / price;
         let p = confidence;
         let q = 1.0 - p;
-        let mut kelly = (b * p - q) / b;
+        let kelly = (b * p - q) / b;
         if kelly <= 0.0 {
             return base_bet_size.min(balance * max_bet);
         }
@@ -181,7 +181,7 @@ impl BotOrchestrator {
         drop(running);
 
         // Reset portfolio for new session (portfolio must already exist — created by API)
-        let portfolio = match queries::get_portfolio(&self.db, bot.id, bot.user_id).await {
+        let _portfolio = match queries::get_portfolio(&self.db, bot.id, bot.user_id).await {
             Ok(Some(p)) => p,
             Ok(None) => return Err("Portfolio does not exist — must be created before starting bot".to_string()),
             Err(e) => return Err(format!("Failed to check portfolio: {}", e)),
@@ -258,7 +258,6 @@ impl BotOrchestrator {
                     ).await {
                         tracing::error!("Failed to settle paper bet on bot stop: {}", e);
                     }
-                    running = self.running_bots.write().await;
                 }
             }
 

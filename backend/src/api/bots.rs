@@ -908,7 +908,7 @@ pub async fn run_all_bots(
                 }
 
                 // Get bot's portfolio (may be stale)
-                let portfolio = match queries::get_portfolio(&db, bot.id, user_id).await {
+                let _portfolio = match queries::get_portfolio(&db, bot.id, user_id).await {
                     Ok(Some(p)) => p,
                     Ok(None) => {
                         // Create portfolio with current wallet balance

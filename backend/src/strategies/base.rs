@@ -129,3 +129,109 @@ pub fn check_delta(delta_pct: f64, params: &StrategyParams, direction: Option<&s
         _ => delta_pct.abs() > params.min_delta,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_signal_is_trade() {
+        assert!(Signal::Yes.is_trade());
+        assert!(Signal::No.is_trade());
+        assert!(!Signal::Hold.is_trade());
+    }
+
+    #[test]
+    fn test_signal_as_str() {
+        assert_eq!(Signal::Yes.as_str(), "YES");
+        assert_eq!(Signal::No.as_str(), "NO");
+        assert_eq!(Signal::Hold.as_str(), "HOLD");
+    }
+
+    #[test]
+    fn test_strategy_decision_hold() {
+        let decision = StrategyDecision::hold("not enough data");
+        assert!(matches!(decision.signal, Signal::Hold));
+        assert_eq!(decision.confidence, 0.0);
+        assert_eq!(decision.reason, "not enough data");
+    }
+
+    #[test]
+    fn test_strategy_decision_trade_clamps_confidence() {
+        let decision = StrategyDecision::trade(Signal::Yes, 1.5, "strong momentum");
+        assert_eq!(decision.confidence, 1.0); // clamped from 1.5
+
+        let decision = StrategyDecision::trade(Signal::No, -0.2, "rejection");
+        assert_eq!(decision.confidence, 0.0); // clamped from -0.2
+    }
+
+    #[test]
+    fn test_calculate_delta() {
+        let delta = calculate_delta(80000.0, 79000.0);
+        assert!((delta - 1.2658).abs() < 0.01);
+
+        let delta = calculate_delta(78000.0, 79000.0);
+        assert!((delta - (-1.2658)).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_calculate_delta_zero_window() {
+        let delta = calculate_delta(80000.0, 0.0);
+        assert_eq!(delta, 0.0);
+    }
+
+    #[test]
+    fn test_calculate_fair_prob() {
+        // Zero delta = 0.5 fair probability
+        let prob = calculate_fair_prob(0.0);
+        assert!((prob - 0.5).abs() < 0.001);
+
+        // Large positive delta → approaches 0.95
+        let prob = calculate_fair_prob(0.1);
+        assert!(prob > 0.8);
+
+        // Large negative delta → approaches 0.05
+        let prob = calculate_fair_prob(-0.1);
+        assert!(prob < 0.2);
+    }
+
+    #[test]
+    fn test_check_price_limits() {
+        let params = StrategyParams::default();
+        assert!(check_price_limits(0.50, &params));
+        assert!(!check_price_limits(0.20, &params));
+        assert!(!check_price_limits(0.80, &params));
+    }
+
+    #[test]
+    fn test_check_time_remaining() {
+        let params = StrategyParams::default();
+        assert!(check_time_remaining(120000, &params));
+        assert!(!check_time_remaining(10000, &params));
+        assert!(!check_time_remaining(500000, &params));
+    }
+
+    #[test]
+    fn test_check_delta() {
+        let params = StrategyParams::default(); // min_delta = 0.02
+
+        assert!(check_delta(0.03, &params, None)); // |0.03| > 0.02
+        assert!(!check_delta(0.01, &params, None)); // |0.01| < 0.02
+
+        assert!(check_delta(0.03, &params, Some("up"))); // 0.03 > 0.02
+        assert!(!check_delta(0.01, &params, Some("up"))); // 0.01 < 0.02
+
+        assert!(check_delta(-0.03, &params, Some("down"))); // -0.03 < -0.02
+        assert!(!check_delta(-0.01, &params, Some("down"))); // -0.01 > -0.02
+    }
+
+    #[test]
+    fn test_strategy_params_default() {
+        let params = StrategyParams::default();
+        assert_eq!(params.min_delta, 0.02);
+        assert_eq!(params.max_delta, 5.0);
+        assert_eq!(params.min_price, 0.30);
+        assert_eq!(params.max_price, 0.70);
+        assert!(params.min_odds.is_none());
+    }
+}

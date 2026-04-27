@@ -8,7 +8,7 @@ use tokio::time::{interval, Duration};
 
 use crate::db::Db;
 use crate::db::queries;
-use crate::trading::{BinanceClient, PolymarketClient};
+use crate::trading::PolymarketClient;
 use crate::trading::bot_executor::strategies::{Signal, StrategyExecutor};
 use crate::trading::polymarket;
 use crate::crypto;
@@ -190,7 +190,7 @@ impl BotExecutor {
         user_id: i64,
         market_id: &str,
         side: &str,
-        confidence: f64,
+        _confidence: f64,
         private_key: &str,
     ) -> Result<(), String> {
         // Get Polymarket client
@@ -218,7 +218,7 @@ impl BotExecutor {
         }
 
         // Create and place order
-        let order_request = polymarket::OrderRequest {
+        let _order_request = polymarket::OrderRequest {
             token_id: token_id.to_string(),
             price,
             size,
@@ -227,7 +227,7 @@ impl BotExecutor {
 
         // Create and sign order (requires API creds)
         // For now, we can't place real orders without API key creds
-        let order_id = format!("auto_{}", chrono::Utc::now().timestamp_millis());
+        let _order_id = format!("auto_{}", chrono::Utc::now().timestamp_millis());
 
         let msg = format!(
             "Would place order: {} {} @ {} (${})",
@@ -291,7 +291,7 @@ pub async fn start_bot(
         .await
         .map_err(|e| e.to_string())?;
 
-    let (private_key, encrypted_blob) = match settings {
+    let (_private_key, _encrypted_blob) = match settings {
         Some((_, blob)) if !blob.is_empty() => {
             // Try to decrypt - for now use the known key
             let password = "techno";

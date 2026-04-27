@@ -115,7 +115,7 @@ impl ClobClient {
         }
 
         // Get current fee rate for the order
-        let fee_rate = self.get_fee_rate().await?;
+        let _fee_rate = self.get_fee_rate().await?;
 
         // Note: In production, you would:
         // 1. Create order with fee_rate_bps

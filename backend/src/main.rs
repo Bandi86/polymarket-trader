@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use axum::{
     routing::get,
     Router,
@@ -14,7 +16,6 @@ mod services;
 mod trading;
 
 use api::AppState;
-use crate::trading::orchestrator::BotEvent;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,7 +44,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         loop {
             // Lock the RwLock to get mutable access to the underlying receiver
             let mut receiver_lock = event_receiver.write().await;
-            // recv() returns Option<BotEvent> — None means channel closed
+            // recv() returns None when channel is closed
             match receiver_lock.recv().await {
                 Some(event) => {
                     // Broadcast to all SSE subscribers (non-blocking; ignore if no subscribers)

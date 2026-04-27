@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::client::{ClobClient, OrderRequest, OrderResponse};
-use super::websocket::{get_mid_price, get_spread, OrderBook, OrderBookClient};
+use super::websocket::{get_mid_price, get_spread, OrderBookClient};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StrategyParams {

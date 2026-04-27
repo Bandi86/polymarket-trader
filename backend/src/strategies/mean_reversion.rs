@@ -3,7 +3,7 @@
 //! Expects price to return to center over time
 
 use super::base::{
-    check_price_limits, check_time_remaining,
+    check_time_remaining,
     Signal, Strategy, StrategyContext, StrategyDecision, StrategyParams,
 };
 

@@ -348,61 +348,151 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             .await;
 
         if user_count.map_or(true, |c| c == 0) {
-            // Create demo user (id=1) with password "demo123"
-            // User can change password in settings after first login
-            let demo_hash = "$2b$12$7IlZCR318k6.Lz4/00fI0Ol30zCgMRpoavHIuG9geoqY6uXLWjHlC";
-            sqlx::query(
-                r#"
-                INSERT INTO users (id, username, password_hash)
-                VALUES (1, 'demo', ?)
-                "#,
-            )
-            .bind(demo_hash)
-            .execute(pool)
-            .await.ok();
-
-            // Seed 15 default bots — one per strategy, all paper trading mode
-            let default_bots: &[(&str, &str)] = &[
-                ("Momentum", "momentum"),
-                ("Mean Reversion", "mean_reversion"),
-                ("Trend Follower", "trend"),
-                ("Contrarian", "contrarian"),
-                ("Volatility Breakout", "volatility_breakout"),
-                ("Oracle Lag", "binance_signal"),
-                ("Fair Value Arb", "fair_value"),
-                ("T-10 Sniper", "last_seconds_scalp"),
-                ("Window Delta", "window_delta"),
-                ("Binance Velocity", "binance_velocity"),
-                ("Smart Trend", "smart_trend"),
-                ("Ultra Low Entry", "ultra_low_entry"),
-                ("Trend Pullback", "trend_pullback"),
-                ("Price Reversion", "price_reversion"),
-                ("Sniper Value", "sniper_value"),
-            ];
-
-            for (name, strategy) in default_bots {
-                sqlx::query(
-                    r#"
-                    INSERT INTO bot_configs (
-                        user_id, name, market_id, strategy_type, params,
-                        bet_size, use_kelly, kelly_fraction, max_bet, interval,
-                        stop_loss, take_profit, trading_mode
-                    ) VALUES (1, ?, 'auto', ?, '{}',
-                        1.0, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
-                    "#,
-                )
-                .bind(name)
-                .bind(strategy)
-                .execute(pool)
-                .await.ok();
-            }
-
-            tracing::info!("Seeded {} default bots for demo user (id=1)", default_bots.len());
+            // No users yet — bots will be seeded on first registration
+            tracing::info!("Fresh install detected — default bots will be seeded on first registration");
         }
     }
 
     tracing::info!("Database migrations completed");
     Ok(())
+}
+
+/// Seed 15 default strategy bots for a given user. Called on first user registration.
+pub async fn seed_default_bots(pool: &sqlx::SqlitePool, user_id: i64) -> Result<(), sqlx::Error> {
+    // Double-check: only seed if user has no bots yet
+    let bot_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bot_configs WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_one(pool)
+        .await?;
+
+    if bot_count > 0 {
+        return Ok(());
+    }
+
+    let default_bots: &[(&str, &str)] = &[
+        ("Momentum", "momentum"),
+        ("Mean Reversion", "mean_reversion"),
+        ("Trend Follower", "trend"),
+        ("Contrarian", "contrarian"),
+        ("Volatility Breakout", "volatility_breakout"),
+        ("Oracle Lag", "binance_signal"),
+        ("Fair Value Arb", "fair_value"),
+        ("T-10 Sniper", "last_seconds_scalp"),
+        ("Window Delta", "window_delta"),
+        ("Binance Velocity", "binance_velocity"),
+        ("Smart Trend", "smart_trend"),
+        ("Ultra Low Entry", "ultra_low_entry"),
+        ("Trend Pullback", "trend_pullback"),
+        ("Price Reversion", "price_reversion"),
+        ("Sniper Value", "sniper_value"),
+    ];
+
+    for (name, strategy) in default_bots {
+        sqlx::query(
+            r#"
+            INSERT INTO bot_configs (
+                user_id, name, market_id, strategy_type, params,
+                bet_size, use_kelly, kelly_fraction, max_bet, interval,
+                stop_loss, take_profit, trading_mode
+            ) VALUES (?, ?, 'auto', ?, '{}',
+                1.0, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
+            "#,
+        )
+        .bind(user_id)
+        .bind(name)
+        .bind(strategy)
+        .execute(pool)
+        .await.ok();
+    }
+
+    tracing::info!("Seeded {} default bots for user_id={}", default_bots.len(), user_id);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    async fn create_test_pool() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        // Run migrations to create tables
+        run_migrations(&pool).await.unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn test_seed_default_bots_creates_15_bots() {
+        let pool = create_test_pool().await;
+
+        // Insert a test user
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash) VALUES ('testuser', 'hash') RETURNING id"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        seed_default_bots(&pool, user_id).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bot_configs WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 15);
+    }
+
+    #[tokio::test]
+    async fn test_seed_default_bots_idempotent() {
+        let pool = create_test_pool().await;
+
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash) VALUES ('testuser', 'hash') RETURNING id"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        seed_default_bots(&pool, user_id).await.unwrap();
+        seed_default_bots(&pool, user_id).await.unwrap();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bot_configs WHERE user_id = ?")
+            .bind(user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        assert_eq!(count, 15); // Still 15, not 30
+    }
+
+    #[tokio::test]
+    async fn test_seed_default_bots_all_paper() {
+        let pool = create_test_pool().await;
+
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO users (username, password_hash) VALUES ('testuser', 'hash') RETURNING id"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        seed_default_bots(&pool, user_id).await.unwrap();
+
+        let paper_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM bot_configs WHERE user_id = ? AND trading_mode = 'paper'"
+        )
+        .bind(user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert_eq!(paper_count, 15);
+    }
 }
 
 
@@ -1130,7 +1220,7 @@ pub mod queries {
     pub async fn get_portfolio(
         db: &Db,
         bot_id: i64,
-        user_id: i64,
+        _user_id: i64,
     ) -> Result<Option<BotPortfolioRecord>, sqlx::Error> {
         let existing = sqlx::query_as::<_, BotPortfolioRecord>(
             "SELECT * FROM bot_portfolios WHERE bot_id = ?"
@@ -1332,7 +1422,7 @@ pub mod queries {
         pnl: f64,
     ) -> Result<(), sqlx::Error> {
         let pool = db.as_ref();
-        let sign = if won { 1 } else { -1 };
+        let _sign = if won { 1 } else { -1 };
 
         // Update trade_decision PnL
         sqlx::query("UPDATE trade_decisions SET pnl = ? WHERE id = ?")

@@ -93,7 +93,7 @@ impl BotLossTrackerManager {
     /// Get risk multiplier based on bot performance
     /// Returns 0.0 if bot should stop trading, or a multiplier (0.25, 0.5, 0.75, 1.0)
     pub fn get_risk_multiplier(&mut self, bot_id: i64, current_balance: f64) -> f64 {
-        let tracker = self.get_or_create(bot_id, current_balance);
+        let _tracker = self.get_or_create(bot_id, current_balance);
 
         let tracker = self.trackers.get(&bot_id).unwrap();
 
@@ -134,7 +134,7 @@ impl BotLossTrackerManager {
 
     /// Adjust confidence based on recent performance
     pub fn adjust_confidence(&mut self, bot_id: i64, base_confidence: f64, current_balance: f64) -> f64 {
-        let tracker = self.get_or_create(bot_id, current_balance);
+        let _tracker = self.get_or_create(bot_id, current_balance);
         let tracker = self.trackers.get(&bot_id).unwrap();
 
         let mut multiplier = 1.0;
@@ -161,7 +161,7 @@ impl BotLossTrackerManager {
 
     /// Get tracker info for a bot
     pub fn get_tracker_info(&mut self, bot_id: i64, current_balance: f64) -> BotTrackerInfo {
-        let tracker = self.get_or_create(bot_id, current_balance);
+        let _tracker = self.get_or_create(bot_id, current_balance);
         let tracker = self.trackers.get(&bot_id).unwrap();
         BotTrackerInfo {
             consecutive_losses: tracker.consecutive_losses,

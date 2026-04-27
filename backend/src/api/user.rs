@@ -93,7 +93,7 @@ async fn load_credentials_from_db(
 }
 
 /// Fetch balance from Polymarket CLOB API using cached credentials
-async fn fetch_balance(state: &AppState, creds: crate::api::CachedCredentials) -> Response {
+async fn fetch_balance(_state: &AppState, creds: crate::api::CachedCredentials) -> Response {
     if creds.api_key.is_empty() {
         return Json(UserBalanceResponse {
             balance: 0.0,

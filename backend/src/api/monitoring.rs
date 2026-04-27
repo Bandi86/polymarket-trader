@@ -311,7 +311,7 @@ pub async fn get_bot_risk_status(
 pub async fn pause_bot_risk(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(_claims): Extension<Claims>,
 ) -> Response {
     let mut rm = state.orchestrator.risk_manager.write().await;
     rm.pause_bot(id, "Manually paused".to_string());
@@ -322,7 +322,7 @@ pub async fn pause_bot_risk(
 pub async fn resume_bot_risk(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    Extension(_claims): Extension<Claims>,
 ) -> Response {
     let mut rm = state.orchestrator.risk_manager.write().await;
     rm.resume_bot(id);

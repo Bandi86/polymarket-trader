@@ -9,7 +9,7 @@ use axum::{
 use futures_util::stream::Stream;
 use std::convert::Infallible;
 use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::RwLock;
 
 use super::AppState;
 use crate::trading::orchestrator::BotEvent;
@@ -469,7 +469,7 @@ pub async fn bot_events_stream(
 
                     if needs_new {
                         tracing::info!("Discovering new market...");
-                        if let Some((market, slug)) = discover_btc_market(&http_client).await {
+                        if let Some((market, _slug)) = discover_btc_market(&http_client).await {
                             let market_id = market.get("id").and_then(|i| i.as_str()).unwrap_or("").to_string();
                             let yes_token = market.get("yes_token_id").and_then(|t| t.as_str()).unwrap_or("").to_string();
 

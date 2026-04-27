@@ -90,3 +90,72 @@ impl Strategy for MomentumStrategy {
         StrategyDecision::hold("No significant momentum detected")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_ctx() -> StrategyContext {
+        StrategyContext {
+            btc_price: Some(80000.0),
+            btc_price_change: None,
+            btc_window_open: Some(80000.0),
+            polymarket_price: Some(0.50),
+            time_remaining: 120000,
+            order_book_spread: None,
+        }
+    }
+
+    #[test]
+    fn test_momentum_name() {
+        let strat = MomentumStrategy::default();
+        assert_eq!(strat.name(), "Momentum");
+    }
+
+    #[test]
+    fn test_momentum_hold_no_change() {
+        let strat = MomentumStrategy::default();
+        let ctx = default_ctx();
+        let decision = strat.evaluate(&ctx);
+        assert!(matches!(decision.signal, Signal::Hold));
+    }
+
+    #[test]
+    fn test_momentum_yes_signal() {
+        let strat = MomentumStrategy::default();
+        let mut ctx = default_ctx();
+        ctx.btc_price_change = Some(0.003); // 0.3% increase
+        let decision = strat.evaluate(&ctx);
+        assert!(matches!(decision.signal, Signal::Yes));
+        assert!(decision.confidence > 0.5);
+    }
+
+    #[test]
+    fn test_momentum_no_signal_small_change() {
+        let strat = MomentumStrategy::default();
+        let mut ctx = default_ctx();
+        ctx.btc_price_change = Some(0.0001); // 0.01% — below threshold
+        let decision = strat.evaluate(&ctx);
+        assert!(matches!(decision.signal, Signal::Hold));
+    }
+
+    #[test]
+    fn test_momentum_hold_near_close() {
+        let strat = MomentumStrategy::default();
+        let mut ctx = default_ctx();
+        ctx.time_remaining = 5000; // Too close to close
+        ctx.btc_price_change = Some(0.01);
+        let decision = strat.evaluate(&ctx);
+        assert!(matches!(decision.signal, Signal::Hold));
+    }
+
+    #[test]
+    fn test_momentum_window_delta_fallback() {
+        let strat = MomentumStrategy::default();
+        let mut ctx = default_ctx();
+        ctx.btc_price = Some(81000.0); // 1.25% above window open
+        ctx.btc_window_open = Some(80000.0);
+        let decision = strat.evaluate(&ctx);
+        assert!(matches!(decision.signal, Signal::Yes));
+    }
+}

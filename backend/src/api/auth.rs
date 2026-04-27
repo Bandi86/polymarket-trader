@@ -5,6 +5,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::db::queries;
+use crate::db;
 use crate::middleware::auth::Claims;
 use super::AppState;
 
@@ -92,6 +93,14 @@ pub async fn register(
     // Create user
     match queries::create_user(&db, &payload.username, &password_hash).await {
         Ok(user_id) => {
+            // Check if this is the first user — seed default bots if so
+            let user_count: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+                .fetch_one(db.as_ref())
+                .await;
+            if user_count.map_or(false, |c| c == 1) {
+                let _ = db::seed_default_bots(db.as_ref(), user_id).await;
+            }
+
             // Generate token
             match generate_token(user_id, &payload.username) {
                 Ok(token) => Json(AuthResponse {
