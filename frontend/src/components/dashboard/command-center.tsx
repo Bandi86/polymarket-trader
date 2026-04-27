@@ -6,8 +6,14 @@ import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
+  Bot as BotIcon,
+  Clock,
+  History,
+  LineChart,
+  Shield,
   Target,
-  Trophy,
+  TrendingDown,
+  TrendingUp,
   Wallet,
   Zap,
 } from "lucide-react";
@@ -16,116 +22,303 @@ import { useEffect, useState } from "react";
 import { ActivityTabs } from "@/components/dashboard/activity-tabs";
 import { BotSelector } from "@/components/dashboard/bot-selector";
 import { ChartPanel } from "@/components/dashboard/chart-panel";
-import { CompactDataBar } from "@/components/dashboard/compact-data-bar";
 import { MarketHistory } from "@/components/dashboard/market-history";
 import { QuickTradePanel } from "@/components/dashboard/quick-trade-panel";
-import { useSettings, useUserBalance, useAggregatePortfolio } from "@/hooks";
+import { StrategyPerformance } from "@/components/dashboard/strategy-performance";
+import { SystemHealth } from "@/components/dashboard/system-health";
+import { TradeFeed } from "@/components/dashboard/trade-feed";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
+import { useAggregatePortfolio, useSettings, useUserBalance } from "@/hooks";
 import { useAppStore } from "@/store";
 
-// Balance & Portfolio Display Component
-function BalanceCard() {
-  const { userBalance } = useAppStore();
-  const { data: balanceData, isLoading } = useUserBalance();
+// Compact Account Info - Always visible, single row
+function AccountInfoBar() {
+  const { userBalance, latency } = useAppStore();
+  const { data: balanceData } = useUserBalance();
+  const { data: agg, isLoading: aggLoading } = useAggregatePortfolio();
 
-  // Prefer hook data, fallback to store
   const balance = balanceData?.balance ?? userBalance;
   const hasCredentials = balanceData?.has_credentials ?? false;
 
-  if (isLoading) {
-    return (
-      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl px-4 py-3">
-        <div className="flex items-center gap-2">
-          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-500 border-t-transparent" />
-          <span className="text-sm text-zinc-500">Egyenleg betöltése...</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (!hasCredentials || balance === null || balance === undefined) {
-    return null;
-  }
+  // Latency sparkline data (last 20 samples)
+  const sparkline = latency.samples.slice(-20);
+  const maxSpark = Math.max(...sparkline, 1);
 
   return (
     <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-xl px-4 py-3">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15">
-            <Wallet className="h-4 w-4 text-emerald-400" />
-          </div>
-          <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-              USDC Egyenleg
-            </span>
-            <div className="text-xl font-extrabold font-mono text-emerald-400">
-              ${typeof balance === "number" ? balance.toFixed(2) : "0.00"}
+        <div className="flex items-center gap-6">
+          {/* Balance */}
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15">
+              <Wallet className="h-5 w-5 text-emerald-400" />
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                Egyenleg
+              </span>
+              <div className="text-xl font-extrabold font-mono text-emerald-400">
+                ${hasCredentials && typeof balance === "number" ? balance.toFixed(2) : "---"}
+              </div>
             </div>
           </div>
+
+          {/* P&L Divider */}
+          <div className="h-8 w-px bg-white/10" />
+
+          {/* Aggregate P&L */}
+          {!aggLoading && agg && agg.total_trades > 0 && (
+            <>
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/15">
+                  <Activity className="h-5 w-5 text-violet-400" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                    Bot P&L
+                  </span>
+                  <div
+                    className={`text-xl font-extrabold font-mono ${
+                      agg.total_pnl >= 0 ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {agg.total_pnl >= 0 ? "+" : ""}${agg.total_pnl.toFixed(2)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-8 w-px bg-white/10" />
+
+              {/* Win Rate */}
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  Win Rate
+                </span>
+                <div className="text-xl font-extrabold font-mono text-emerald-400">
+                  {agg.overall_win_rate.toFixed(1)}%
+                </div>
+              </div>
+            </>
+          )}
         </div>
+
         <Link
           href="/settings"
-          className="text-xs font-medium text-zinc-500 hover:text-zinc-400 transition-colors"
+          className="text-xs font-medium text-zinc-500 hover:text-zinc-400 transition-colors flex items-center gap-1"
         >
-          Beállítások →
+          Beállítások
+          <ArrowRight className="h-3 w-3" />
         </Link>
       </div>
+
+      {/* Bottom row: P&L bar + Latency sparkline */}
+      {!aggLoading && agg && agg.total_trades > 0 && (
+        <div className="mt-3 flex items-center gap-4">
+          {/* P&L distribution bar */}
+          <div className="flex-1 flex h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+            {(() => {
+              const wins = agg.overall_win_rate;
+              const losses = 100 - wins;
+              return (
+                <>
+                  <div
+                    className="bg-green-500/60 transition-all duration-500"
+                    style={{ width: `${wins}%` }}
+                  />
+                  <div
+                    className="bg-red-500/60 transition-all duration-500"
+                    style={{ width: `${losses}%` }}
+                  />
+                </>
+              );
+            })()}
+          </div>
+          <span className="text-[10px] font-mono text-zinc-500 whitespace-nowrap">
+            {agg.total_trades} trades · ${Math.abs(agg.avg_pnl_per_trade).toFixed(2)} avg
+          </span>
+
+          {/* Latency sparkline */}
+          {sparkline.length > 1 && (
+            <div className="flex items-center gap-1">
+              <svg
+                width="40"
+                height="12"
+                className="opacity-50"
+                role="img"
+                aria-label="Latency sparkline"
+              >
+                {sparkline.map((v) => {
+                  const x = (sparkline.indexOf(v) / (sparkline.length - 1)) * 40;
+                  const y = 12 - (v / maxSpark) * 10;
+                  return (
+                    <circle
+                      key={`lat-${v}-${sparkline.indexOf(v)}`}
+                      cx={x}
+                      cy={y}
+                      r="0.8"
+                      fill={v < 50 ? "#22c55e" : v < 150 ? "#f59e0b" : "#ef4444"}
+                    />
+                  );
+                })}
+              </svg>
+              <span className="text-[9px] text-zinc-600">latency</span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-// Aggregate Portfolio Display - Combined bot trading stats (only shown when bots have trades)
-function AggregatePortfolioCard() {
-  const { data: agg, isLoading } = useAggregatePortfolio();
+// Compact Market Bar - inside collapsible panel
+function MarketBar() {
+  const { btcPrice, startPrice, priceDelta, timeRemaining, yesPrice, volume, latency } =
+    useAppStore();
 
-  // Hide when loading, no bots, or no trading data yet (avoids confusion with wallet balance)
-  if (isLoading || !agg || agg.total_bots === 0 || agg.total_trades === 0) return null;
+  const latencyColor =
+    latency.current < 50
+      ? "text-green-400"
+      : latency.current < 150
+        ? "text-amber-400"
+        : "text-red-400";
+
+  const isUp = priceDelta >= 0;
+  const marketPrediction = yesPrice > 0.5 ? "EXCEED" : "STAY BELOW";
+
+  const formatTime = (secs: number) => {
+    if (secs <= 0) return "0:00";
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  };
+
+  const formatPrice = (p: number) => {
+    if (!p || p <= 0) return "---";
+    return p.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  };
+
+  const formatDelta = (d: number) => {
+    const sign = d >= 0 ? "+" : "";
+    return `${sign}${d.toFixed(0)}`;
+  };
+
+  const marketDuration = 300;
+  const timeProgress =
+    timeRemaining > 0 ? ((marketDuration - timeRemaining) / marketDuration) * 100 : 100;
+  const progressColor =
+    timeRemaining < 60 ? "bg-red-500" : timeRemaining < 180 ? "bg-amber-500" : "bg-emerald-500";
 
   return (
-    <div className="rounded-xl border border-violet-500/20 bg-violet-500/5 backdrop-blur-xl px-4 py-3">
-      <div className="flex items-center justify-between mb-2">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-4">
+        {/* Left: Timer */}
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-500/15">
-            <Activity className="h-4 w-4 text-violet-400" />
+          <div
+            className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+              timeRemaining < 60
+                ? "bg-red-500/15"
+                : timeRemaining < 180
+                  ? "bg-amber-500/15"
+                  : "bg-green-500/15"
+            }`}
+          >
+            <Clock
+              className={`h-4 w-4 ${
+                timeRemaining < 60
+                  ? "text-red-500"
+                  : timeRemaining < 180
+                    ? "text-amber-500"
+                    : "text-green-500"
+              }`}
+            />
           </div>
-          <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-            Bot Trading Statisztika
+          <div>
+            <span className="text-[9px] uppercase tracking-wider text-zinc-500">Hátralévő idő</span>
+            <div className="text-base font-extrabold font-mono text-zinc-100">
+              {timeRemaining > 0 ? formatTime(timeRemaining) : "--:--"}
+            </div>
+          </div>
+        </div>
+
+        {/* Target */}
+        <div className="flex items-center gap-2">
+          <div className="rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-3 py-1.5">
+            <span className="text-[9px] font-bold uppercase text-indigo-400">Target</span>
+            <div className="text-base font-extrabold font-mono text-indigo-400">
+              ${formatPrice(startPrice)}
+            </div>
+          </div>
+        </div>
+
+        {/* Current */}
+        <div
+          className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 ${
+            isUp && btcPrice > 0
+              ? "bg-green-500/15 border-green-500/30"
+              : "bg-red-500/15 border-red-500/30"
+          }`}
+        >
+          <div>
+            <span
+              className={`text-[9px] font-bold uppercase ${isUp ? "text-green-400" : "text-red-400"}`}
+            >
+              Current
+            </span>
+            <div
+              className={`text-base font-extrabold font-mono ${isUp ? "text-green-500" : "text-red-500"}`}
+            >
+              ${formatPrice(btcPrice)}
+            </div>
+          </div>
+        </div>
+
+        {/* Delta */}
+        <div className={`flex items-center gap-2 ${isUp ? "text-green-500" : "text-red-500"}`}>
+          {isUp ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
+          <span className="text-lg font-extrabold font-mono">{formatDelta(priceDelta)}</span>
+        </div>
+
+        {/* Volume */}
+        <div className="flex items-center gap-2">
+          <BarChart3 className="h-4 w-4 text-emerald-400" />
+          <span className="text-sm font-mono text-emerald-400">
+            {volume > 0 ? `$${(volume / 1000).toFixed(1)}K` : "---"}
           </span>
         </div>
-        <span className="text-[10px] text-zinc-600">
-          {agg.running_bots}/{agg.total_bots} fut • {agg.total_trades} trade
-        </span>
+
+        {/* SSE Latency (JS processing time) */}
+        <div
+          className="flex items-center gap-2"
+          title={`JS processing: ${latency.current.toFixed(1)}ms | Avg: ${latency.avg.toFixed(1)}ms | Min: ${latency.min.toFixed(1)}ms | Max: ${latency.max.toFixed(1)}ms`}
+        >
+          <Zap className="h-3.5 w-3.5 text-zinc-500" />
+          <span className={`text-xs font-mono font-bold ${latencyColor}`}>
+            {latency.current > 0.05 ? `${latency.current.toFixed(1)}ms` : "—"}
+          </span>
+        </div>
+
+        {/* Right: Prediction */}
+        <div
+          className={`rounded-lg px-3 py-1.5 ${
+            marketPrediction === "EXCEED"
+              ? "bg-green-500/10 border border-green-500/20"
+              : "bg-red-500/10 border border-red-500/20"
+          }`}
+        >
+          <span
+            className={`text-xs font-bold ${marketPrediction === "EXCEED" ? "text-green-500" : "text-red-500"}`}
+          >
+            {marketPrediction === "EXCEED" ? "BTC WILL EXCEED" : "BTC WILL STAY BELOW"}
+          </span>
+        </div>
       </div>
-      <div className="flex items-center gap-6">
-        <div>
-          <span className="text-[10px] text-zinc-500">P&L</span>
-          <div className={`text-base font-extrabold font-mono ${
-            agg.total_pnl >= 0 ? "text-green-400" : "text-red-400"
-          }`}>
-            {agg.total_pnl >= 0 ? "+" : ""}${agg.total_pnl.toFixed(2)}
-          </div>
-        </div>
-        <div>
-          <span className="text-[10px] text-zinc-500">Win Rate</span>
-          <div className="text-base font-extrabold font-mono text-emerald-400">
-            {agg.overall_win_rate.toFixed(1)}%
-          </div>
-        </div>
-        <div>
-          <span className="text-[10px] text-zinc-500">ROI</span>
-          <div className={`text-base font-extrabold font-mono ${
-            agg.overall_roi_percent >= 0 ? "text-green-400" : "text-red-400"
-          }`}>
-            {agg.overall_roi_percent >= 0 ? "+" : ""}{agg.overall_roi_percent.toFixed(1)}%
-          </div>
-        </div>
-        <div>
-          <span className="text-[10px] text-zinc-500">Avg/Trade</span>
-          <div className={`text-base font-extrabold font-mono ${
-            agg.avg_pnl_per_trade >= 0 ? "text-green-400" : "text-red-400"
-          }`}>
-            {agg.avg_pnl_per_trade >= 0 ? "+" : ""}${agg.avg_pnl_per_trade.toFixed(2)}
-          </div>
-        </div>
+
+      {/* Time-to-resolution progress bar */}
+      <div className="relative h-1 w-full rounded-full bg-zinc-800 overflow-hidden">
+        <div
+          className={`absolute left-0 top-0 h-full ${progressColor} transition-all duration-1000 ease-linear`}
+          style={{ width: `${timeProgress}%` }}
+        />
       </div>
     </div>
   );
@@ -133,249 +326,161 @@ function AggregatePortfolioCard() {
 
 export function CommandCenter() {
   const [chartExpanded, setChartExpanded] = useState(false);
-  const { hasCredentials, userBalance } = useAppStore();
+  const { hasCredentials, panels, togglePanel } = useAppStore();
   const { data: settings } = useSettings();
 
-  // Wait for client-side mount to avoid hydration mismatch
-  // Server doesn't have access to localStorage, so isConnected may differ
   const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
-  // Use settings hook data if available, otherwise fallback to store
   const isConnected = isMounted && (hasCredentials || (settings?.has_credentials ?? false));
   const walletAddress = settings?.wallet_address;
-
-  // Hide banner during initial load to prevent flickering between connected/disconnected states
   const bannerHidden = !isMounted;
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Connection Status Banner */}
-      {!bannerHidden && !isConnected ? (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4"
-        >
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/20">
-              <AlertTriangle className="h-5 w-5 text-amber-400" />
-            </div>
-            <div className="flex-1">
-              <h3 className="text-sm font-semibold text-amber-200">Nincs csatlakoztatva</h3>
-              <p className="mt-1 text-sm text-amber-400/80">
-                A Polymarket API kulcsok hiányoznak. Add hozzá őket a Beállításokban a trading botok
-                használatához.
-              </p>
-              <div className="mt-3 flex items-center gap-2">
+      {/* 1. Global Header - Always visible */}
+      <div className="flex flex-col gap-3">
+        {!bannerHidden && !isConnected ? (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5"
+          >
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+              <span className="text-sm text-amber-300 flex-1">
+                Nincs csatlakoztatva —{" "}
                 <Link
                   href="/settings"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-500/30 transition-colors"
+                  className="text-amber-400 underline underline-offset-2 hover:text-amber-300"
                 >
-                  <Wallet className="h-3.5 w-3.5" />
-                  <span>Beállítások megnyitása</span>
-                  <ArrowRight className="h-3.5 w-3.5" />
+                  Beállítások
                 </Link>
-                <span className="text-xs text-amber-400/60">vagy köss azonnali ügyletet lent</span>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      ) : bannerHidden ? null : (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4"
-        >
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/20">
-                <Wallet className="h-5 w-5 text-emerald-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-emerald-200">
-                  Polymarket csatlakoztatva
-                </h3>
-                <p className="mt-0.5 text-sm text-emerald-400/80">
-                  {walletAddress && walletAddress !== "***"
-                    ? `Wallet: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-                    : "API kulcsok betöltve"}
-                  {userBalance !== null && userBalance !== undefined && (
-                    <span className="ml-3 font-mono font-semibold text-emerald-300">
-                      Egyenleg: {userBalance.toFixed(2)} USDC
-                    </span>
-                  )}
-                </p>
-              </div>
-            </div>
-            <Link
-              href="/settings"
-              className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
-            >
-              Beállítások →
-            </Link>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Balance Card */}
-      <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.02 }}>
-        <BalanceCard />
-      </motion.div>
-
-      {/* Aggregate Portfolio Card */}
-      <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.03 }}>
-        <AggregatePortfolioCard />
-      </motion.div>
-
-      {/* TOP: Market Data Bar - Full Width */}
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <CompactDataBar />
-      </motion.div>
-
-      {/* MAIN CONTENT */}
-      <div className="grid gap-4 xl:grid-cols-[minmax(280px,1fr)_minmax(420px,1.55fr)_minmax(280px,1fr)]">
-        {/* Left: Quick Trade */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.05 }}
-        >
-          <QuickTradePanel />
-        </motion.div>
-
-        {/* Center: Chart */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="min-w-0"
-        >
-          <ChartPanel expanded={chartExpanded} onToggle={() => setChartExpanded(!chartExpanded)} />
-        </motion.div>
-
-        {/* Right: Activity */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.15 }}
-        >
-          <ActivityTabs />
-        </motion.div>
-      </div>
-
-      {/* BOTTOM: Stats Bar + Market History */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <StatsBar />
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.25 }}
-        >
-          <MarketHistory />
-        </motion.div>
-      </div>
-
-      {/* BOT PANEL: Single combined selector + fleet */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-      >
-        <BotSelector />
-      </motion.div>
-    </div>
-  );
-}
-
-// Stats Bar - Horizontal, Centered Stats
-function StatsBar() {
-  const { systemStatus, positions, bots } = useAppStore();
-
-  const totalPnl = systemStatus?.total_pnl ?? 0;
-  const winRate =
-    positions.length > 0
-      ? (positions.filter((p) => (p.pnl ?? 0) > 0).length / positions.length) * 100
-      : 0;
-  const activeBots = bots.filter((b) => b.status === "running").length;
-  const totalExposure = positions.reduce((sum, p) => sum + p.stake, 0);
-  const livePnl = positions.reduce((sum, p) => sum + (p.pnl ?? 0), 0);
-
-  const stats = [
-    {
-      label: "P&L",
-      value: `${totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}`,
-      color: totalPnl >= 0 ? "text-green-500" : "text-red-500",
-      bg: totalPnl >= 0 ? "bg-green-500/15" : "bg-red-500/15",
-      border: totalPnl >= 0 ? "border-green-500/30" : "border-red-500/30",
-      icon: Trophy,
-    },
-    {
-      label: "Live PnL",
-      value: `${livePnl >= 0 ? "+" : ""}${livePnl.toFixed(2)}`,
-      color: livePnl >= 0 ? "text-emerald-400" : "text-rose-400",
-      bg: livePnl >= 0 ? "bg-emerald-500/15" : "bg-rose-500/15",
-      border: livePnl >= 0 ? "border-emerald-500/30" : "border-rose-500/30",
-      icon: Activity,
-    },
-    {
-      label: "Win Rate",
-      value: `${winRate.toFixed(0)}%`,
-      color: winRate >= 50 ? "text-green-500" : "text-amber-500",
-      bg: winRate >= 50 ? "bg-green-500/15" : "bg-amber-500/15",
-      border: winRate >= 50 ? "border-green-500/30" : "border-amber-500/30",
-      icon: BarChart3,
-    },
-    {
-      label: "Trades",
-      value: `${positions.length}`,
-      color: "text-violet-400",
-      bg: "bg-violet-500/15",
-      border: "border-violet-500/30",
-      icon: Activity,
-    },
-    {
-      label: "Exposure",
-      value: `$${totalExposure.toFixed(0)}`,
-      color: totalExposure > 0 ? "text-amber-500" : "text-zinc-500",
-      bg: totalExposure > 0 ? "bg-amber-500/15" : "bg-zinc-800/50",
-      border: totalExposure > 0 ? "border-amber-500/30" : "border-white/10",
-      icon: Target,
-    },
-    {
-      label: "Bots",
-      value: `${activeBots}/${bots.length}`,
-      color: activeBots > 0 ? "text-green-500" : "text-zinc-500",
-      bg: activeBots > 0 ? "bg-green-500/15" : "bg-zinc-800/50",
-      border: activeBots > 0 ? "border-green-500/30" : "border-white/10",
-      icon: Zap,
-    },
-  ];
-
-  return (
-    <div className="rounded-2xl border border-white/8 bg-white/3 backdrop-blur-xl">
-      <div className="flex flex-wrap items-stretch justify-center gap-3 px-3 py-3 sm:px-4">
-        {stats.map((stat) => (
-          <div
-            key={stat.label}
-            className={`flex min-w-[140px] flex-1 items-center gap-3 rounded-xl border px-4 py-2 sm:flex-none ${stat.bg} ${stat.border}`}
-          >
-            <stat.icon className={`h-4 w-4 ${stat.color}`} />
-            <div className="flex flex-col">
-              <span className="text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                {stat.label}
               </span>
-              <span className={`text-lg font-extrabold font-mono ${stat.color}`}>{stat.value}</span>
+              <span className="text-xs text-amber-400/60">vagy köss ügyletet</span>
             </div>
-          </div>
-        ))}
+          </motion.div>
+        ) : bannerHidden ? null : (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2"
+          >
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-sm text-emerald-300">
+                Polymarket csatlakoztatva
+                {walletAddress && walletAddress !== "***" && (
+                  <span className="text-emerald-400/60 ml-2 font-mono">
+                    {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                  </span>
+                )}
+              </span>
+            </div>
+          </motion.div>
+        )}
+
+        <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}>
+          <AccountInfoBar />
+        </motion.div>
       </div>
+
+      {/* 2. Market Data */}
+      <CollapsiblePanel
+        title="Market Data"
+        icon={<Target className="h-4 w-4" />}
+        isOpen={panels.marketData}
+        onToggle={() => togglePanel("marketData")}
+      >
+        <MarketBar />
+      </CollapsiblePanel>
+
+      {/* 3. Trading & Chart */}
+      <CollapsiblePanel
+        title="Trading & Chart"
+        icon={<LineChart className="h-4 w-4" />}
+        isOpen={panels.tradeAndChart}
+        onToggle={() => togglePanel("tradeAndChart")}
+        bodyClassName="p-0" // removed padding for nested grids
+      >
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr] p-4">
+          <div className="min-w-0">
+            <QuickTradePanel />
+          </div>
+          <div className="min-w-0">
+            <ChartPanel
+              expanded={chartExpanded}
+              onToggle={() => setChartExpanded(!chartExpanded)}
+            />
+          </div>
+        </div>
+      </CollapsiblePanel>
+
+      {/* 4. Active Operations */}
+      <CollapsiblePanel
+        title="Bot Fleet & Positions"
+        icon={<BotIcon className="h-4 w-4" />}
+        isOpen={panels.botsAndPositions}
+        onToggle={() => togglePanel("botsAndPositions")}
+        bodyClassName="p-0"
+      >
+        <div className="grid gap-4 lg:grid-cols-[320px_1fr] p-4">
+          <div className="min-w-0">
+            <BotSelector />
+          </div>
+          <div className="min-w-0">
+            <ActivityTabs />
+          </div>
+        </div>
+      </CollapsiblePanel>
+
+      {/* 5. History */}
+      <CollapsiblePanel
+        title="Market History"
+        icon={<History className="h-4 w-4" />}
+        isOpen={panels.history}
+        onToggle={() => togglePanel("history")}
+        bodyClassName="p-0"
+      >
+        <div className="p-4">
+          <MarketHistory />
+        </div>
+      </CollapsiblePanel>
+
+      {/* 6. Strategy Performance */}
+      <CollapsiblePanel
+        title="Strategy Performance"
+        icon={<BarChart3 className="h-4 w-4" />}
+        isOpen={panels.strategyPerformance}
+        onToggle={() => togglePanel("strategyPerformance")}
+        bodyClassName="p-0"
+      >
+        <StrategyPerformance />
+      </CollapsiblePanel>
+
+      {/* 7. Trade Feed */}
+      <CollapsiblePanel
+        title="Trade Feed"
+        icon={<Activity className="h-4 w-4" />}
+        isOpen={panels.tradeFeed}
+        onToggle={() => togglePanel("tradeFeed")}
+        bodyClassName="p-0"
+      >
+        <TradeFeed />
+      </CollapsiblePanel>
+
+      {/* 8. System Health */}
+      <CollapsiblePanel
+        title="System Health"
+        icon={<Shield className="h-4 w-4" />}
+        isOpen={panels.systemHealth}
+        onToggle={() => togglePanel("systemHealth")}
+        bodyClassName="p-0"
+      >
+        <SystemHealth />
+      </CollapsiblePanel>
     </div>
   );
 }

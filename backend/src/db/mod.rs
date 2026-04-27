@@ -336,6 +336,71 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await.ok();
 
+    // Check if any bots exist — only seed on truly fresh install
+    let bot_count: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM bot_configs")
+        .fetch_one(pool)
+        .await;
+
+    if bot_count.map_or(true, |c| c == 0) {
+        // Only seed if no users exist at all — this is a brand-new database
+        let user_count: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM users")
+            .fetch_one(pool)
+            .await;
+
+        if user_count.map_or(true, |c| c == 0) {
+            // Create demo user (id=1) with password "demo123"
+            // User can change password in settings after first login
+            let demo_hash = "$2b$12$7IlZCR318k6.Lz4/00fI0Ol30zCgMRpoavHIuG9geoqY6uXLWjHlC";
+            sqlx::query(
+                r#"
+                INSERT INTO users (id, username, password_hash)
+                VALUES (1, 'demo', ?)
+                "#,
+            )
+            .bind(demo_hash)
+            .execute(pool)
+            .await.ok();
+
+            // Seed 15 default bots — one per strategy, all paper trading mode
+            let default_bots: &[(&str, &str)] = &[
+                ("Momentum", "momentum"),
+                ("Mean Reversion", "mean_reversion"),
+                ("Trend Follower", "trend"),
+                ("Contrarian", "contrarian"),
+                ("Volatility Breakout", "volatility_breakout"),
+                ("Oracle Lag", "binance_signal"),
+                ("Fair Value Arb", "fair_value"),
+                ("T-10 Sniper", "last_seconds_scalp"),
+                ("Window Delta", "window_delta"),
+                ("Binance Velocity", "binance_velocity"),
+                ("Smart Trend", "smart_trend"),
+                ("Ultra Low Entry", "ultra_low_entry"),
+                ("Trend Pullback", "trend_pullback"),
+                ("Price Reversion", "price_reversion"),
+                ("Sniper Value", "sniper_value"),
+            ];
+
+            for (name, strategy) in default_bots {
+                sqlx::query(
+                    r#"
+                    INSERT INTO bot_configs (
+                        user_id, name, market_id, strategy_type, params,
+                        bet_size, use_kelly, kelly_fraction, max_bet, interval,
+                        stop_loss, take_profit, trading_mode
+                    ) VALUES (1, ?, 'auto', ?, '{}',
+                        1.0, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
+                    "#,
+                )
+                .bind(name)
+                .bind(strategy)
+                .execute(pool)
+                .await.ok();
+            }
+
+            tracing::info!("Seeded {} default bots for demo user (id=1)", default_bots.len());
+        }
+    }
+
     tracing::info!("Database migrations completed");
     Ok(())
 }

@@ -30,16 +30,17 @@ interface AppState {
   currentMarket: Market | null;
   timeRemaining: number;
   volume: number;
-  setBtcPrice: (price: number) => void;
-  setStartPrice: (price: number) => void;
-  setPriceDelta: (delta: number) => void;
-  setBeatPrice: (price: number) => void;
-  setYesPrice: (price: number) => void;
-  setNoPrice: (price: number) => void;
-  setMarketQuestion: (question: string) => void;
-  setCurrentMarket: (market: Market | null) => void;
-  setTimeRemaining: (seconds: number) => void;
-  setVolume: (volume: number) => void;
+  setMarketData: (data: {
+    btcPrice?: number;
+    startPrice?: number;
+    priceDelta?: number;
+    beatPrice?: number;
+    yesPrice?: number;
+    noPrice?: number;
+    marketQuestion?: string;
+    timeRemaining?: number;
+    volume?: number;
+  }) => void;
 
   // Market History - past 5 completed markets
   marketHistory: {
@@ -71,11 +72,50 @@ interface AppState {
   systemStatus: SystemStatus | null;
   setSystemStatus: (status: SystemStatus) => void;
 
+  // SSE Latency Tracking
+  latency: {
+    current: number;
+    avg: number;
+    min: number;
+    max: number;
+    samples: number[];
+  };
+  setLatency: (latencyMs: number) => void;
+
+  // Bot Activity Feed
+  botActivities: Record<
+    number,
+    Array<{
+      id: string;
+      botId: number;
+      type: string;
+      timestamp: number;
+      data: Record<string, unknown>;
+    }>
+  >;
+  addBotActivity: (
+    botId: number,
+    activity: Omit<AppState["botActivities"][number][0], "id">
+  ) => void;
+  clearBotActivities: (botId: number) => void;
+
   // UI
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   emergencyStopActive: boolean;
   setEmergencyStop: (active: boolean) => void;
+
+  // Dashboard Panels
+  panels: {
+    marketData: boolean;
+    tradeAndChart: boolean;
+    botsAndPositions: boolean;
+    history: boolean;
+    strategyPerformance: boolean;
+    tradeFeed: boolean;
+    systemHealth: boolean;
+  };
+  togglePanel: (panel: keyof AppState["panels"]) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -103,13 +143,15 @@ export const useAppStore = create<AppState>()(
       selectedBotIds: [],
       setBots: (bots) => set({ bots }),
       setSelectedBotIds: (ids) => set({ selectedBotIds: ids }),
-      addSelectedBot: (id) => set((state) => {
-        if (state.selectedBotIds.length >= 2 || state.selectedBotIds.includes(id)) return state;
-        return { selectedBotIds: [...state.selectedBotIds, id] };
-      }),
-      removeSelectedBot: (id) => set((state) => ({
-        selectedBotIds: state.selectedBotIds.filter((bid) => bid !== id),
-      })),
+      addSelectedBot: (id) =>
+        set((state) => {
+          if (state.selectedBotIds.length >= 2 || state.selectedBotIds.includes(id)) return state;
+          return { selectedBotIds: [...state.selectedBotIds, id] };
+        }),
+      removeSelectedBot: (id) =>
+        set((state) => ({
+          selectedBotIds: state.selectedBotIds.filter((bid) => bid !== id),
+        })),
       updateBot: (id, updates) =>
         set((state) => ({
           bots: state.bots.map((bot) => (bot.id === id ? { ...bot, ...updates } : bot)),
@@ -126,16 +168,18 @@ export const useAppStore = create<AppState>()(
       currentMarket: null,
       timeRemaining: 0,
       volume: 0,
-      setBtcPrice: (price) => set({ btcPrice: price }),
-      setStartPrice: (price) => set({ startPrice: price }),
-      setPriceDelta: (delta) => set({ priceDelta: delta }),
-      setBeatPrice: (price) => set({ beatPrice: price }),
-      setYesPrice: (price) => set({ yesPrice: price }),
-      setNoPrice: (price) => set({ noPrice: price }),
-      setMarketQuestion: (question) => set({ marketQuestion: question }),
-      setCurrentMarket: (market) => set({ currentMarket: market }),
-      setTimeRemaining: (seconds) => set({ timeRemaining: seconds }),
-      setVolume: (volume) => set({ volume }),
+      setMarketData: (data) =>
+        set({
+          ...(data.btcPrice !== undefined && { btcPrice: data.btcPrice }),
+          ...(data.startPrice !== undefined && { startPrice: data.startPrice }),
+          ...(data.priceDelta !== undefined && { priceDelta: data.priceDelta }),
+          ...(data.beatPrice !== undefined && { beatPrice: data.beatPrice }),
+          ...(data.yesPrice !== undefined && { yesPrice: data.yesPrice }),
+          ...(data.noPrice !== undefined && { noPrice: data.noPrice }),
+          ...(data.marketQuestion !== undefined && { marketQuestion: data.marketQuestion }),
+          ...(data.timeRemaining !== undefined && { timeRemaining: data.timeRemaining }),
+          ...(data.volume !== undefined && { volume: data.volume }),
+        }),
 
       // Market History
       marketHistory: [],
@@ -167,11 +211,67 @@ export const useAppStore = create<AppState>()(
       systemStatus: null,
       setSystemStatus: (status) => set({ systemStatus: status }),
 
+      // SSE Latency Tracking
+      latency: { current: 0, avg: 0, min: 0, max: 0, samples: [] },
+      setLatency: (latencyMs) =>
+        set((state) => {
+          const samples = [...state.latency.samples, latencyMs].slice(-100);
+          const sum = samples.reduce((a, b) => a + b, 0);
+          const currentMin = state.latency.samples.length === 0 ? latencyMs : state.latency.min;
+          return {
+            latency: {
+              current: latencyMs,
+              avg: Math.round(sum / samples.length),
+              min: Math.min(currentMin, latencyMs),
+              max: Math.max(state.latency.max, latencyMs),
+              samples,
+            },
+          };
+        }),
+
+      // Bot Activity Feed
+      botActivities: {},
+      addBotActivity: (botId, activity) =>
+        set((state) => {
+          const existing = state.botActivities[botId] ?? [];
+          return {
+            botActivities: {
+              ...state.botActivities,
+              [botId]: [
+                ...existing.slice(-19),
+                { ...activity, id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}` },
+              ],
+            },
+          };
+        }),
+      clearBotActivities: (botId) =>
+        set((state) => ({
+          botActivities: { ...state.botActivities, [botId]: [] },
+        })),
+
       // UI
       sidebarCollapsed: false,
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       emergencyStopActive: false,
       setEmergencyStop: (active) => set({ emergencyStopActive: active }),
+
+      // Dashboard Panels
+      panels: {
+        marketData: true,
+        tradeAndChart: true,
+        botsAndPositions: true,
+        history: false,
+        strategyPerformance: false,
+        tradeFeed: false,
+        systemHealth: false,
+      },
+      togglePanel: (panel) =>
+        set((state) => ({
+          panels: {
+            ...state.panels,
+            [panel]: !state.panels[panel],
+          },
+        })),
     }),
     {
       name: "polytrade-auth",
@@ -179,6 +279,7 @@ export const useAppStore = create<AppState>()(
         token: state.token,
         user: state.user,
         isAuthenticated: state.isAuthenticated,
+        panels: state.panels,
       }),
     }
   )

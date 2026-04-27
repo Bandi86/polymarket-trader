@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Loader2, Target, TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { useQuickTrade } from "@/hooks/use-api";
+import { useOrders, useQuickTrade } from "@/hooks/use-api";
 import { useAppStore } from "@/store";
 
 type TradeSide = "UP" | "DOWN";
@@ -12,8 +12,18 @@ type TradeSide = "UP" | "DOWN";
 export function QuickTradePanel() {
   const [selectedSide, setSelectedSide] = useState<TradeSide | null>(null);
   const [amount, setAmount] = useState(10);
-  const { priceDelta, yesPrice, noPrice, addLog } = useAppStore();
+  const { priceDelta, yesPrice, noPrice, addLog, positions } = useAppStore();
   const quickTrade = useQuickTrade();
+  const { data: orders = [] } = useOrders();
+
+  const recentOrders = orders
+    .filter((o) => o.status === "FILLED")
+    .sort((a, b) => b.filled_at! - a.filled_at!)
+    .slice(0, 5);
+
+  const openPositions = positions.filter((p) => p.status === "open");
+  const totalExposure = openPositions.reduce((sum, p) => sum + p.stake, 0);
+  const totalUnrealizedPnl = openPositions.reduce((sum, p) => sum + (p.pnl ?? 0), 0);
 
   const handleTrade = async (side: TradeSide) => {
     if (amount <= 0 || amount > 1000) {
@@ -216,6 +226,82 @@ export function QuickTradePanel() {
           <span className="text-xs text-red-500/70">BTC will stay below</span>
         </motion.button>
       </div>
+
+      {/* Open Positions Summary */}
+      {openPositions.length > 0 && (
+        <div className="rounded-xl bg-zinc-900/60 border border-white/10 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-bold text-zinc-300">Open Positions</span>
+            <div className="flex items-center gap-3 text-[10px] font-mono">
+              <span className="text-zinc-500">Exposure</span>
+              <span className="text-zinc-100">${totalExposure.toFixed(2)}</span>
+              <span className={totalUnrealizedPnl >= 0 ? "text-green-400" : "text-red-400"}>
+                {totalUnrealizedPnl >= 0 ? "+" : ""}${totalUnrealizedPnl.toFixed(2)}
+              </span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            {openPositions.map((pos) => (
+              <div
+                key={pos.id}
+                className="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-1.5 text-xs"
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`font-bold ${pos.outcome === "YES" ? "text-green-400" : "text-red-400"}`}
+                  >
+                    {pos.outcome}
+                  </span>
+                  <span className="text-zinc-500">@ {(pos.odds * 100).toFixed(0)}¢</span>
+                </div>
+                <div className="flex items-center gap-3 font-mono">
+                  <span className="text-zinc-400">${pos.stake.toFixed(2)}</span>
+                  <span className={pos.pnl && pos.pnl >= 0 ? "text-green-400" : "text-red-400"}>
+                    {pos.pnl ? `${pos.pnl >= 0 ? "+" : ""}$${pos.pnl.toFixed(2)}` : "—"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recent Filled Orders */}
+      {recentOrders.length > 0 && (
+        <div className="rounded-xl bg-zinc-900/60 border border-white/10 p-4">
+          <span className="text-xs font-bold text-zinc-300 mb-3 block">Recent Trades</span>
+          <div className="space-y-1.5">
+            {recentOrders.map((order) => {
+              const isBuy = order.side === "BUY";
+              return (
+                <div
+                  key={order.id}
+                  className="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-1.5 text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`font-bold ${isBuy ? "text-green-400" : "text-amber-400"}`}>
+                      {isBuy ? "BUY" : "SELL"}
+                    </span>
+                    <span className="text-zinc-500">{order.outcome}</span>
+                    <span className="text-zinc-600">@ {(order.price * 100).toFixed(0)}¢</span>
+                  </div>
+                  <div className="flex items-center gap-2 font-mono text-zinc-400">
+                    <span>${order.size.toFixed(2)}</span>
+                    <span className="text-zinc-600 text-[10px]">
+                      {order.filled_at
+                        ? new Date(order.filled_at).toLocaleTimeString("hu-HU", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : ""}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -28,6 +28,11 @@ pub enum BotEvent {
     BalanceUpdated { bot_id: i64, balance: f64 },
     MarketTransition { new_market_slug: String },
     Error { bot_id: i64, message: String },
+    // Activity events for real-time UI
+    Scanning { bot_id: i64, market_slug: String },
+    Evaluating { bot_id: i64, strategy: String, confidence: f64 },
+    PositionUpdate { bot_id: i64, side: String, size: f64, price: f64, unrealized_pnl: f64 },
+    TradeResult { bot_id: i64, won: bool, pnl: f64 },
 }
 
 /// Pending paper trade bet — settled when market changes
@@ -429,6 +434,13 @@ impl BotOrchestrator {
         let all_markets = fetch_active_markets(&timeframe).await;
         let markets: Vec<_> = all_markets.into_iter().filter(|m| m.asset == asset).collect();
 
+        // Broadcast scanning event
+        let scan_slug = markets.first().map(|m| format!("btc-updown-5m-{}", m.end_time)).unwrap_or_default();
+        self.event_sender.send(BotEvent::Scanning {
+            bot_id,
+            market_slug: scan_slug,
+        }).ok();
+
         let Some(market) = markets.first().cloned() else {
             tracing::debug!("No active market found, skipping cycle");
             return Ok(());
@@ -489,12 +501,21 @@ impl BotOrchestrator {
                     ).await {
                         tracing::error!("Failed to record paper settlement: {}", e);
                     } else {
+                        let won_result = won;
+                        let pnl_result = pnl;
                         self.event_sender.send(BotEvent::TradeDecision {
                             bot_id,
                             outcome: format!("{} ({})", side, if won { "WIN" } else { "LOSS" }),
                             confidence: 1.0,
                             bet_size,
                             reason: format!("Paper settlement: price Δ{:.4}%, pnl=${:.2}", price_direction * 100.0, pnl),
+                        }).ok();
+
+                        // Broadcast trade result
+                        self.event_sender.send(BotEvent::TradeResult {
+                            bot_id,
+                            won: won_result,
+                            pnl: pnl_result,
                         }).ok();
                     }
                 } else {
@@ -524,6 +545,17 @@ impl BotOrchestrator {
         // Execute strategy with full context
         let signal = rb.strategy.evaluate_with_context(ctx);
         tracing::debug!("Signal: {:?}", signal);
+
+        // Broadcast evaluating event
+        let (eval_strategy, eval_confidence) = match &signal {
+            Signal::Yes(c) | Signal::No(c) => (bot.strategy_type.clone(), *c),
+            Signal::Hold(_) => (bot.strategy_type.clone(), 0.0),
+        };
+        self.event_sender.send(BotEvent::Evaluating {
+            bot_id,
+            strategy: eval_strategy,
+            confidence: eval_confidence,
+        }).ok();
 
         // Update bot state
         {
@@ -718,6 +750,15 @@ impl BotOrchestrator {
                                             bot_id,
                                             order_id: order_id.clone(),
                                         }).ok();
+
+                                        // Broadcast position update for live trade
+                                        self.event_sender.send(BotEvent::PositionUpdate {
+                                            bot_id,
+                                            side: outcome.to_string(),
+                                            size: bet_size,
+                                            price,
+                                            unrealized_pnl: 0.0,
+                                        }).ok();
                                     }
                                     Err(e) => {
                                         tracing::error!("Bot {} order failed: {}", bot_id, e);
@@ -805,6 +846,16 @@ impl BotOrchestrator {
                             decision_id,
                         });
                     }
+                    drop(running);
+
+                    // Broadcast position update
+                    self.event_sender.send(BotEvent::PositionUpdate {
+                        bot_id,
+                        side: outcome.to_string(),
+                        size: bet_size,
+                        price,
+                        unrealized_pnl: 0.0, // Paper trades start at zero
+                    }).ok();
                 }
             }
             Signal::Hold(reason) => {

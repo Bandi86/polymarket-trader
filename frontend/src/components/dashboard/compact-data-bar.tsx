@@ -1,15 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import {
-  BarChart3,
-  Bitcoin,
-  Clock,
-  Target,
-  TrendingDown,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
+import { BarChart3, Bitcoin, Clock, Target, TrendingDown, TrendingUp, Wallet } from "lucide-react";
 import { useUserBalance } from "@/hooks";
 import { useAppStore } from "@/store";
 
@@ -39,15 +31,8 @@ function formatVolume(volume: number): string {
 }
 
 export function CompactDataBar() {
-  const {
-    btcPrice,
-    startPrice,
-    priceDelta,
-    yesPrice,
-    timeRemaining,
-    volume,
-    marketQuestion,
-  } = useAppStore();
+  const { btcPrice, startPrice, priceDelta, yesPrice, timeRemaining, volume, marketQuestion } =
+    useAppStore();
   const { data: userBalance } = useUserBalance();
 
   const marketPrediction = yesPrice > 0.5 ? "EXCEED" : "STAY BELOW";
@@ -224,9 +209,7 @@ export function CompactDataBar() {
             <span className="text-[10px] font-semibold uppercase text-blue-400">BALANCE</span>
           </div>
           <span className="text-base font-extrabold font-mono text-blue-400">
-            {userBalance?.has_credentials
-              ? `$${userBalance.balance.toFixed(2)}`
-              : "---"}
+            {userBalance?.has_credentials ? `$${userBalance.balance.toFixed(2)}` : "---"}
           </span>
         </div>
 

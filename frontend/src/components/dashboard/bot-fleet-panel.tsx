@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
   BarChart3,
@@ -156,13 +156,13 @@ function BotDetailCard({
 
         {/* Trading config row */}
         <div className="mt-4 flex items-center gap-3 flex-wrap">
-           <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1">
-             <DollarSign className="h-3 w-3 text-zinc-400" />
-             <span className="text-xs text-zinc-400">Bet:</span>
-             <span className="text-xs font-mono font-bold text-zinc-200">
-               ${bot.bet_size.toFixed(2)}
-             </span>
-           </div>
+          <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1">
+            <DollarSign className="h-3 w-3 text-zinc-400" />
+            <span className="text-xs text-zinc-400">Bet:</span>
+            <span className="text-xs font-mono font-bold text-zinc-200">
+              ${bot.bet_size.toFixed(2)}
+            </span>
+          </div>
           {bot.use_kelly && (
             <div className="flex items-center gap-1.5 rounded-lg bg-white/5 px-2.5 py-1">
               <Zap className="h-3 w-3 text-amber-400" />
@@ -270,7 +270,11 @@ function BotDetailCard({
               </div>
             </div>
             <div className="text-[10px] text-zinc-500">
-              Avg: <span className="font-mono text-zinc-400">${portfolio.avg_pnl_per_trade.toFixed(2)}</span>/trade
+              Avg:{" "}
+              <span className="font-mono text-zinc-400">
+                ${portfolio.avg_pnl_per_trade.toFixed(2)}
+              </span>
+              /trade
             </div>
           </div>
         )}
@@ -320,9 +324,10 @@ export function BotFleetPanel() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Show selected bots, or if none selected, show all running bots
-  const displayBots = selectedBotIds.length > 0
-    ? bots.filter((b) => selectedBotIds.includes(b.id))
-    : bots.filter((b) => b.status === "running");
+  const displayBots =
+    selectedBotIds.length > 0
+      ? bots.filter((b) => selectedBotIds.includes(b.id))
+      : bots.filter((b) => b.status === "running");
 
   const isMutating = startBotMutation.isPending || stopBotMutation.isPending;
 

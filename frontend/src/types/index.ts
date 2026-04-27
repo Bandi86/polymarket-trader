@@ -54,26 +54,93 @@ export type StrategyType =
   | "volatility"
   | "random";
 
-export const STRATEGY_LABELS: Record<StrategyType, { name: string; category: string; description: string }> = {
-  window_delta:      { name: "Window Delta",     category: "Momentum",      description: "BTC ár vs ablak nyitóár alapján" },
-  fair_value:        { name: "Fair Value Arb",   category: "Arbitrage",     description: "Piac félreárazást keres" },
-  last_seconds_scalp:{ name: "T-10 Sniper",      category: "Arbitrage",     description: "Utolsó 10-30mp-ban lép" },
-  momentum:          { name: "BTC Momentum",     category: "Momentum",      description: "BTC momentum alapú kereskedés" },
-  binance_signal:    { name: "Oracle Lag",       category: "Momentum",      description: "Binance valós idejű BTC ár előnye" },
-  contrarian:        { name: "Contrarian",       category: "Mean Rev",      description: "Piac követ – nem igazi contrarian" },
-  smart_trend:       { name: "Smart Trend",      category: "Trend",         description: "Multi-timeframe trend + BTC megerősítés" },
-  ultra_low_entry:   { name: "Ultra Low Entry",  category: "Mean Rev",      description: "Vásárlás 4-15¢-nél" },
-  volatility_breakout:{ name: "Vol Breakout",    category: "Momentum",      description: "Csak extrém volatilitásnál kereskedik" },
-  trend_pullback:    { name: "Trend Pullback",   category: "Momentum",      description: "Magas meggyőzési órákon kereskedik" },
-  price_reversion:   { name: "Price Reversion",  category: "Mean Rev",      description: "Polymarket ár visszatérés" },
-  binance_velocity:  { name: "Binance Velocity", category: "Momentum",      description: "BTC sebesség alapú" },
-  sniper_value:      { name: "Sniper Value",     category: "Mean Rev",      description: "Extremális áraknál kereskedik" },
-  odds_swing:        { name: "Odds Swing",       category: "Other",         description: "Vásárol <15¢ alatt, kilép 2x-nél" },
-  bayesian_ev:       { name: "Bayesian EV",      category: "Arbitrage",     description: "Bayesian valószínűség + EV szűrő + Kelly" },
-  mean_reversion:    { name: "Mean Reversion",   category: "Mean Rev",      description: "Extrém elmozdulás után visszatérés" },
-  trend:             { name: "Multi-level Trend",category: "Trend",         description: "Trend követés" },
-  volatility:        { name: "Volatility",       category: "Momentum",      description: "Volatilitás kitörés" },
-  random:            { name: "Random",           category: "Other",         description: "Véletlen kereskedés" },
+export const STRATEGY_LABELS: Record<
+  StrategyType,
+  { name: string; category: string; description: string }
+> = {
+  window_delta: {
+    name: "Window Delta",
+    category: "Momentum",
+    description: "BTC ár vs ablak nyitóár alapján",
+  },
+  fair_value: {
+    name: "Fair Value Arb",
+    category: "Arbitrage",
+    description: "Piac félreárazást keres",
+  },
+  last_seconds_scalp: {
+    name: "T-10 Sniper",
+    category: "Arbitrage",
+    description: "Utolsó 10-30mp-ban lép",
+  },
+  momentum: {
+    name: "BTC Momentum",
+    category: "Momentum",
+    description: "BTC momentum alapú kereskedés",
+  },
+  binance_signal: {
+    name: "Oracle Lag",
+    category: "Momentum",
+    description: "Binance valós idejű BTC ár előnye",
+  },
+  contrarian: {
+    name: "Contrarian",
+    category: "Mean Rev",
+    description: "Piac követ – nem igazi contrarian",
+  },
+  smart_trend: {
+    name: "Smart Trend",
+    category: "Trend",
+    description: "Multi-timeframe trend + BTC megerősítés",
+  },
+  ultra_low_entry: {
+    name: "Ultra Low Entry",
+    category: "Mean Rev",
+    description: "Vásárlás 4-15¢-nél",
+  },
+  volatility_breakout: {
+    name: "Vol Breakout",
+    category: "Momentum",
+    description: "Csak extrém volatilitásnál kereskedik",
+  },
+  trend_pullback: {
+    name: "Trend Pullback",
+    category: "Momentum",
+    description: "Magas meggyőzési órákon kereskedik",
+  },
+  price_reversion: {
+    name: "Price Reversion",
+    category: "Mean Rev",
+    description: "Polymarket ár visszatérés",
+  },
+  binance_velocity: {
+    name: "Binance Velocity",
+    category: "Momentum",
+    description: "BTC sebesség alapú",
+  },
+  sniper_value: {
+    name: "Sniper Value",
+    category: "Mean Rev",
+    description: "Extremális áraknál kereskedik",
+  },
+  odds_swing: {
+    name: "Odds Swing",
+    category: "Other",
+    description: "Vásárol <15¢ alatt, kilép 2x-nél",
+  },
+  bayesian_ev: {
+    name: "Bayesian EV",
+    category: "Arbitrage",
+    description: "Bayesian valószínűség + EV szűrő + Kelly",
+  },
+  mean_reversion: {
+    name: "Mean Reversion",
+    category: "Mean Rev",
+    description: "Extrém elmozdulás után visszatérés",
+  },
+  trend: { name: "Multi-level Trend", category: "Trend", description: "Trend követés" },
+  volatility: { name: "Volatility", category: "Momentum", description: "Volatilitás kitörés" },
+  random: { name: "Random", category: "Other", description: "Véletlen kereskedés" },
 };
 
 export type BotStatus = "idle" | "running" | "stopped" | "error";
@@ -183,6 +250,12 @@ export interface SystemStatus {
   active_positions: number;
   binance_connected: boolean;
   last_update: number;
+  // From /system/status endpoint
+  running_bots?: number;
+  total_bots?: number;
+  has_polymarket_credentials?: boolean;
+  polymarket_api_key?: string;
+  btc_price?: number;
 }
 
 // SSE Event Types

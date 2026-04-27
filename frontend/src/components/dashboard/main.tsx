@@ -10,8 +10,7 @@ import { useBtcPrice, usePositions, useSSE, useUser } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function Dashboard() {
-  const { token, isAuthenticated, user, setAuth, setBtcPrice, setPositions } =
-    useAppStore();
+  const { token, isAuthenticated, user, setAuth, setMarketData, setPositions } = useAppStore();
   const { data: userData } = useUser();
 
   // Sync user data from API to store (fixes missing user state after login)
@@ -36,8 +35,8 @@ export function Dashboard() {
 
   // Sync API data to store
   useEffect(() => {
-    if (btcData?.price) setBtcPrice(btcData.price);
-  }, [btcData, setBtcPrice]);
+    if (btcData?.price) setMarketData({ btcPrice: btcData.price });
+  }, [btcData, setMarketData]);
 
   useEffect(() => {
     if (positionsData) setPositions(positionsData);
@@ -47,13 +46,15 @@ export function Dashboard() {
 
   // Wait for mount to check localStorage - prevents hydration mismatch
   const [isMounted, setIsMounted] = useState(false);
-  useEffect(() => { setIsMounted(true); }, []);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
-  const isAuthed = isMounted && (
-    isAuthenticated ||
-    !!token ||
-    (typeof window !== "undefined" && !!localStorage.getItem("token"))
-  );
+  const isAuthed =
+    isMounted &&
+    (isAuthenticated ||
+      !!token ||
+      (typeof window !== "undefined" && !!localStorage.getItem("token")));
 
   // Show loading state until mounted - prevents hydration mismatch
   if (!isMounted) {

@@ -12,7 +12,6 @@ import type {
   Position,
   RiskWarning,
   Settings,
-  SystemStatus,
 } from "@/types";
 
 // Auth
@@ -143,7 +142,20 @@ export function useAggregatePortfolio() {
         avg_pnl_per_trade: number;
         unrealized_pnl: number;
         total_position_value: number;
-      }>("/bots/aggregate"),
+        bots?: Array<{
+          bot_id: number;
+          balance: number;
+          initial_balance: number;
+          total_pnl: number;
+          total_trades: number;
+          win_rate: number;
+          roi_percent: number;
+          drawdown_percent: number;
+          avg_pnl_per_trade: number;
+          unrealized_pnl: number;
+          total_position_value: number;
+        }>;
+      }>("/portfolio"),
     refetchInterval: 5000,
     retry: false,
   });
@@ -153,9 +165,10 @@ export function useAggregatePortfolio() {
 export function useUserBalance() {
   return useQuery({
     queryKey: ["user-balance"],
-    queryFn: () => apiFetch<{ balance: number; wallet_address: string; has_credentials: boolean }>(
-      "/user/balance"
-    ),
+    queryFn: () =>
+      apiFetch<{ balance: number; wallet_address: string; has_credentials: boolean }>(
+        "/user/balance"
+      ),
     refetchInterval: 15000,
     retry: false,
   });
@@ -306,7 +319,15 @@ export function useValidateCredentials() {
 export function useSystemStatus() {
   return useQuery({
     queryKey: ["system-status"],
-    queryFn: () => apiFetch<SystemStatus>("/system/status"),
+    queryFn: () =>
+      apiFetch<{
+        running_bots: number;
+        total_bots: number;
+        binance_connected: boolean;
+        btc_price?: number;
+        has_polymarket_credentials: boolean;
+        polymarket_api_key?: string;
+      }>("/system/status"),
     refetchInterval: 5000,
   });
 }

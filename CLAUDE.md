@@ -48,8 +48,38 @@ cd backend && cargo test              # Rust tests
 - **App Router** (`app/`): Pages for dashboard, bots, markets, orders, settings
 - **Components** (`src/components/`): dashboard, layout, ui
 - **Hooks** (`src/hooks/`): use-api.ts (REST), use-sse.ts (real-time)
-- **State** (`src/store/`): Zustand for global state (prices, bots, positions)
+- **State** (`src/store/`): Zustand for global state (prices, bots, positions, latency, bot activities)
 - Uses Bun, not npm/yarn
+
+### Dashboard Architecture
+
+The CommandCenter (`command-center.tsx`) organizes the dashboard into collapsible panels:
+1. **AccountInfoBar** — Balance, aggregate P&L, win rate, latency sparkline
+2. **MarketBar** — BTC price, target, delta, volume, time-to-resolution progress
+3. **Trading & Chart** — QuickTradePanel + ChartPanel (side by side)
+4. **Bot Fleet & Positions** — BotSelector + ActivityTabs (side by side)
+5. **Market History** — Resolved market results table
+6. **Strategy Performance** — Per-strategy win rate, P&L, bot count
+7. **Trade Feed** — Live scrolling feed with filter (ALL/UP/DOWN/WIN/LOSS)
+8. **System Health** — SSE latency chart, API/DB status, bot fleet summary
+
+Panel visibility is stored in Zustand (`panels` state) with persist middleware.
+
+### Key Dashboard Components
+
+| File | Purpose |
+|------|---------|
+| `command-center.tsx` | Main dashboard layout, AccountInfoBar, MarketBar |
+| `bot-selector.tsx` | Vertical bot list with selection |
+| `bot-row.tsx` | Compact bot row display |
+| `bot-detail-card.tsx` | Detailed bot card with portfolio + activity |
+| `live-bot-activity-card.tsx` | Real-time bot activity timeline |
+| `strategy-performance.tsx` | Per-strategy analytics |
+| `trade-feed.tsx` | Live trade feed with filters |
+| `system-health.tsx` | System status monitoring |
+| `compact-data-bar.tsx` | Market data bar |
+| `quick-trade-panel.tsx` | Manual UP/DOWN trading |
+| `collapsible-panel.tsx` | Reusable expandable section |
 
 ### Real-time Data Flow
 ```
@@ -77,9 +107,31 @@ Polymarket CLOB API → Backend SSE → Frontend useSSE → Zustand store → UI
   "yes": 0.525,               // YES probability (0-1)
   "no": 0.475,                // NO probability (0-1)
   "time_remaining": 250,      // Seconds until market closes
-  "sentiment": "UP"           // "UP" if yes > 0.5
+  "volume": 150000.0,         // Market volume/liquidity
+  "sentiment": "UP",          // "UP" if yes > 0.5
+  "event_start_time": 1714190400,  // Market start Unix timestamp
+  "server_timestamp": 1714190650123, // Server time in ms (for latency calc)
+  "seq": 42                   // Monotonically increasing sequence number
 }
 ```
+
+### Bot Activity SSE Events
+
+The orchestrator broadcasts these event types via `bot_event_broadcaster`:
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `session_started` | bot_id, session_id, bot_name | Bot trading session began |
+| `session_ended` | bot_id, session_id, final_balance, total_pnl | Bot session ended |
+| `trade_decision` | bot_id, outcome, confidence, bet_size, reason | Strategy decided to trade |
+| `order_executed` | bot_id, order_id | Order placed on CLOB |
+| `balance_updated` | bot_id, balance | Wallet balance changed |
+| `error` | bot_id, message | Bot encountered error |
+| `market_transition` | new_market_slug | Market rolled over |
+| `scanning` | bot_id, market_slug | Bot scanning for opportunities |
+| `evaluating` | bot_id, strategy, confidence | Strategy evaluation in progress |
+| `position_update` | bot_id, side, size, price, unrealized_pnl | Position changed |
+| `trade_result` | bot_id, won, pnl | Trade settled (win/loss) |
 
 ### API Credentials
 - Polymarket API keys stored **encrypted** in database (AES-256-GCM)
@@ -98,11 +150,16 @@ const eventSource = new EventSource(`${baseUrl}/api/events`);
 
 | File | Purpose |
 |------|---------|
-| `backend/src/api/sse.rs` | SSE stream for real-time Polymarket data |
-| `backend/src/trading/orchestrator.rs` | Bot lifecycle management |
-| `frontend/src/hooks/use-sse.ts` | SSE connection and data parsing |
-| `frontend/src/store/index.ts` | Global state (prices, bots, positions) |
-| `frontend/src/components/dashboard/compact-data-bar.tsx` | Main dashboard display |
+| `backend/src/api/sse.rs` | SSE stream for real-time Polymarket data (market + bot events) |
+| `backend/src/trading/orchestrator.rs` | Bot lifecycle management, event broadcasting |
+| `frontend/src/hooks/use-sse.ts` | SSE connection, data parsing, latency calculation |
+| `frontend/src/hooks/use-api.ts` | React Query hooks for REST API |
+| `frontend/src/store/index.ts` | Global state (prices, bots, positions, latency, bot activities) |
+| `frontend/src/components/dashboard/command-center.tsx` | Main dashboard layout |
+| `frontend/src/components/dashboard/live-bot-activity-card.tsx` | Real-time bot activity timeline |
+| `frontend/src/components/dashboard/strategy-performance.tsx` | Strategy analytics panel |
+| `frontend/src/components/dashboard/trade-feed.tsx` | Live trade feed with filters |
+| `frontend/src/components/dashboard/system-health.tsx` | System status monitoring |
 
 ## Environment
 

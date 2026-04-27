@@ -19,7 +19,7 @@ import type { Market } from "@/types";
 
 export default function MarketsPage() {
   const router = useRouter();
-  const { isAuthenticated, setCurrentMarket } = useAppStore();
+  const { isAuthenticated } = useAppStore();
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -99,7 +99,6 @@ export default function MarketsPage() {
   };
 
   const selectMarket = (market: Market) => {
-    setCurrentMarket(market);
     toast.success(`${market.question} kiválasztva`);
     router.push("/");
   };

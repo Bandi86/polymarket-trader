@@ -12,19 +12,14 @@ export function useSSE() {
   const lastConfirmedStartPriceRef = useRef<number>(0);
 
   const {
-    setBtcPrice,
-    setStartPrice,
-    setPriceDelta,
-    setBeatPrice,
-    setYesPrice,
-    setNoPrice,
-    setMarketQuestion,
-    setTimeRemaining,
-    setSystemStatus,
-    setVolume,
+    setMarketData,
     addMarketResult,
     addLog,
     updateBot,
+    setSystemStatus,
+    systemStatus,
+    setLatency,
+    addBotActivity,
   } = useAppStore();
 
   const setupConnection = useCallback(() => {
@@ -52,6 +47,8 @@ export function useSSE() {
 
     eventSource.addEventListener("market", (e: MessageEvent) => {
       try {
+        // Measure SSE event processing latency: from event arrival to state update
+        const t0 = performance.now();
         const data = JSON.parse(e.data);
         const newStartPrice = data.start_price || data.price_to_beat || 0;
         const eventStartTime = data.event_start_time || 0;
@@ -62,7 +59,6 @@ export function useSSE() {
           prevEventStartTimeRef.current > 0 &&
           eventStartTime !== prevEventStartTimeRef.current
         ) {
-          // Previous market just ended - save result
           addMarketResult({
             endTime: Date.now(),
             targetPrice: lastConfirmedStartPriceRef.current,
@@ -85,21 +81,40 @@ export function useSSE() {
         // Only update start price if we have a valid new value
         if (newStartPrice > 0) {
           lastConfirmedStartPriceRef.current = newStartPrice;
-          setStartPrice(newStartPrice);
-          setPriceDelta(data.price_delta || 0);
-        } else if (lastConfirmedStartPriceRef.current > 0) {
-          setPriceDelta(data.btc_price - lastConfirmedStartPriceRef.current);
         }
 
-        setBtcPrice(data.btc_price);
-        setBeatPrice(data.price_to_beat || data.beat_price);
-        if (data.yes !== undefined) setYesPrice(data.yes);
-        if (data.no !== undefined) setNoPrice(data.no);
-        if (data.yes_price !== undefined) setYesPrice(data.yes_price);
-        if (data.no_price !== undefined) setNoPrice(data.no_price);
-        if (data.market_question) setMarketQuestion(data.market_question);
-        if (data.time_remaining !== undefined) setTimeRemaining(data.time_remaining);
-        if (data.volume !== undefined) setVolume(data.volume);
+        // Batch all market data updates into single set() call
+        const updates: Record<string, number | string> = {};
+        if (data.btc_price !== undefined) updates.btcPrice = data.btc_price;
+        if (newStartPrice > 0) {
+          updates.startPrice = newStartPrice;
+          updates.priceDelta = data.price_delta ?? data.btc_price - newStartPrice;
+        } else if (lastConfirmedStartPriceRef.current > 0) {
+          updates.priceDelta = data.btc_price - lastConfirmedStartPriceRef.current;
+        }
+        if (data.price_to_beat || data.beat_price)
+          updates.beatPrice = data.price_to_beat || data.beat_price;
+        if (data.yes !== undefined) updates.yesPrice = data.yes;
+        if (data.no !== undefined) updates.noPrice = data.no;
+        if (data.yes_price !== undefined) updates.yesPrice = data.yes_price;
+        if (data.no_price !== undefined) updates.noPrice = data.no_price;
+        if (data.market_question) updates.marketQuestion = data.market_question;
+        if (data.time_remaining !== undefined) updates.timeRemaining = data.time_remaining;
+        if (data.volume !== undefined) updates.volume = data.volume;
+
+        if (Object.keys(updates).length > 0) {
+          setMarketData(updates);
+        }
+
+        // Measure SSE event processing latency (event arrival → state update scheduled)
+        // This captures JSON parse + data processing + Zustand set() call overhead
+        // For the full end-to-end pipeline (including network), this represents the
+        // frontend-side contribution. Network + backend processing add ~10-30ms on localhost.
+        const t1 = performance.now();
+        const latencyMs = t1 - t0;
+        if (latencyMs >= 0.01) {
+          setLatency(latencyMs);
+        }
       } catch (err) {
         console.error("Failed to parse market event:", err);
       }
@@ -110,10 +125,10 @@ export function useSSE() {
         const data = JSON.parse(e.data);
         setSystemStatus({
           bots_running: data.running_bots,
-          bots_total: data.running_bots,
+          bots_total: systemStatus?.bots_total ?? data.running_bots,
           total_pnl: data.total_pnl,
-          active_positions: 0,
-          binance_connected: true,
+          active_positions: systemStatus?.active_positions ?? 0,
+          binance_connected: systemStatus?.binance_connected ?? true,
           last_update: Date.now(),
         });
       } catch (err) {
@@ -161,6 +176,17 @@ export function useSSE() {
               timestamp: Date.now(),
               level: data.confidence > 0.7 ? "success" : "info",
             });
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "trade_decision",
+              timestamp: Date.now(),
+              data: {
+                outcome: data.outcome,
+                betSize: data.bet_size,
+                confidence: data.confidence,
+                reason: data.reason,
+              },
+            });
             break;
           }
 
@@ -172,11 +198,16 @@ export function useSSE() {
               timestamp: Date.now(),
               level: "success",
             });
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "order_executed",
+              timestamp: Date.now(),
+              data: { orderId: data.order_id },
+            });
             break;
           }
 
           case "balance_updated": {
-            // Portfolio balance updates are fetched via /bots/:id/portfolio API
             break;
           }
 
@@ -189,6 +220,12 @@ export function useSSE() {
               level: "error",
             });
             updateBot(data.bot_id, { status: "error" });
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "error",
+              timestamp: Date.now(),
+              data: { message: data.message },
+            });
             break;
           }
 
@@ -199,6 +236,51 @@ export function useSSE() {
               message: `Market transition: ${data.new_market_slug}`,
               timestamp: Date.now(),
               level: "info",
+            });
+            break;
+          }
+
+          case "scanning": {
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "scanning",
+              timestamp: Date.now(),
+              data: { market: data.market_slug },
+            });
+            break;
+          }
+
+          case "evaluating": {
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "evaluating",
+              timestamp: Date.now(),
+              data: { strategy: data.strategy, confidence: data.confidence },
+            });
+            break;
+          }
+
+          case "position_update": {
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "position_update",
+              timestamp: Date.now(),
+              data: {
+                side: data.side,
+                size: data.size,
+                price: data.price,
+                unrealizedPnl: data.unrealized_pnl,
+              },
+            });
+            break;
+          }
+
+          case "trade_result": {
+            addBotActivity(data.bot_id, {
+              botId: data.bot_id,
+              type: "trade_result",
+              timestamp: Date.now(),
+              data: { won: data.won, pnl: data.pnl },
             });
             break;
           }
@@ -216,19 +298,13 @@ export function useSSE() {
     listenerCount = 1;
     return eventSource;
   }, [
-    setBtcPrice,
-    setStartPrice,
-    setPriceDelta,
-    setBeatPrice,
-    setYesPrice,
-    setNoPrice,
-    setMarketQuestion,
-    setTimeRemaining,
-    setSystemStatus,
-    setVolume,
+    setMarketData,
     addMarketResult,
     addLog,
     updateBot,
+    setSystemStatus,
+    setLatency,
+    addBotActivity,
   ]);
 
   const disconnect = useCallback(() => {
