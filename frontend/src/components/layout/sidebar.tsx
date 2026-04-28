@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   LineChart,
   Settings,
+  Wallet,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/bots", label: "Bots", icon: Bot },
   { href: "/markets", label: "Markets", icon: LineChart },
   { href: "/orders", label: "Orders", icon: History },
+  { href: "/funding", label: "Funding", icon: Wallet },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

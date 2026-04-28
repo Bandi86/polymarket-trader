@@ -495,7 +495,6 @@ mod tests {
     }
 }
 
-
 pub mod queries {
     use super::*;
     use sqlx::Row;

@@ -35,11 +35,11 @@ pub async fn get_system_status(
         None => None,
     };
 
-    // Get stored credentials info
+    // Get stored credentials info (do NOT expose actual keys)
     let settings = queries::get_settings(&db, user_id).await.ok().flatten();
-    let (api_key, has_creds) = match settings {
-        Some((key, blob)) => (Some(key), !blob.is_empty()),
-        None => (None, false),
+    let has_creds = match settings {
+        Some((_key, blob)) => !blob.is_empty(),
+        None => false,
     };
 
     // Get bot count
@@ -52,7 +52,6 @@ pub async fn get_system_status(
         binance_connected: bool,
         btc_price: Option<f64>,
         has_polymarket_credentials: bool,
-        polymarket_api_key: Option<String>,
         total_bots: usize,
         running_bots: usize,
     }
@@ -61,7 +60,6 @@ pub async fn get_system_status(
         binance_connected,
         btc_price,
         has_polymarket_credentials: has_creds,
-        polymarket_api_key: api_key.map(|k| format!("{}...", &k[..8.min(k.len())])),
         total_bots,
         running_bots,
     }).into_response()

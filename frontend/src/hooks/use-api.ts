@@ -326,7 +326,6 @@ export function useSystemStatus() {
         binance_connected: boolean;
         btc_price?: number;
         has_polymarket_credentials: boolean;
-        polymarket_api_key?: string;
       }>("/system/status"),
     refetchInterval: 5000,
   });

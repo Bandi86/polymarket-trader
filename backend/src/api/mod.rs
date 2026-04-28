@@ -15,6 +15,7 @@ use crate::trading::orchestrator::{BotOrchestrator, BotEvent};
 pub mod auth;
 pub mod binance;
 pub mod bots;
+pub mod funding;
 pub mod market;
 pub mod monitoring;
 pub mod orders;
@@ -116,6 +117,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/settings/validate-existing", post(settings::validate_existing))
         .route("/settings/validate-with-balance", post(settings::validate_with_balance))
         .route("/settings/store", post(settings::store_key))
+        .route("/settings/store-all", post(settings::store_credentials))
         .route("/settings/keys", get(settings::list_api_keys))
         .route("/settings/keys/:provider", delete(settings::delete_provider_keys))
         .route("/settings/keys/store", post(settings::store_api_keys))
@@ -130,6 +132,10 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/binance/start", post(binance::start_binance))
         .route("/binance/stop", post(binance::stop_binance))
         .route("/binance/price", get(binance::get_price))
+        // Funding routes
+        .route("/funding/info", get(funding::funding_info))
+        .route("/funding/wallet-info", get(funding::wallet_info))
+        .route("/funding/wrap", post(funding::wrap_pusd))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             auth_middleware::auth_middleware,

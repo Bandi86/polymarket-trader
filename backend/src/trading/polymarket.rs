@@ -3,7 +3,9 @@
 //! Handles API key derivation, validation, and authenticated API calls
 //! Updated for CLOB V2 migration (April 28, 2026)
 
+use ethers::core::types::{H160, H256, U256};
 use ethers::signers::{LocalWallet, Signer};
+use ethers::abi::{self, Token};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -13,16 +15,16 @@ const DATA_HOST: &str = "https://data-api.polymarket.com";
 const CHAIN_ID: u64 = 137; // Polygon (unchanged in V2)
 
 // V2 Contract Addresses (from https://docs.polymarket.com/resources/contracts)
-const CTF_EXCHANGE_V2: &str = "0xE111180000d2663C0091e4f400237545B87B996B";
-const NEG_RISK_CTF_EXCHANGE_V2: &str = "0xe2222d279d744050d28e00520010520000310F59";
-const NEG_RISK_ADAPTER_V2: &str = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296";
-const CONDITIONAL_TOKENS: &str = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
-const PUSD_COLLATERAL: &str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
-const COLLATERAL_ONRAMP: &str = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
+pub const CTF_EXCHANGE_V2: &str = "0xE111180000d2663C0091e4f400237545B87B996B";
+pub const NEG_RISK_CTF_EXCHANGE_V2: &str = "0xe2222d279d744050d28e00520010520000310F59";
+pub const NEG_RISK_ADAPTER_V2: &str = "0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296";
+pub const CONDITIONAL_TOKENS: &str = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
+pub const PUSD_COLLATERAL: &str = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB";
+pub const COLLATERAL_ONRAMP: &str = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
 
 // EIP-712 Domain versions
-const EXCHANGE_DOMAIN_VERSION: &str = "2"; // V2 Exchange domain version
-const CLOB_AUTH_DOMAIN_VERSION: &str = "1"; // CLOB Auth unchanged
+pub const EXCHANGE_DOMAIN_VERSION: &str = "2"; // V2 Exchange domain version
+pub const CLOB_AUTH_DOMAIN_VERSION: &str = "1"; // CLOB Auth unchanged
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiKeyCreds {
@@ -171,9 +173,15 @@ impl PolymarketClient {
         Ok(client)
     }
 
-    /// Get the wallet address
+    /// Get the wallet address (full 42-char hex)
     pub fn address(&self) -> String {
-        self.wallet.address().to_string()
+        let addr = self.wallet.address();
+        format!("0x{}", hex::encode(addr.as_bytes()))
+    }
+
+    /// Get the wallet address as H160
+    fn address_h160(&self) -> H160 {
+        self.wallet.address()
     }
 
     /// Create or derive API key using L1 wallet authentication
@@ -402,8 +410,7 @@ impl PolymarketClient {
         quote.price.parse().map_err(|_| PolymarketError::ApiError("Invalid price format".to_string()))
     }
 
-    /// Create and sign a V2 order using EIP-712 typed data
-    /// V2 uses domain version "2" for Exchange and updated Order type
+    /// Create and sign a V2 order using proper EIP-712 typed data
     pub async fn create_order_v2(
         &self,
         order: &OrderRequest,
@@ -412,111 +419,103 @@ impl PolymarketClient {
         let creds = self.creds.as_ref()
             .ok_or(PolymarketError::AuthFailed("No API credentials".to_string()))?;
 
-        // Generate order parameters
-        let salt: u64 = rand::random();
-        let expiration: i64 = chrono::Utc::now().timestamp() + 86400; // 24 hours
-        let timestamp_ms = chrono::Utc::now().timestamp_millis();
-        let metadata = "0x0000000000000000000000000000000000000000000000000000000000000000";
-        let builder = "0x0000000000000000000000000000000000000000000000000000000000000000";
+        let salt: U256 = U256::from(rand::random::<u64>());
+        let timestamp_ms = U256::from(chrono::Utc::now().timestamp_millis() as u64);
+        let maker_amount = U256::from((order.size * 1000000.0) as u64);
+        let taker_amount = U256::from((order.size * order.price * 1000000.0) as u64);
+        let token_id = U256::from_str_radix(&order.token_id, 10)
+            .unwrap_or(U256::zero());
+        let side = Token::Uint(U256::from(if order.side == "BUY" { 0u8 } else { 1u8 }));
+        let sig_type = Token::Uint(U256::from(self.signature_type as u64));
+        let metadata = H256::zero();
+        let builder = H256::zero();
+        let maker: H160 = self.funder.as_ref()
+            .map(|s| s.parse().unwrap_or_else(|_| self.address_h160()))
+            .unwrap_or_else(|| self.address_h160());
+        let signer = self.address_h160();
 
-        let side_val = if order.side == "BUY" { 0 } else { 1 };
+        // --- EIP-712 Domain: name="Polymarket CTF Exchange", version="2" ---
+        let exchange_address: H160 = get_exchange_address(is_neg_risk)
+            .parse()
+            .map_err(|e| PolymarketError::ApiError(format!("Invalid exchange address: {e}")))?;
 
-        // V2 Order type fields
-        let order_data = serde_json::json!({
-            "salt": salt.to_string(),
-            "maker": self.funder.as_ref().unwrap_or(&self.address()),
-            "signer": self.address(),
-            "tokenId": order.token_id,
-            "makerAmount": (order.size * 1000000.0).to_string(), // Convert to base units
-            "takerAmount": (order.size * order.price * 1000000.0).to_string(),
-            "expiration": expiration,
-            "side": side_val,
-            "signatureType": self.signature_type,
-            "timestamp": timestamp_ms,
-            "metadata": metadata,
-            "builder": builder,
-        });
-
-        // EIP-712 Domain for V2 Exchange
-        let exchange_address = get_exchange_address(is_neg_risk);
-        let domain = serde_json::json!({
-            "name": "CTFExchange",
-            "version": EXCHANGE_DOMAIN_VERSION,
-            "chainId": CHAIN_ID,
-            "verifyingContract": exchange_address,
-        });
-
-        // Build EIP-712 typed data
-        let typed_data = serde_json::json!({
-            "types": {
-                "EIP712Domain": [
-                    {"name": "name", "type": "string"},
-                    {"name": "version", "type": "string"},
-                    {"name": "chainId", "type": "uint256"},
-                    {"name": "verifyingContract", "type": "address"}
-                ],
-                "Order": [
-                    {"name": "salt", "type": "uint256"},
-                    {"name": "maker", "type": "address"},
-                    {"name": "signer", "type": "address"},
-                    {"name": "tokenId", "type": "uint256"},
-                    {"name": "makerAmount", "type": "uint256"},
-                    {"name": "takerAmount", "type": "uint256"},
-                    {"name": "expiration", "type": "uint256"},
-                    {"name": "side", "type": "uint8"},
-                    {"name": "signatureType", "type": "uint8"},
-                    {"name": "timestamp", "type": "uint256"},
-                    {"name": "metadata", "type": "bytes32"},
-                    {"name": "builder", "type": "bytes32"}
-                ]
-            },
-            "primaryType": "Order",
-            "domain": domain,
-            "message": order_data
-        });
-
-        // Sign using EIP-712 (eth_signTypedData)
-        // For ethers 2.0, we need to manually construct the hash
-        let typed_data_json = serde_json::to_string(&typed_data)
-            .map_err(|e| PolymarketError::ApiError(e.to_string()))?;
-
-        // EIP-712 hash: keccak256("\x19\x01" + domainSeparator + hashStruct)
-        let domain_separator = ethers::utils::keccak256(
-            ethers::utils::keccak256(typed_data_json.as_bytes())
+        // --- EIP-712 Domain Separator ---
+        // domainSeparator = keccak256(
+        //   EIP712Domain_TypeHash ||
+        //   keccak256(name) || keccak256(version) ||
+        //   chainId || verifyingContract
+        // )
+        let domain_type_hash = ethers::utils::keccak256(
+            b"EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
         );
-        let struct_hash = ethers::utils::keccak256(
-            ethers::utils::keccak256(order_data.to_string().as_bytes())
+        let name_hash = ethers::utils::keccak256(b"Polymarket CTF Exchange");
+        let version_hash = ethers::utils::keccak256(EXCHANGE_DOMAIN_VERSION.as_bytes());
+        let domain_encoded = abi::encode(&[
+            Token::FixedBytes(domain_type_hash.to_vec()),
+            Token::FixedBytes(name_hash.to_vec()),
+            Token::FixedBytes(version_hash.to_vec()),
+            Token::Uint(U256::from(CHAIN_ID)),
+            Token::Address(exchange_address),
+        ]);
+        let domain_separator = ethers::utils::keccak256(&domain_encoded);
+
+        // --- EIP-712 encodeType for Order ---
+        let order_type_hash = ethers::utils::keccak256(
+            b"Order(salt uint256,maker address,signer address,tokenId uint256,makerAmount uint256,takerAmount uint256,side uint8,signatureType uint8,timestamp uint256,metadata bytes32,builder bytes32)"
         );
 
+        // --- EIP-712 encodeData for Order (ABI encoding) ---
+        let encoded_data = abi::encode(&[
+            Token::Uint(salt),
+            Token::Address(maker),
+            Token::Address(signer),
+            Token::Uint(token_id),
+            Token::Uint(maker_amount),
+            Token::Uint(taker_amount),
+            side,
+            sig_type,
+            Token::Uint(timestamp_ms),
+            Token::FixedBytes(metadata.as_bytes().to_vec()),
+            Token::FixedBytes(builder.as_bytes().to_vec()),
+        ]);
+        let encoded_data_hash = ethers::utils::keccak256(&encoded_data);
+
+        // hashStruct = keccak256(encodeTypeHash || encodeDataHash)
+        let mut struct_bytes = Vec::with_capacity(64);
+        struct_bytes.extend_from_slice(&order_type_hash);
+        struct_bytes.extend_from_slice(&encoded_data_hash);
+        let struct_hash = ethers::utils::keccak256(&struct_bytes);
+
+        // EIP-712 digest: keccak256("\x19\x01" || domainSeparator || hashStruct)
         let mut pre_hash = Vec::with_capacity(66);
         pre_hash.push(0x19);
         pre_hash.push(0x01);
         pre_hash.extend_from_slice(&domain_separator);
         pre_hash.extend_from_slice(&struct_hash);
 
-        let final_hash = ethers::utils::keccak256(&pre_hash);
-        let signature = self.wallet.sign_message(final_hash.to_vec())
+        let digest = ethers::utils::keccak256(&pre_hash);
+
+        let signature = self.wallet.sign_message(digest.to_vec())
             .await
             .map_err(|e| PolymarketError::SignatureFailed(e.to_string()))?;
 
-        // V2 Signed order format (with signature folded into order)
+        // V2 Signed order format
         let signed_order = serde_json::json!({
             "order": {
                 "salt": salt.to_string(),
-                "maker": self.funder.as_ref().unwrap_or(&self.address()),
-                "signer": self.address(),
-                "tokenId": order.token_id,
-                "makerAmount": (order.size * 1000000.0).to_string(),
-                "takerAmount": (order.size * order.price * 1000000.0).to_string(),
-                "expiration": expiration.to_string(),
-                "side": order.side, // "BUY" or "SELL"
+                "maker": format!("{maker:#042x}"),
+                "signer": format!("{signer:#042x}"),
+                "tokenId": token_id.to_string(),
+                "makerAmount": maker_amount.to_string(),
+                "takerAmount": taker_amount.to_string(),
+                "side": order.side,
                 "signatureType": self.signature_type,
                 "timestamp": timestamp_ms.to_string(),
-                "metadata": metadata,
-                "builder": builder,
+                "metadata": format!("{:#066x}", metadata),
+                "builder": format!("{:#066x}", builder),
                 "signature": signature.to_string(),
             },
-            "orderType": "GTC", // Good Till Cancelled
+            "orderType": "GTC",
             "owner": &creds.key,
         });
 
