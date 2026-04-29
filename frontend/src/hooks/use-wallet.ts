@@ -72,31 +72,37 @@ async function switchToPolygon(provider: any): Promise<boolean> {
 }
 
 async function fetchBalance(provider: any, address: string): Promise<Balances> {
-  // MATIC (native balance)
+  // MATIC (native balance) — use BigInt to avoid precision loss
   const maticHex = await provider.request({
     method: "eth_getBalance",
     params: [address, "latest"],
   });
-  const matic = (parseInt(maticHex, 16) / 1e18).toFixed(4);
+  const matic = (Number(BigInt(maticHex)) / 1e18).toFixed(4);
 
   // ERC-20 balances via eth_call
   async function getTokenBalance(tokenAddr: string): Promise<number> {
-    try {
-      const data = `${BALANCE_OF_SELECTOR}${encodeAddressParam(address)}`;
-      const result = await provider.request({
-        method: "eth_call",
-        params: [{ to: tokenAddr, data }, "latest"],
-      });
-      // eth_call can return "0x" for zero balance
-      if (!result || result === "0x") return 0;
-      return parseInt(result, 16) / 1e6; // USDC/pUSD have 6 decimals
-    } catch {
-      return 0;
-    }
+    const data = `${BALANCE_OF_SELECTOR}${encodeAddressParam(address)}`;
+    const result = await provider.request({
+      method: "eth_call",
+      params: [{ to: tokenAddr, data }, "latest"],
+    });
+    // eth_call can return "0x" for zero balance
+    if (!result || result === "0x") return 0;
+    return Number(BigInt(result)) / 1e6; // USDC/pUSD have 6 decimals
   }
 
-  const usdc = (await getTokenBalance(TOKENS.USDC_E)).toFixed(2);
-  const pusd = (await getTokenBalance(TOKENS.PUSD)).toFixed(2);
+  let usdc = "0.00";
+  let pusd = "0.00";
+  try {
+    usdc = (await getTokenBalance(TOKENS.USDC_E)).toFixed(2);
+  } catch (e: any) {
+    toast.warning(`USDC egyenleg lekérése sikertelen: ${e?.message ?? "ismeretlen hiba"}`);
+  }
+  try {
+    pusd = (await getTokenBalance(TOKENS.PUSD)).toFixed(2);
+  } catch (e: any) {
+    toast.warning(`pUSD egyenleg lekérése sikertelen: ${e?.message ?? "ismeretlen hiba"}`);
+  }
 
   return { matic, usdc, pusd };
 }

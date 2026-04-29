@@ -9,6 +9,7 @@ use crate::db;
 use crate::middleware::auth::Claims;
 use crate::trading::client::ClobClient;
 use crate::trading::PolymarketClient;
+use crate::services::credential_service::CredentialError;
 
 #[derive(Serialize)]
 pub struct UserBalanceResponse {
@@ -19,43 +20,74 @@ pub struct UserBalanceResponse {
 }
 
 /// GET /user/balance — Fetch real USDC balance from Polymarket API
+/// Uses CredentialService (encrypted settings table) as primary source,
+/// falling back to credential_cache for backwards compatibility.
 pub async fn get_user_balance(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
 ) -> Response {
     let user_id = claims.user_id;
+    let db = state.db();
 
-    // Check credential cache first
-    let cache = state.credential_cache.read().await;
-    let creds = cache.get(&user_id).cloned();
-    drop(cache);
-
-    let creds = match creds {
-        Some(c) => c,
-        None => {
-            // Cache miss — load from DB and populate cache
-            if let Some(loaded) = load_credentials_from_db(&state, user_id).await {
-                loaded
-            } else {
-                return Json(UserBalanceResponse {
-                    balance: 0.0,
-                    wallet_address: String::new(),
-                    has_credentials: false,
-                    error: Some("No Polymarket credentials configured. Add your API keys in Settings.".to_string()),
-                })
-                .into_response();
+    // Try to get credentials from CredentialService (encrypted settings table)
+    let creds = match state.credential_service.get_credentials(&db, user_id).await {
+        Ok(c) => c,
+        Err(CredentialError::NotFound) => {
+            // No encrypted credentials — check if legacy api_keys exist
+            if let Some(legacy_creds) = load_legacy_api_keys(&state, user_id).await {
+                return fetch_balance_with_creds(legacy_creds).await.into_response();
             }
+            return Json(UserBalanceResponse {
+                balance: 0.0,
+                wallet_address: String::new(),
+                has_credentials: false,
+                error: Some("No Polymarket credentials configured. Add your API keys in Settings.".to_string()),
+            })
+            .into_response();
+        }
+        Err(CredentialError::PrivateKeyRequired) => {
+            return Json(UserBalanceResponse {
+                balance: 0.0,
+                wallet_address: String::new(),
+                has_credentials: false,
+                error: Some("Private key required for wallet access. Re-save your credentials in Settings.".to_string()),
+            })
+            .into_response();
+        }
+        Err(e) => {
+            // Decrypt error or other issue — log and fall back to legacy
+            tracing::warn!("CredentialService error for user {}: {}", user_id, e);
+            if let Some(legacy_creds) = load_legacy_api_keys(&state, user_id).await {
+                return fetch_balance_with_creds(legacy_creds).await.into_response();
+            }
+            return Json(UserBalanceResponse {
+                balance: 0.0,
+                wallet_address: String::new(),
+                has_credentials: false,
+                error: Some(format!("Failed to load credentials: {}", e)),
+            })
+            .into_response();
         }
     };
 
-    fetch_balance(&state, creds).await.into_response()
+    // Use the decrypted credentials to fetch balance
+    fetch_balance_from_polymarket(&creds).await.into_response()
 }
 
-/// Load credentials from DB and populate cache. Returns Some(creds) on success.
-async fn load_credentials_from_db(
+/// Load legacy plain-text API keys from api_keys table (backwards compatibility)
+async fn load_legacy_api_keys(
     state: &AppState,
     user_id: i64,
 ) -> Option<crate::api::CachedCredentials> {
+    let cache = state.credential_cache.read().await;
+    if let Some(cached) = cache.get(&user_id) {
+        if !cached.api_key.is_empty() {
+            return Some(cached.clone());
+        }
+    }
+    drop(cache);
+
+    // Try loading from api_keys table
     let keys = db::queries::get_api_keys(&state.db, user_id).await.ok()?;
 
     let api_key = keys.iter().find(|k| k.key_name == "polymarket_api_key").map(|k| &k.key_value);
@@ -87,13 +119,52 @@ async fn load_credentials_from_db(
         wallet_address: wallet,
     };
 
-    tracing::info!("Loaded credentials from DB for user {}", user_id);
+    // Populate cache for next time
     state.credential_cache.write().await.insert(user_id, cached.clone());
     Some(cached)
 }
 
-/// Fetch balance from Polymarket CLOB API using cached credentials
-async fn fetch_balance(_state: &AppState, creds: crate::api::CachedCredentials) -> Response {
+/// Fetch balance using credentials from CredentialService
+async fn fetch_balance_from_polymarket(creds: &crate::services::credential_service::PolymarketCredentials) -> Response {
+    if creds.api_key.is_empty() {
+        return Json(UserBalanceResponse {
+            balance: 0.0,
+            wallet_address: creds.wallet_address.clone(),
+            has_credentials: true,
+            error: Some("Missing API key. Add your API key in Settings to see wallet balance.".to_string()),
+        })
+        .into_response();
+    }
+
+    let client = ClobClient::new(Some(creds.api_key.clone()));
+
+    match client.get_balance().await {
+        Ok(response) => {
+            let usdc_balance = response.balances.iter()
+                .find(|b| b.asset == "USDC" || b.asset == "PUSD")
+                .map(|b| b.available)
+                .unwrap_or(0.0);
+
+            Json(UserBalanceResponse {
+                balance: usdc_balance,
+                wallet_address: creds.wallet_address.clone(),
+                has_credentials: true,
+                error: None,
+            })
+            .into_response()
+        }
+        Err(e) => Json(UserBalanceResponse {
+            balance: 0.0,
+            wallet_address: creds.wallet_address.clone(),
+            has_credentials: true,
+            error: Some(format!("Failed to fetch balance: {}", e)),
+        })
+        .into_response(),
+    }
+}
+
+/// Fetch balance using legacy CachedCredentials (backwards compat)
+async fn fetch_balance_with_creds(creds: crate::api::CachedCredentials) -> Response {
     if creds.api_key.is_empty() {
         return Json(UserBalanceResponse {
             balance: 0.0,
