@@ -112,18 +112,22 @@ export function useWallet(expectedAddress?: string) {
   const [balances, setBalances] = useState<Balances>({ matic: "0", usdc: "0", pusd: "0" });
   const [loading, setLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Use refs to break the dependency cycle that causes infinite loops
+  const walletRef = useRef(wallet);
+  walletRef.current = wallet;
 
   const refreshBalances = useCallback(async () => {
-    if (!wallet.connected || !wallet.address) return;
+    const w = walletRef.current;
+    if (!w.connected || !w.address) return;
     const ethereum = (window as any).ethereum;
     if (!ethereum) return;
     try {
-      const newBalances = await fetchBalance(ethereum, wallet.address);
+      const newBalances = await fetchBalance(ethereum, w.address);
       setBalances(newBalances);
     } catch {
       // Ignore transient errors
     }
-  }, [wallet.connected, wallet.address]);
+  }, []);
 
   // Poll balances every 10s
   const startPolling = useCallback(() => {
@@ -162,7 +166,7 @@ export function useWallet(expectedAddress?: string) {
     }
   }, [refreshBalances, startPolling]);
 
-  // Listen for MetaMask events
+  // Listen for MetaMask events — deps are now stable (no wallet/state deps)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const ethereum = (window as any).ethereum;

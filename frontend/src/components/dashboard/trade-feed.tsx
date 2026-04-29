@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ArrowDownRight, ArrowUpRight, Clock, Filter, Pause, Play } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useBots } from "@/hooks";
 import { useAppStore } from "@/store";
 
@@ -29,10 +29,8 @@ export function TradeFeed() {
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState<"ALL" | "UP" | "DOWN" | "WIN" | "LOSS">("ALL");
 
-  // Merge SSE bot activity trades into a unified feed
-  const [sseTrades, setSseTrades] = useState<TradeEntry[]>([]);
-
-  useEffect(() => {
+  // Derive trades directly from botActivities — no useEffect needed, prevents infinite loop
+  const sseTrades = useMemo(() => {
     const trades: TradeEntry[] = [];
     for (const [botId, activities] of Object.entries(botActivities)) {
       const bid = Number(botId);
@@ -81,7 +79,7 @@ export function TradeFeed() {
     }
 
     trades.sort((a, b) => b.timestamp - a.timestamp);
-    setSseTrades(trades.slice(0, 100));
+    return trades.slice(0, 100);
   }, [botActivities, bots]);
 
   // Auto-scroll to top (newest first)
@@ -89,7 +87,7 @@ export function TradeFeed() {
     if (autoScroll && !paused && scrollRef.current) {
       scrollRef.current.scrollTop = 0;
     }
-  }, [autoScroll, paused]);
+  }, [autoScroll, paused, sseTrades]);
 
   const filtered = sseTrades.filter((t) => {
     if (filter === "ALL") return true;
