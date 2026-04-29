@@ -147,12 +147,12 @@ function AccountInfoBar() {
                 role="img"
                 aria-label="Latency sparkline"
               >
-                {sparkline.map((v) => {
-                  const x = (sparkline.indexOf(v) / (sparkline.length - 1)) * 40;
+                {sparkline.map((v, i) => {
+                  const x = (i / (sparkline.length - 1)) * 40;
                   const y = 12 - (v / maxSpark) * 10;
                   return (
                     <circle
-                      key={`lat-${v}-${sparkline.indexOf(v)}`}
+                      key={`${i}`}
                       cx={x}
                       cy={y}
                       r="0.8"

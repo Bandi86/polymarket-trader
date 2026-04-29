@@ -305,6 +305,9 @@ export function useSSE() {
     setSystemStatus,
     setLatency,
     addBotActivity,
+    systemStatus?.bots_total,
+    systemStatus?.active_positions,
+    systemStatus?.binance_connected,
   ]);
 
   const disconnect = useCallback(() => {

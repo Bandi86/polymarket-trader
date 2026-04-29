@@ -44,9 +44,7 @@ export function SystemHealth() {
       label: "Polymarket CLOB",
       icon: Shield,
       status: sys?.has_polymarket_credentials ? "configured" : "unknown",
-      detail: sys?.has_polymarket_credentials
-        ? "Configured"
-        : "No credentials",
+      detail: sys?.has_polymarket_credentials ? "Configured" : "No credentials",
     },
     {
       label: "Database",

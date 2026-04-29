@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 
 interface CollapsiblePanelProps {
@@ -45,8 +45,9 @@ export function CollapsiblePanel({
     <div
       className={`border border-white/8 rounded-2xl bg-white/3 backdrop-blur-xl overflow-hidden ${className}`}
     >
-      <div
-        className="flex items-center justify-between px-4 py-3 cursor-pointer select-none hover:bg-white/5 transition-colors focus:outline-none"
+      <button
+        type="button"
+        className="flex items-center justify-between w-full px-4 py-3 cursor-pointer select-none hover:bg-white/5 transition-colors focus:outline-none bg-transparent border-0 text-left"
         onClick={handleToggle}
       >
         <div className="flex items-center gap-3">
@@ -56,7 +57,7 @@ export function CollapsiblePanel({
 
         <div className="flex items-center gap-3">
           {headerRight && (
-            <div onClick={(e) => e.stopPropagation()} className="cursor-default">
+            <div onPointerDown={(e) => e.stopPropagation()} className="cursor-default">
               {headerRight}
             </div>
           )}
@@ -68,7 +69,7 @@ export function CollapsiblePanel({
             <ChevronDown className="h-4 w-4" />
           </motion.div>
         </div>
-      </div>
+      </button>
 
       <AnimatePresence initial={false}>
         {isOpen && (

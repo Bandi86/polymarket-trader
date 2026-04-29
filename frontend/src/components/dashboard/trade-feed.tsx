@@ -82,8 +82,7 @@ export function TradeFeed() {
 
     trades.sort((a, b) => b.timestamp - a.timestamp);
     setSseTrades(trades.slice(0, 100));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [botActivities]);
+  }, [botActivities, bots]);
 
   // Auto-scroll to top (newest first)
   useEffect(() => {

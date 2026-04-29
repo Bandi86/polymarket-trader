@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { useAppStore } from "@/store";
 
+const EMPTY_ACTIVITIES: never[] = [];
+
 const ACTIVITY_CONFIG: Record<string, { icon: typeof Bot; color: string; label: string }> = {
   scanning: { icon: Search, color: "text-zinc-400", label: "Scanning market" },
   evaluating: { icon: LineChart, color: "text-blue-400", label: "Evaluating strategy" },
@@ -185,7 +187,7 @@ function ActivityDetail({
 }
 
 export function LiveBotActivityCard({ botId }: { botId: number }) {
-  const activities = useAppStore((s) => s.botActivities[botId] ?? []);
+  const activities = useAppStore((s) => s.botActivities[botId] ?? EMPTY_ACTIVITIES);
 
   if (activities.length === 0) {
     return (

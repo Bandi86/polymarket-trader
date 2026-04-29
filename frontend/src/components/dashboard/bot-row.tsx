@@ -116,7 +116,17 @@ function BotRowInner({
         title={isSelected ? "Kijelölés törlése" : "Kijelölés"}
       >
         {isSelected && (
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="white" strokeWidth="1.5">
+          <svg
+            width="8"
+            height="8"
+            viewBox="0 0 8 8"
+            fill="none"
+            stroke="white"
+            strokeWidth="1.5"
+            role="img"
+            aria-label="Selected"
+          >
+            <title>Selected</title>
             <path d="M1.5 4l1.5 1.5 3.5-3.5" />
           </svg>
         )}
@@ -153,7 +163,7 @@ function BotRowInner({
       )}
 
       {/* Actions */}
-      <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+      <div className="flex shrink-0 items-center gap-1" onPointerDown={(e) => e.stopPropagation()}>
         {isRunning ? (
           <button
             type="button"

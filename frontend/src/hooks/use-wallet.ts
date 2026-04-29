@@ -127,7 +127,7 @@ export function useWallet(expectedAddress?: string) {
 
   // Poll balances every 10s
   const startPolling = useCallback(() => {
-    stopPolling();
+    if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(() => void refreshBalances(), 10_000);
   }, [refreshBalances]);
 
@@ -137,36 +137,6 @@ export function useWallet(expectedAddress?: string) {
       pollRef.current = null;
     }
   }, []);
-
-  // Listen for MetaMask events
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const ethereum = (window as any).ethereum;
-    if (!ethereum) return;
-
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
-        setWallet({ connected: false, address: null, chainId: null, isMetaMask: true, isWrongChain: false });
-        stopPolling();
-        toast.info("MetaMask: fiók leválasztva");
-      } else {
-        setWallet((prev) => ({ ...prev, address: accounts[0] }));
-        void refreshBalances();
-      }
-    };
-
-    const handleChainChanged = () => {
-      void checkConnection();
-    };
-
-    ethereum.on("accountsChanged", handleAccountsChanged);
-    ethereum.on("chainChanged", handleChainChanged);
-
-    return () => {
-      ethereum.removeListener("accountsChanged", handleAccountsChanged);
-      ethereum.removeListener("chainChanged", handleChainChanged);
-    };
-  }, [refreshBalances, startPolling, stopPolling]);
 
   // Try to reconnect on mount (if already approved)
   const checkConnection = useCallback(async () => {
@@ -191,6 +161,42 @@ export function useWallet(expectedAddress?: string) {
       // Not connected
     }
   }, [refreshBalances, startPolling]);
+
+  // Listen for MetaMask events
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) return;
+
+    const handleAccountsChanged = (accounts: string[]) => {
+      if (accounts.length === 0) {
+        setWallet({
+          connected: false,
+          address: null,
+          chainId: null,
+          isMetaMask: true,
+          isWrongChain: false,
+        });
+        stopPolling();
+        toast.info("MetaMask: fiók leválasztva");
+      } else {
+        setWallet((prev) => ({ ...prev, address: accounts[0] }));
+        void refreshBalances();
+      }
+    };
+
+    const handleChainChanged = () => {
+      void checkConnection();
+    };
+
+    ethereum.on("accountsChanged", handleAccountsChanged);
+    ethereum.on("chainChanged", handleChainChanged);
+
+    return () => {
+      ethereum.removeListener("accountsChanged", handleAccountsChanged);
+      ethereum.removeListener("chainChanged", handleChainChanged);
+    };
+  }, [checkConnection, refreshBalances, stopPolling]);
 
   // Check connection on mount
   useEffect(() => {
@@ -219,7 +225,7 @@ export function useWallet(expectedAddress?: string) {
 
       // Check if address matches expected
       const connectedAddr = accounts[0];
-      let wrongChain = !switched || chainId !== POLYGON_CHAIN_ID;
+      const wrongChain = !switched || chainId !== POLYGON_CHAIN_ID;
 
       if (expectedAddress && connectedAddr.toLowerCase() !== expectedAddress.toLowerCase()) {
         toast.warning("A MetaMask wallet nem egyezik a Polymarket wallet-címmel!");
@@ -249,7 +255,13 @@ export function useWallet(expectedAddress?: string) {
   }, [expectedAddress, refreshBalances, startPolling]);
 
   const disconnect = useCallback(() => {
-    setWallet({ connected: false, address: null, chainId: null, isMetaMask: wallet.isMetaMask, isWrongChain: false });
+    setWallet({
+      connected: false,
+      address: null,
+      chainId: null,
+      isMetaMask: wallet.isMetaMask,
+      isWrongChain: false,
+    });
     stopPolling();
     setBalances({ matic: "0", usdc: "0", pusd: "0" });
     toast.info("MetaMask leválasztva");

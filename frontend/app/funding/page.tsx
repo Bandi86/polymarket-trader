@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   Copy,
@@ -9,14 +10,13 @@ import {
   RefreshCw,
   Wallet,
   Zap,
-  AlertTriangle,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useWallet } from "@/hooks/use-wallet";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
-import { useWallet } from "@/hooks/use-wallet";
 
 // Polygon contract for pUSD wrap
 const ONRAMP_ADDRESS = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
@@ -41,20 +41,11 @@ export default function FundingPage() {
     hasGas,
   } = useWallet(backendWallet ?? undefined);
 
-  // Check auth and fetch wallet address from backend
-  useEffect(() => {
-    const hasToken = typeof window !== "undefined" && (token || localStorage.getItem("token"));
-    if (!isAuthenticated && !hasToken) {
-      router.push("/login");
-      return;
-    }
-
-    void loadWalletInfo();
-  }, [isAuthenticated]);
-
   const loadWalletInfo = useCallback(async () => {
     try {
-      const info = await apiFetch<{ wallet_address: string; has_credentials: boolean }>("/funding/wallet-info");
+      const info = await apiFetch<{ wallet_address: string; has_credentials: boolean }>(
+        "/funding/wallet-info"
+      );
       if (info.wallet_address && info.has_credentials) {
         setBackendWallet(info.wallet_address);
       }
@@ -65,11 +56,24 @@ export default function FundingPage() {
     }
   }, []);
 
+  // Check auth and fetch wallet address from backend
+  useEffect(() => {
+    const hasToken = typeof window !== "undefined" && (token || localStorage.getItem("token"));
+    if (!isAuthenticated && !hasToken) {
+      router.push("/login");
+      return;
+    }
+
+    void loadWalletInfo();
+  }, [isAuthenticated, loadWalletInfo, router, token]);
+
   const handleWrap = useCallback(async () => {
     if (!wallet.address) return;
     setWrapping(true);
     try {
-      const amountWei = Math.floor(parseFloat(wrapAmount) * 1e6).toString(16).padStart(64, "0");
+      const amountWei = Math.floor(parseFloat(wrapAmount) * 1e6)
+        .toString(16)
+        .padStart(64, "0");
       const wrapData = `0xd0e30db0${amountWei}`;
 
       const ethereum = (window as any).ethereum;
@@ -115,7 +119,10 @@ export default function FundingPage() {
   return (
     <div className="min-h-screen bg-[#0b0b0f] relative overflow-hidden">
       {/* Ambient glow */}
-      <div className="ambient-glow ambient-glow-primary absolute" style={{ width: 600, height: 600, top: "10%", left: "20%" }} />
+      <div
+        className="ambient-glow ambient-glow-primary absolute"
+        style={{ width: 600, height: 600, top: "10%", left: "20%" }}
+      />
 
       <div className="max-w-xl mx-auto px-4 py-8 relative z-10">
         {/* Header */}
@@ -140,15 +147,14 @@ export default function FundingPage() {
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-zinc-500">Polymarket wallet cím</span>
                 <button
+                  type="button"
                   onClick={copyAddress}
                   className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300"
                 >
                   <Copy size={12} /> Másolás
                 </button>
               </div>
-              <code className="text-xs text-zinc-300 break-all font-mono">
-                {displayAddress}
-              </code>
+              <code className="text-xs text-zinc-300 break-all font-mono">{displayAddress}</code>
             </motion.div>
           )}
         </AnimatePresence>
@@ -174,6 +180,7 @@ export default function FundingPage() {
             </div>
 
             <button
+              type="button"
               onClick={connect}
               disabled={mmLoading}
               className="btn-primary w-full flex items-center justify-center gap-2"
@@ -195,6 +202,7 @@ export default function FundingPage() {
                   <AlertTriangle size={16} className="text-amber-400" />
                   <span className="text-sm text-amber-300">Nem Polygon hálózat aktív!</span>
                   <button
+                    type="button"
                     onClick={switchChain}
                     className="ml-auto text-xs text-indigo-400 hover:text-indigo-300 underline"
                   >
@@ -213,15 +221,31 @@ export default function FundingPage() {
             >
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-semibold text-zinc-400">EGYENLEG</span>
-                <button onClick={() => void refreshBalances()} className="text-zinc-500 hover:text-indigo-400">
+                <button
+                  type="button"
+                  onClick={() => void refreshBalances()}
+                  className="text-zinc-500 hover:text-indigo-400"
+                >
                   <RefreshCw size={12} />
                 </button>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
-                <BalanceTile label="USDC.e" value={balances.usdc} color={hasFunds ? "text-green-400" : "text-zinc-500"} />
-                <BalanceTile label="pUSD" value={balances.pusd} color={hasPusd ? "text-green-400" : "text-zinc-500"} />
-                <BalanceTile label="MATIC" value={balances.matic} color={hasGas ? "text-green-400" : "text-zinc-500"} />
+                <BalanceTile
+                  label="USDC.e"
+                  value={balances.usdc}
+                  color={hasFunds ? "text-green-400" : "text-zinc-500"}
+                />
+                <BalanceTile
+                  label="pUSD"
+                  value={balances.pusd}
+                  color={hasPusd ? "text-green-400" : "text-zinc-500"}
+                />
+                <BalanceTile
+                  label="MATIC"
+                  value={balances.matic}
+                  color={hasGas ? "text-green-400" : "text-zinc-500"}
+                />
               </div>
             </motion.div>
 
@@ -239,7 +263,9 @@ export default function FundingPage() {
                   </div>
                   <div>
                     <h2 className="text-lg font-semibold text-zinc-100">Egyenleg feltöltése</h2>
-                    <p className="text-xs text-zinc-400">Küldj USDC.e-t Polygon hálózaton erre a címre</p>
+                    <p className="text-xs text-zinc-400">
+                      Küldj USDC.e-t Polygon hálózaton erre a címre
+                    </p>
                   </div>
                 </div>
 
@@ -247,8 +273,11 @@ export default function FundingPage() {
                   <div className="p-3 rounded-lg bg-zinc-900/50 border border-white/5">
                     <p className="text-xs text-zinc-500 mb-1">Polygon wallet cím:</p>
                     <div className="flex items-center gap-2">
-                      <code className="text-xs text-indigo-400 font-mono flex-1 break-all">{displayAddress}</code>
+                      <code className="text-xs text-indigo-400 font-mono flex-1 break-all">
+                        {displayAddress}
+                      </code>
                       <button
+                        type="button"
                         onClick={copyAddress}
                         className="p-1.5 rounded-md bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 flex-shrink-0"
                       >
@@ -258,8 +287,13 @@ export default function FundingPage() {
                   </div>
 
                   <div className="p-3 rounded-lg bg-zinc-900/50 border border-white/5">
-                    <p className="text-xs text-zinc-500 mb-1">Fontos: Polygon (MATIC) hálózatot használj!</p>
-                    <p className="text-xs text-zinc-600">USDC.e (0x2791...4174) token a Polymarket-en. Binance, Kraken vagy bármely exchange-ről Polygon-ra küldés.</p>
+                    <p className="text-xs text-zinc-500 mb-1">
+                      Fontos: Polygon (MATIC) hálózatot használj!
+                    </p>
+                    <p className="text-xs text-zinc-600">
+                      USDC.e (0x2791...4174) token a Polymarket-en. Binance, Kraken vagy bármely
+                      exchange-ről Polygon-ra küldés.
+                    </p>
                   </div>
 
                   <div className="p-3 rounded-lg bg-zinc-900/50 border border-white/5">
@@ -291,14 +325,19 @@ export default function FundingPage() {
                 {!hasGas ? (
                   <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-center mb-3">
                     <p className="text-sm text-amber-300">Nincs elég MATIC a gas-hoz!</p>
-                    <p className="text-xs text-zinc-500 mt-1">Küldj MATIC-ot Polygon-ra a wrap tranzakciókhoz</p>
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Küldj MATIC-ot Polygon-ra a wrap tranzakciókhoz
+                    </p>
                   </div>
                 ) : (
                   <>
                     <div className="mb-3">
-                      <label className="text-xs text-zinc-500 mb-1 block">Wrap mennyiség (USDC.e → pUSD)</label>
+                      <label htmlFor="wrap-amount" className="text-xs text-zinc-500 mb-1 block">
+                        Wrap mennyiség (USDC.e → pUSD)
+                      </label>
                       <div className="flex gap-2">
                         <input
+                          id="wrap-amount"
                           type="number"
                           value={wrapAmount}
                           onChange={(e) => setWrapAmount(e.target.value)}
@@ -308,6 +347,7 @@ export default function FundingPage() {
                           placeholder="0.00"
                         />
                         <button
+                          type="button"
                           onClick={() => setWrapAmount(balances.usdc)}
                           className="px-3 rounded-lg text-xs font-medium text-indigo-400 bg-indigo-500/10 border border-indigo-500/20"
                         >
@@ -317,11 +357,16 @@ export default function FundingPage() {
                     </div>
 
                     <button
+                      type="button"
                       onClick={handleWrap}
                       disabled={wrapping || parseFloat(wrapAmount) <= 0}
                       className="btn-primary w-full flex items-center justify-center gap-2"
                     >
-                      {wrapping ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+                      {wrapping ? (
+                        <Loader2 size={16} className="animate-spin" />
+                      ) : (
+                        <Zap size={16} />
+                      )}
                       {wrapping ? "Wrap folyamatban..." : `Wrap ${wrapAmount} USDC.e → pUSD`}
                     </button>
                   </>
@@ -347,12 +392,14 @@ export default function FundingPage() {
 
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={() => router.push("/bots")}
                     className="btn-primary flex-1 flex items-center justify-center gap-2"
                   >
                     Botok <ArrowRight size={14} />
                   </button>
                   <button
+                    type="button"
                     onClick={() => router.push("/")}
                     className="btn-primary flex-1 flex items-center justify-center gap-2"
                   >
@@ -383,9 +430,7 @@ function BalanceTile({ label, value, color }: { label: string; value: string; co
   return (
     <div className="text-center p-3 rounded-xl bg-zinc-900/50 border border-white/5">
       <div className="text-lg mb-1">{icons[label] ?? "🪙"}</div>
-      <div className={`text-sm font-bold ${color}`}>
-        ${parseFloat(value).toFixed(2)}
-      </div>
+      <div className={`text-sm font-bold ${color}`}>${parseFloat(value).toFixed(2)}</div>
       <div className="text-xs text-zinc-600">{label}</div>
     </div>
   );
