@@ -321,6 +321,12 @@ impl BotOrchestrator {
             .collect()
     }
 
+    /// Get all running bots (across all users)
+    pub async fn get_all_running_bots(&self) -> Vec<i64> {
+        let running = self.running_bots.read().await;
+        running.keys().copied().collect()
+    }
+
     /// Check if a bot is running
     pub async fn is_running(&self, bot_id: i64) -> bool {
         let running = self.running_bots.read().await;

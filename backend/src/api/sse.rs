@@ -606,7 +606,7 @@ pub async fn bot_events_stream(
 
                 // Status update (every 5s)
                 _ = status_interval.tick() => {
-                    let running_bots = state_clone.orchestrator.get_running_bots(0).await.len();
+                    let running_bots = state_clone.orchestrator.get_all_running_bots().await.len();
                     let btc_price = *last_btc_price.read().await;
                     let mut seq_lock = seq.write().await;
                     *seq_lock += 1;

@@ -10,6 +10,8 @@ let listenerCount = 0;
 export function useSSE() {
   const prevEventStartTimeRef = useRef<number>(0);
   const lastConfirmedStartPriceRef = useRef<number>(0);
+  // Use a ref to avoid re-creating setupConnection when systemStatus changes
+  const systemStatusRef = useRef(useAppStore.getState().systemStatus);
 
   const {
     setMarketData,
@@ -17,10 +19,17 @@ export function useSSE() {
     addLog,
     updateBot,
     setSystemStatus,
-    systemStatus,
     setLatency,
     addBotActivity,
   } = useAppStore();
+
+  // Keep ref in sync
+  useEffect(() => {
+    const unsub = useAppStore.subscribe((s) => {
+      systemStatusRef.current = s.systemStatus;
+    });
+    return unsub;
+  }, []);
 
   const setupConnection = useCallback(() => {
     // Singleton: reuse existing connection
@@ -123,12 +132,13 @@ export function useSSE() {
     eventSource.addEventListener("status", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
+        const current = systemStatusRef.current;
         setSystemStatus({
           bots_running: data.running_bots,
-          bots_total: systemStatus?.bots_total ?? data.running_bots,
+          bots_total: current?.bots_total ?? data.running_bots,
           total_pnl: data.total_pnl,
-          active_positions: systemStatus?.active_positions ?? 0,
-          binance_connected: systemStatus?.binance_connected ?? true,
+          active_positions: current?.active_positions ?? 0,
+          binance_connected: current?.binance_connected ?? true,
           last_update: Date.now(),
         });
       } catch (err) {
@@ -305,9 +315,6 @@ export function useSSE() {
     setSystemStatus,
     setLatency,
     addBotActivity,
-    systemStatus?.bots_total,
-    systemStatus?.active_positions,
-    systemStatus?.binance_connected,
   ]);
 
   const disconnect = useCallback(() => {

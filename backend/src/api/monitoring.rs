@@ -4,6 +4,7 @@
 
 use axum::{
     extract::{Extension, Path, Query, State},
+    http::StatusCode,
     response::{IntoResponse, Json, Response},
 };
 use serde::{Deserialize, Serialize};
@@ -309,8 +310,22 @@ pub async fn get_bot_risk_status(
 pub async fn pause_bot_risk(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Response {
+    let db = state.db();
+    // Verify bot belongs to user
+    match queries::get_bot_by_id(&db, id, claims.user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse {
+            error: "Bot not found".to_string(),
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to verify bot ownership: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to verify bot".to_string(),
+            })).into_response();
+        }
+    }
     let mut rm = state.orchestrator.risk_manager.write().await;
     rm.pause_bot(id, "Manually paused".to_string());
     Json(serde_json::json!({"success": true, "message": "Bot risk paused"})).into_response()
@@ -320,8 +335,22 @@ pub async fn pause_bot_risk(
 pub async fn resume_bot_risk(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
+    Extension(claims): Extension<Claims>,
 ) -> Response {
+    let db = state.db();
+    // Verify bot belongs to user
+    match queries::get_bot_by_id(&db, id, claims.user_id).await {
+        Ok(Some(_)) => {}
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse {
+            error: "Bot not found".to_string(),
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to verify bot ownership: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to verify bot".to_string(),
+            })).into_response();
+        }
+    }
     let mut rm = state.orchestrator.risk_manager.write().await;
     rm.resume_bot(id);
     Json(serde_json::json!({"success": true, "message": "Bot risk resumed"})).into_response()

@@ -1,5 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/utils";
+import { useAppStore } from "@/store";
 import type {
   Bot,
   BotRiskStatus,
@@ -78,8 +79,10 @@ export function useStartBot() {
 
   return useMutation({
     mutationFn: async (id: number) => apiFetch<Bot>(`/bots/${id}/start`, { method: "POST" }),
-    onSuccess: () => {
+    retry: 0,
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ["bots"] });
+      useAppStore.getState().updateBot(id, { status: "running" });
     },
   });
 }
@@ -89,8 +92,10 @@ export function useStopBot() {
 
   return useMutation({
     mutationFn: async (id: number) => apiFetch<Bot>(`/bots/${id}/stop`, { method: "POST" }),
-    onSuccess: () => {
+    retry: 0,
+    onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ["bots"] });
+      useAppStore.getState().updateBot(id, { status: "stopped" });
     },
   });
 }

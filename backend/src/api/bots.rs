@@ -483,38 +483,56 @@ pub async fn start_bot(
         })).into_response();
     }
 
-    // For paper trading mode, skip credential/balance checks
+    // For paper trading mode, skip credential/balance checks but enforce minimum simulation balance
     let is_paper = bot.trading_mode == "paper";
     let initial_balance = if is_paper {
         // Paper trading: use default balance of $1000 for simulation
         tracing::info!("Bot {} running in paper mode — using simulated $1000 balance", id);
+        // Ensure paper bot has enough simulated balance for at least one bet
+        let paper_balance = 1000.0;
+        let min_required = bot.bet_size.max(1.0);
+        if paper_balance < min_required {
+            return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                error: format!("Bet size ${:.2} exceeds paper trading balance ${:.2}", bot.bet_size, paper_balance),
+            })).into_response();
+        }
         // Ensure portfolio exists — create if missing, reset if present
         match queries::get_portfolio(&db, id, user_id).await {
             Ok(Some(_)) => {
-                if let Err(e) = queries::reset_portfolio(&db, id, 1000.0).await {
+                if let Err(e) = queries::reset_portfolio(&db, id, paper_balance).await {
                     tracing::warn!("Failed to reset portfolio: {}", e);
                 }
             }
             _ => {
-                if queries::ensure_portfolio(&db, id, user_id, 1000.0).await.is_err() {
+                if queries::ensure_portfolio(&db, id, user_id, paper_balance).await.is_err() {
                     return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
                         error: "Failed to create paper trading portfolio".to_string(),
                     })).into_response();
                 }
             }
         }
-        1000.0
+        paper_balance
     } else {
         // Live trading: require credentials and real wallet balance
         // Fetch current wallet USDC balance via CLOB API (using API key)
-        let cache = state.credential_cache.read().await;
-        let creds = cache.get(&user_id).cloned();
-        drop(cache);
-
-        let Some(creds) = creds else {
-            return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
-                error: "Cannot start bot: no credentials found. Add API keys in Settings.".to_string(),
-            })).into_response();
+        // Use CredentialService which lazy-loads from DB if cache is empty
+        let creds = match state.credential_service.get_credentials(&db, user_id).await {
+            Ok(c) => c,
+            Err(crate::services::credential_service::CredentialError::NotFound) => {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                    error: "Cannot start bot: no credentials found. Add API keys in Settings.".to_string(),
+                })).into_response();
+            }
+            Err(crate::services::credential_service::CredentialError::PrivateKeyRequired) => {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                    error: "Cannot start bot: private key is required for wallet access.".to_string(),
+                })).into_response();
+            }
+            Err(e) => {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                    error: format!("Cannot start bot: credential error: {}", e),
+                })).into_response();
+            }
         };
 
         if creds.api_key.is_empty() {
@@ -554,9 +572,9 @@ pub async fn start_bot(
         // Get or create/update portfolio with current wallet balance
         let portfolio = match queries::get_portfolio(&db, id, user_id).await {
             Ok(Some(mut p)) => {
-                // Portfolio exists — update balance to current wallet balance if it's 0 or stale
-                if p.balance <= 0.0 || (wallet_balance > p.balance && p.balance < wallet_balance * 0.5) {
-                    tracing::info!("Updating portfolio {} balance from ${:.2} to ${:.2}", p.bot_id, p.balance, wallet_balance);
+                // Always sync portfolio balance with current wallet balance on start
+                if p.balance != wallet_balance {
+                    tracing::info!("Syncing portfolio {} balance from ${:.2} to ${:.2}", p.bot_id, p.balance, wallet_balance);
                     if let Err(e) = queries::update_portfolio_balance(&db, id, wallet_balance).await {
                         tracing::warn!("Failed to update portfolio balance: {}", e);
                     } else {
