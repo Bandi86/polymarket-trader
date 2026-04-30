@@ -256,6 +256,7 @@ pub async fn bot_events_stream(
     let last_market_id = Arc::new(RwLock::new(String::new()));
     let last_yes_token = Arc::new(RwLock::new(String::new()));
     let last_event_start_time = Arc::new(RwLock::new(0i64)); // Market start timestamp
+    let last_api_latency = Arc::new(RwLock::new(0.0)); // Tracking API latency
 
     // Sequence counter for event ordering
     let seq = Arc::new(RwLock::new(0u64));
@@ -509,15 +510,30 @@ pub async fn bot_events_stream(
 
                     if !market_id.is_empty() {
                         // Try CLOB API first (fastest)
+                        let mut current_api_latency = 0.0;
                         let (yes, no) = if !yes_token.is_empty() {
+                            let start_time = tokio::time::Instant::now();
                             if let Some(yes_price) = fetch_clob_midpoint(&http_client, &yes_token).await {
+                                current_api_latency = start_time.elapsed().as_millis() as f64;
+                                let mut latency_lock = last_api_latency.write().await;
+                                *latency_lock = current_api_latency;
                                 (yes_price, 1.0 - yes_price)
                             } else {
                                 // Fallback to Gamma
-                                fetch_gamma_prices(&http_client, &market_id).await.unwrap_or((0.5, 0.5))
+                                let start_time = tokio::time::Instant::now();
+                                let prices = fetch_gamma_prices(&http_client, &market_id).await.unwrap_or((0.5, 0.5));
+                                current_api_latency = start_time.elapsed().as_millis() as f64;
+                                let mut latency_lock = last_api_latency.write().await;
+                                *latency_lock = current_api_latency;
+                                prices
                             }
                         } else {
-                            fetch_gamma_prices(&http_client, &market_id).await.unwrap_or((0.5, 0.5))
+                            let start_time = tokio::time::Instant::now();
+                            let prices = fetch_gamma_prices(&http_client, &market_id).await.unwrap_or((0.5, 0.5));
+                            current_api_latency = start_time.elapsed().as_millis() as f64;
+                            let mut latency_lock = last_api_latency.write().await;
+                            *latency_lock = current_api_latency;
+                            prices
                         };
 
                         let btc_price = *last_btc_price.read().await;
@@ -584,6 +600,7 @@ pub async fn bot_events_stream(
                             "market_question": question,
                             "sentiment": sentiment,
                             "event_start_time": event_start_time,
+                            "api_latency": current_api_latency,
                             "server_timestamp": server_ts,
                             "seq": current_seq
                         });
@@ -596,7 +613,17 @@ pub async fn bot_events_stream(
 
                 // BTC price update (every 2s)
                 _ = btc_interval.tick() => {
+                    let start_time = tokio::time::Instant::now();
                     if let Some(btc_price) = fetch_btc_price(&http_client).await {
+                        let latency = start_time.elapsed().as_millis() as f64;
+                        let mut latency_lock = last_api_latency.write().await;
+                        // Average with existing latency
+                        if *latency_lock > 0.0 {
+                            *latency_lock = (*latency_lock + latency) / 2.0;
+                        } else {
+                            *latency_lock = latency;
+                        }
+                        
                         if btc_price > 0.0 {
                             let mut price_lock = last_btc_price.write().await;
                             *price_lock = btc_price;

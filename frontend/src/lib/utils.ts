@@ -42,6 +42,29 @@ export function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
+// ── Strategy type colors (used in bot-row, bot-detail-card) ──
+
+export const STRATEGY_COLORS: Record<string, string> = {
+  momentum: "#8b5cf6",
+  mean_reversion: "#06b6d4",
+  last_seconds_scalp: "#f59e0b",
+  binance_signal: "#22c55e",
+  contrarian: "#ec4899",
+  smart_trend: "#3b82f6",
+  default: "#71717a",
+};
+
+export function getStrategyColor(strategy: string): string {
+  return STRATEGY_COLORS[strategy] || STRATEGY_COLORS.default;
+}
+
+export function strategyAbbr(s: string): string {
+  if (s === "last_seconds_scalp") return "LSS";
+  if (s === "mean_reversion") return "MR";
+  if (s === "binance_signal") return "BS";
+  return s.substring(0, 3).toUpperCase();
+}
+
 // API base URL - use environment variable or default to localhost backend
 const getApiBase = (): string => {
   // In browser, we can use relative paths with Next.js API routes

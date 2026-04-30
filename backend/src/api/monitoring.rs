@@ -36,12 +36,20 @@ pub async fn get_system_status(
         None => None,
     };
 
-    // Get stored credentials info (do NOT expose actual keys)
+    // Check credentials: settings.encrypted_blob OR api_keys table
     let settings = queries::get_settings(&db, user_id).await.ok().flatten();
-    let has_creds = match settings {
+    let has_blob_creds = match &settings {
         Some((_key, blob)) => !blob.is_empty(),
         None => false,
     };
+
+    // Also check api_keys table for individual key entries
+    let has_api_keys = match queries::get_api_keys(&db, user_id).await {
+        Ok(keys) => keys.iter().any(|k| k.is_valid),
+        Err(_) => false,
+    };
+
+    let has_creds = has_blob_creds || has_api_keys;
 
     // Get bot count
     let bots = queries::get_bots_by_user(&db, user_id).await.unwrap_or_default();

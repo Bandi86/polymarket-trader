@@ -27,6 +27,9 @@ pub enum CredentialError {
     #[error("No credentials found for user")]
     NotFound,
 
+    #[error("Password not cached — user needs to re-login or re-save settings")]
+    PasswordNotCached,
+
     #[error("Failed to decrypt credentials: {0}")]
     DecryptError(String),
 
@@ -104,10 +107,14 @@ impl CredentialService {
         // Jelszó lekérése a cache-ből
         let password = {
             let cache = self.password_cache.read().await;
-            cache
-                .get(&user_id)
-                .cloned()
-                .ok_or_else(|| CredentialError::DecryptError("No password cached for user".to_string()))?
+            match cache.get(&user_id).cloned() {
+                Some(pw) => pw,
+                None => {
+                    // Password nincs cache-elve (pl. szerver restart után)
+                    // Fall back to legacy api_keys table
+                    return Err(CredentialError::PasswordNotCached);
+                }
+            }
         };
 
         // Decryptelés

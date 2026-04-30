@@ -15,10 +15,12 @@ interface TradeEntry {
   outcome: string;
   size: number;
   confidence: number;
+  price?: number;
   won?: boolean;
   pnl?: number;
   market?: string;
   reason?: string;
+  entryType: "decision" | "order" | "position" | "result";
 }
 
 export function TradeFeed() {
@@ -37,16 +39,19 @@ export function TradeFeed() {
       const name = bots.find((b) => b.id === bid)?.name ?? `Bot ${bid}`;
       for (const activity of activities) {
         if (activity.type === "trade_decision") {
+          const rawOutcome = (activity.data.outcome as string) ?? "";
+          const side = rawOutcome.includes("YES") ? "UP" : "DOWN";
           trades.push({
             id: activity.id,
             botId: bid,
             botName: name,
             timestamp: activity.timestamp,
-            side: (activity.data.outcome as string) === "YES" ? "UP" : "DOWN",
-            outcome: activity.data.outcome as string,
+            side,
+            outcome: rawOutcome,
             size: (activity.data.betSize as number) ?? 0,
             confidence: (activity.data.confidence as number) ?? 0,
             reason: activity.data.reason as string,
+            entryType: "decision",
           });
         }
         if (activity.type === "trade_result") {
@@ -61,6 +66,7 @@ export function TradeFeed() {
             confidence: 0,
             won: activity.data.won as boolean,
             pnl: activity.data.pnl as number,
+            entryType: "result",
           });
         }
         if (activity.type === "order_executed") {
@@ -70,9 +76,26 @@ export function TradeFeed() {
             botName: name,
             timestamp: activity.timestamp,
             side: "UP",
-            outcome: "ORDER",
+            outcome: "FILLED",
             size: 0,
             confidence: 0,
+            entryType: "order",
+          });
+        }
+        if (activity.type === "position_update") {
+          const side = (activity.data.side as string) === "YES" ? "UP" : "DOWN";
+          trades.push({
+            id: activity.id,
+            botId: bid,
+            botName: name,
+            timestamp: activity.timestamp,
+            side,
+            outcome: side === "UP" ? "YES" : "NO",
+            size: (activity.data.size as number) ?? 0,
+            confidence: 0,
+            price: activity.data.price as number,
+            pnl: activity.data.unrealizedPnl as number,
+            entryType: "position",
           });
         }
       }
@@ -87,14 +110,16 @@ export function TradeFeed() {
     if (autoScroll && !paused && scrollRef.current) {
       scrollRef.current.scrollTop = 0;
     }
-  }, [autoScroll, paused, sseTrades]);
+  }, [autoScroll, paused]);
 
   const filtered = sseTrades.filter((t) => {
     if (filter === "ALL") return true;
     if (filter === "UP") return t.side === "UP" || t.outcome === "YES";
     if (filter === "DOWN") return t.side === "DOWN" || t.outcome === "NO";
-    if (filter === "WIN") return t.won === true;
-    if (filter === "LOSS") return t.won === false;
+    if (filter === "WIN")
+      return t.won === true || (t.entryType === "position" && (t.pnl ?? 0) >= 0);
+    if (filter === "LOSS")
+      return t.won === false || (t.entryType === "position" && (t.pnl ?? 0) < 0);
     return true;
   });
 
@@ -178,7 +203,8 @@ export function TradeFeed() {
             const isWin = trade.won === true;
             const isLoss = trade.won === false;
             const isUp = trade.side === "UP" || trade.outcome === "YES";
-            const isOrder = trade.outcome === "ORDER";
+            const isOrder = trade.entryType === "order";
+            const isPosition = trade.entryType === "position";
 
             return (
               <motion.div
@@ -203,15 +229,22 @@ export function TradeFeed() {
                   {trade.botName}
                 </span>
 
+                {/* Type badge */}
+                {isPosition && (
+                  <span className="text-[8px] font-bold uppercase tracking-wider text-indigo-400/60 bg-indigo-500/10 rounded px-1.5 shrink-0">
+                    POS
+                  </span>
+                )}
+
                 {/* Direction */}
                 <div className="flex items-center gap-1 shrink-0">
-                  {isUp ? (
+                  {isUp || isPosition ? (
                     <ArrowUpRight className="h-3.5 w-3.5 text-green-400" />
                   ) : (
                     <ArrowDownRight className="h-3.5 w-3.5 text-red-400" />
                   )}
                   <span
-                    className={`font-bold text-[10px] ${isUp ? "text-green-400" : "text-red-400"}`}
+                    className={`font-bold text-[10px] ${isUp || isPosition ? "text-green-400" : "text-red-400"}`}
                   >
                     {trade.outcome}
                   </span>
@@ -222,6 +255,13 @@ export function TradeFeed() {
                   <span className="font-mono text-zinc-400 shrink-0">${trade.size.toFixed(2)}</span>
                 )}
 
+                {/* Price for position updates */}
+                {isPosition && trade.price && (
+                  <span className="font-mono text-zinc-600 shrink-0">
+                    @{(trade.price * 100).toFixed(0)}¢
+                  </span>
+                )}
+
                 {/* Confidence */}
                 {trade.confidence > 0 && (
                   <span className="text-zinc-600 shrink-0">
@@ -229,7 +269,7 @@ export function TradeFeed() {
                   </span>
                 )}
 
-                {/* Result */}
+                {/* Result / Position PnL / Order status */}
                 {isWin || isLoss ? (
                   <span
                     className={`font-bold font-mono ml-auto ${
@@ -238,8 +278,16 @@ export function TradeFeed() {
                   >
                     {isWin ? "+" : ""}${trade.pnl?.toFixed(2) ?? "0.00"}
                   </span>
+                ) : isPosition && trade.pnl != null ? (
+                  <span
+                    className={`font-bold font-mono ml-auto ${
+                      trade.pnl >= 0 ? "text-green-400" : "text-red-400"
+                    }`}
+                  >
+                    {trade.pnl >= 0 ? "+" : ""}${trade.pnl.toFixed(2)}
+                  </span>
                 ) : isOrder ? (
-                  <span className="text-zinc-600 ml-auto">order placed</span>
+                  <span className="text-zinc-600 ml-auto">filled</span>
                 ) : null}
               </motion.div>
             );

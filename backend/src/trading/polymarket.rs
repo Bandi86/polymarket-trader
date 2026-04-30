@@ -8,6 +8,9 @@ use ethers::signers::{LocalWallet, Signer};
 use ethers::abi::{self, Token};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 
 // V2 endpoints - after April 28, clob.polymarket.com automatically routes to V2
 const CLOB_HOST: &str = "https://clob.polymarket.com";
@@ -184,6 +187,60 @@ impl PolymarketClient {
         self.wallet.address()
     }
 
+    /// Build a GET request with HMAC-SHA256 auth headers for CLOB API
+    /// See: https://docs.polymarket.com/api-reference/authentication
+    fn build_authed_get(&self, path: &str) -> reqwest::RequestBuilder {
+        let creds = self.creds.as_ref().expect("API credentials not set");
+        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+
+        // Sign message: timestamp + method + path (no body for GET)
+        let message = format!("{}GET{}", timestamp, path);
+
+        // Decode secret from base64, then HMAC-SHA256, then URL-safe base64 encode
+        let secret_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&creds.secret)
+            .unwrap_or_else(|_| creds.secret.as_bytes().to_vec());
+
+        let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes)
+            .expect("HMAC key size");
+        mac.update(message.as_bytes());
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+
+        let url = format!("{}{}", CLOB_HOST, path);
+        self.http_client.get(&url)
+            .header("POLY_ADDRESS", self.address())
+            .header("POLY_SIGNATURE", &signature)
+            .header("POLY_TIMESTAMP", &timestamp)
+            .header("POLY_API_KEY", &creds.key)
+            .header("POLY_PASSPHRASE", &creds.passphrase)
+    }
+
+    /// Build a POST request with HMAC-SHA256 auth headers for CLOB API
+    fn build_authed_post(&self, path: &str) -> reqwest::RequestBuilder {
+        let creds = self.creds.as_ref().expect("API credentials not set");
+        let timestamp = chrono::Utc::now().timestamp_millis().to_string();
+
+        let message = format!("{}POST{}", timestamp, path);
+
+        let secret_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&creds.secret)
+            .unwrap_or_else(|_| creds.secret.as_bytes().to_vec());
+
+        let mut mac = Hmac::<Sha256>::new_from_slice(&secret_bytes)
+            .expect("HMAC key size");
+        mac.update(message.as_bytes());
+        let signature = URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes());
+
+        let url = format!("{}{}", CLOB_HOST, path);
+        self.http_client.post(&url)
+            .header("POLY_ADDRESS", self.address())
+            .header("POLY_SIGNATURE", &signature)
+            .header("POLY_TIMESTAMP", &timestamp)
+            .header("POLY_API_KEY", &creds.key)
+            .header("POLY_PASSPHRASE", &creds.passphrase)
+            .header("Content-Type", "application/json")
+    }
+
     /// Create or derive API key using L1 wallet authentication
     pub async fn create_or_derive_api_key(&mut self) -> Result<ApiKeyCreds, PolymarketError> {
         let timestamp = chrono::Utc::now().timestamp_millis();
@@ -239,12 +296,46 @@ impl PolymarketClient {
         Err(PolymarketError::ApiError(last_error.unwrap_or_else(|| "All endpoints failed".to_string())))
     }
 
-    /// Get balance using data-api (no auth required)
-    /// This is the preferred method for checking account value
+    /// Get account balance using CLOB API with HMAC auth, falling back to data-api
     pub async fn get_balance(&self) -> Result<f64, PolymarketError> {
+        // Primary: CLOB /balance-allowance endpoint with HMAC auth
+        if self.creds.is_some() {
+            let resp = self.build_authed_get("/balance-allowance").send().await;
+            match resp {
+                Ok(resp) if resp.status().is_success() => {
+                    #[derive(Deserialize)]
+                    struct ClobBalanceAllowance {
+                        #[serde(default)]
+                        balance: String,
+                        #[serde(default)]
+                        allowance: String,
+                    }
+
+                    if let Ok(body) = resp.json::<ClobBalanceAllowance>().await {
+                        if let Ok(balance) = body.balance.parse::<f64>() {
+                            if balance > 0.0 {
+                                tracing::info!("Balance from CLOB /balance-allowance: {} USDC", balance);
+                                return Ok(balance);
+                            }
+                            tracing::info!("Balance from CLOB /balance-allowance: 0 USDC (allowance: {})", body.allowance);
+                            return Ok(0.0);
+                        }
+                    }
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    tracing::warn!("CLOB /balance failed: {} {}", status, text);
+                }
+                Err(e) => {
+                    tracing::warn!("CLOB /balance-allowance request failed: {}", e);
+                }
+            }
+        }
+
+        // Fallback: data-api /value endpoint (no auth)
         let address = self.wallet.address().to_string().to_lowercase();
 
-        // Try /value endpoint first (returns total position value)
         let response = self.http_client
             .get(format!("{}/value", DATA_HOST))
             .query(&[("user", &address)])
@@ -252,47 +343,13 @@ impl PolymarketClient {
             .await?;
 
         if response.status().is_success() {
-            #[derive(Deserialize)]
-            struct ValueResponse {
-                value: Option<f64>,
-            }
-
             let result: Vec<serde_json::Value> = response.json().await?;
             if let Some(first) = result.first() {
                 if let Some(value) = first.get("value").and_then(|v| v.as_f64()) {
-                    tracing::info!("Balance from /value: {}", value);
+                    tracing::info!("Balance from data-api /value: {}", value);
                     return Ok(value);
                 }
             }
-        }
-
-        // Fallback: try /positions endpoint
-        let response = self.http_client
-            .get(format!("{}/positions", DATA_HOST))
-            .query(&[("user", &address)])
-            .query(&[("limit", "100")])
-            .send()
-            .await?;
-
-        if response.status().is_success() {
-            #[derive(Deserialize)]
-            struct Position {
-                current_value: Option<f64>,
-                size: Option<f64>,
-                avg_price: Option<f64>,
-            }
-
-            let positions: Vec<Position> = response.json().await?;
-            let mut total_value = 0.0;
-
-            for pos in positions {
-                total_value += pos.current_value.unwrap_or_else(|| {
-                    (pos.size.unwrap_or(0.0)) * (pos.avg_price.unwrap_or(0.0))
-                });
-            }
-
-            tracing::info!("Balance from /positions: {}", total_value);
-            return Ok(total_value);
         }
 
         Ok(0.0)

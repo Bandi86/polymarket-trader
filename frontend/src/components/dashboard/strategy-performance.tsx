@@ -35,51 +35,63 @@ export function StrategyPerformance() {
     );
   }
 
-  // Aggregate strategy stats by combining portfolio + bot config data
+  // Use aggregate portfolio data as single source of truth — bot configs only for strategy metadata
   const strategyMap = new Map<string, StrategyStats>();
 
-  for (const bot of bots) {
-    const key = bot.strategy_type;
-    const existing = strategyMap.get(key);
-
-    if (existing) {
-      existing.botCount++;
-      existing.totalTrades += bot.trades_count ?? 0;
-      existing.winningTrades += Math.round(((bot.win_rate ?? 0) / 100) * (bot.trades_count ?? 0));
-      existing.losingTrades +=
-        (bot.trades_count ?? 0) - Math.round(((bot.win_rate ?? 0) / 100) * (bot.trades_count ?? 0));
-    } else {
-      const config = STRATEGY_LABELS[bot.strategy_type as keyof typeof STRATEGY_LABELS];
-      const wins = Math.round(((bot.win_rate ?? 0) / 100) * (bot.trades_count ?? 0));
-      const losses = (bot.trades_count ?? 0) - wins;
-      strategyMap.set(key, {
-        strategyType: key,
-        name: config?.name ?? key,
-        category: config?.category ?? "Other",
-        botCount: 1,
-        totalTrades: bot.trades_count ?? 0,
-        totalPnl: bot.pnl ?? 0,
-        winningTrades: wins,
-        losingTrades: losses,
-        winRate: bot.win_rate ?? 0,
-        avgPnlPerTrade: (bot.trades_count ?? 0) > 0 ? (bot.pnl ?? 0) / (bot.trades_count ?? 1) : 0,
-      });
-    }
-  }
-
-  // Merge portfolio PnL for more accurate totals
   if (agg?.bots) {
     for (const botPortfolio of agg.bots) {
       const bot = bots.find((b) => b.id === botPortfolio.bot_id);
-      if (bot) {
-        const stats = strategyMap.get(bot.strategy_type);
-        if (stats) {
-          stats.totalPnl += botPortfolio.total_pnl;
-          stats.totalTrades += botPortfolio.total_trades;
-          stats.winningTrades += Math.round(
-            (botPortfolio.win_rate / 100) * botPortfolio.total_trades
-          );
-        }
+      if (!bot) continue;
+
+      const key = bot.strategy_type;
+      const config = STRATEGY_LABELS[bot.strategy_type as keyof typeof STRATEGY_LABELS];
+      const estWins = Math.round((botPortfolio.win_rate / 100) * botPortfolio.total_trades);
+      const existing = strategyMap.get(key);
+
+      if (existing) {
+        existing.botCount++;
+        existing.totalTrades += botPortfolio.total_trades;
+        existing.totalPnl += botPortfolio.total_pnl;
+        existing.winningTrades += estWins;
+      } else {
+        strategyMap.set(key, {
+          strategyType: key,
+          name: config?.name ?? key,
+          category: config?.category ?? "Other",
+          botCount: 1,
+          totalTrades: botPortfolio.total_trades,
+          totalPnl: botPortfolio.total_pnl,
+          winningTrades: estWins,
+          losingTrades: 0,
+          winRate: 0,
+          avgPnlPerTrade: 0,
+        });
+      }
+    }
+  }
+
+  // Bots without portfolio yet — show with zero trades
+  for (const bot of bots) {
+    if (!agg?.bots?.some((bp) => bp.bot_id === bot.id)) {
+      const key = bot.strategy_type;
+      const config = STRATEGY_LABELS[bot.strategy_type as keyof typeof STRATEGY_LABELS];
+      const existing = strategyMap.get(key);
+
+      if (existing) {
+        existing.botCount++;
+      } else {
+        strategyMap.set(key, {
+          strategyType: key,
+          name: config?.name ?? key,
+          category: config?.category ?? "Other",
+          botCount: 1,
+          totalTrades: 0,
+          totalPnl: 0,
+          winningTrades: 0,
+          losingTrades: 0,
+          winRate: 0,
+          avgPnlPerTrade: 0,
+        });
       }
     }
   }
@@ -89,6 +101,7 @@ export function StrategyPerformance() {
   // Recalculate derived metrics from aggregated totals
   for (const s of strategies) {
     s.winRate = s.totalTrades > 0 ? (s.winningTrades / s.totalTrades) * 100 : 0;
+    s.losingTrades = s.totalTrades - s.winningTrades;
     s.avgPnlPerTrade = s.totalTrades > 0 ? s.totalPnl / s.totalTrades : 0;
   }
 

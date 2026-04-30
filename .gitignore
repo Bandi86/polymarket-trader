@@ -11,6 +11,8 @@ backend/target/
 .env
 .env.local
 .env.*.local
+.env.balazs
+.env.bandi
 
 # IDE
 .idea/

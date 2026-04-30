@@ -110,6 +110,7 @@ export function useSSE() {
         if (data.market_question) updates.marketQuestion = data.market_question;
         if (data.time_remaining !== undefined) updates.timeRemaining = data.time_remaining;
         if (data.volume !== undefined) updates.volume = data.volume;
+        if (data.api_latency !== undefined) updates.apiLatency = data.api_latency;
 
         if (Object.keys(updates).length > 0) {
           setMarketData(updates);

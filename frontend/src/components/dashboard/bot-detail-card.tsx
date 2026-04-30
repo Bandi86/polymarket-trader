@@ -12,22 +12,9 @@ import {
   Zap,
 } from "lucide-react";
 import { usePortfolio } from "@/hooks";
+import { getStrategyColor } from "@/lib/utils";
 import type { Bot as BotType } from "@/types";
 import { LiveBotActivityCard } from "./live-bot-activity-card";
-
-const STRATEGY_COLORS: Record<string, string> = {
-  momentum: "#8b5cf6",
-  mean_reversion: "#06b6d4",
-  last_seconds_scalp: "#f59e0b",
-  binance_signal: "#22c55e",
-  contrarian: "#ec4899",
-  smart_trend: "#3b82f6",
-  default: "#71717a",
-};
-
-function getStrategyColor(strategy: string): string {
-  return STRATEGY_COLORS[strategy] || STRATEGY_COLORS.default;
-}
 
 // ── Detailed Bot Card ──
 

@@ -518,9 +518,10 @@ pub async fn start_bot(
         // Use CredentialService which lazy-loads from DB if cache is empty
         let creds = match state.credential_service.get_credentials(&db, user_id).await {
             Ok(c) => c,
-            Err(crate::services::credential_service::CredentialError::NotFound) => {
+            Err(crate::services::credential_service::CredentialError::NotFound)
+            | Err(crate::services::credential_service::CredentialError::PasswordNotCached) => {
                 return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
-                    error: "Cannot start bot: no credentials found. Add API keys in Settings.".to_string(),
+                    error: "Cannot start bot: no credentials available. Add API keys in Settings or re-login.".to_string(),
                 })).into_response();
             }
             Err(crate::services::credential_service::CredentialError::PrivateKeyRequired) => {

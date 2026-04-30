@@ -30,6 +30,7 @@ interface AppState {
   currentMarket: Market | null;
   timeRemaining: number;
   volume: number;
+  apiLatency: number;
   setMarketData: (data: {
     btcPrice?: number;
     startPrice?: number;
@@ -40,6 +41,7 @@ interface AppState {
     marketQuestion?: string;
     timeRemaining?: number;
     volume?: number;
+    apiLatency?: number;
   }) => void;
 
   // Market History - past 5 completed markets
@@ -168,6 +170,7 @@ export const useAppStore = create<AppState>()(
       currentMarket: null,
       timeRemaining: 0,
       volume: 0,
+      apiLatency: 0,
       setMarketData: (data) =>
         set({
           ...(data.btcPrice !== undefined && { btcPrice: data.btcPrice }),
@@ -179,6 +182,7 @@ export const useAppStore = create<AppState>()(
           ...(data.marketQuestion !== undefined && { marketQuestion: data.marketQuestion }),
           ...(data.timeRemaining !== undefined && { timeRemaining: data.timeRemaining }),
           ...(data.volume !== undefined && { volume: data.volume }),
+          ...(data.apiLatency !== undefined && { apiLatency: data.apiLatency }),
         }),
 
       // Market History
@@ -260,9 +264,9 @@ export const useAppStore = create<AppState>()(
         marketData: true,
         tradeAndChart: true,
         botsAndPositions: true,
-        history: false,
-        strategyPerformance: false,
-        tradeFeed: false,
+        history: true,
+        strategyPerformance: true,
+        tradeFeed: true,
         systemHealth: false,
       },
       togglePanel: (panel) =>

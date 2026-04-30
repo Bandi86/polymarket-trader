@@ -152,7 +152,7 @@ function AccountInfoBar() {
                   const y = 12 - (v / maxSpark) * 10;
                   return (
                     <circle
-                      key={`${i}`}
+                      key={`sp-${i.toFixed(1)}-${x.toFixed(2)}`}
                       cx={x}
                       cy={y}
                       r="0.8"
