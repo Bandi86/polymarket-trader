@@ -103,7 +103,7 @@ impl OrderBookStream {
                                         arr.iter()
                                             .filter_map(|v| {
                                                 let arr = v.as_array()?;
-                                                let price = arr.get(0)?.as_f64()?;
+                                                let price = arr.first()?.as_f64()?;
                                                 let size = arr.get(1)?.as_f64()?;
                                                 Some(OrderBookLevel { price, size })
                                             })
@@ -118,7 +118,7 @@ impl OrderBookStream {
                                         arr.iter()
                                             .filter_map(|v| {
                                                 let arr = v.as_array()?;
-                                                let price = arr.get(0)?.as_f64()?;
+                                                let price = arr.first()?.as_f64()?;
                                                 let size = arr.get(1)?.as_f64()?;
                                                 Some(OrderBookLevel { price, size })
                                             })

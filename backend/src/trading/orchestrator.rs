@@ -116,6 +116,7 @@ impl BotOrchestrator {
     /// Higher odds (60-80 cent): 1.2x (higher win rate, can bet more)
     /// Higher odds (80-95 cent): 0.8x (still high win rate, less upside)
     /// Lower odds (0-40 cent): 0.5x (lottery tickets, bet less)
+    #[allow(clippy::too_many_arguments)]
     fn calculate_bet_size_enhanced(
         confidence: f64,
         balance: f64,
@@ -156,7 +157,7 @@ impl BotOrchestrator {
 
     /// Odds-aware multiplier (from demo strategy-executor.ts)
     fn odds_multiplier(price: f64) -> f64 {
-        if price >= 0.60 && price <= 0.80 {
+        if (0.60..=0.80).contains(&price) {
             1.2 // Sweet spot
         } else if price > 0.80 {
             0.8 // Expensive
@@ -655,25 +656,6 @@ impl BotOrchestrator {
                 let reason = format!("{:.2} confidence (adjusted: {:.2}) for {}, bet size: {:.2}, risk_mult: {:.2}",
                     confidence, adjusted_confidence, outcome, bet_size, risk_mult);
 
-                // Log the decision
-                queries::log_trade_decision(
-                    &self.db,
-                    bot_id,
-                    rb.session_id,
-                    user_id,
-                    &format!("btc-updown-5m-{}", market.end_time),
-                    &market.condition_id,
-                    outcome,
-                    &bot.strategy_type,
-                    confidence,
-                    Some(btc_price),
-                    btc_change,
-                    Some(market.yes_price),
-                    Some(market.no_price),
-                    Some(market.time_remaining),
-                    &reason,
-                ).await.map_err(|e| format!("Failed to log decision: {}", e))?;
-
                 // Broadcast decision event with bet size
                 self.event_sender.send(BotEvent::TradeDecision {
                     bot_id,
@@ -798,9 +780,43 @@ impl BotOrchestrator {
                             }
                         } else {
                             tracing::warn!("Bot {} in live mode but no credentials for user {}", bot_id, user_id);
+                            self.event_sender.send(BotEvent::Error {
+                                bot_id,
+                                message: "Live trading: no credentials configured".to_string(),
+                            }).ok();
+                            let mut running = self.running_bots.write().await;
+                            if let Some(rb) = running.get_mut(&bot_id) {
+                                rb.consecutive_errors += 1;
+                                if rb.consecutive_errors >= 3 {
+                                    drop(running);
+                                    tracing::error!("Bot {} stopped due to 3 consecutive errors (missing credentials)", bot_id);
+                                    self.event_sender.send(BotEvent::Error {
+                                        bot_id,
+                                        message: "Stopped: 3 consecutive errors (missing credentials)".to_string(),
+                                    }).ok();
+                                    let _ = self.stop_bot(bot_id, user_id).await;
+                                }
+                            }
                         }
                     } else {
                         tracing::warn!("Bot {} in live mode but no credential cache", bot_id);
+                        self.event_sender.send(BotEvent::Error {
+                            bot_id,
+                            message: "Live trading: credential cache unavailable".to_string(),
+                        }).ok();
+                        let mut running = self.running_bots.write().await;
+                        if let Some(rb) = running.get_mut(&bot_id) {
+                            rb.consecutive_errors += 1;
+                            if rb.consecutive_errors >= 3 {
+                                drop(running);
+                                tracing::error!("Bot {} stopped due to 3 consecutive errors (credential cache)", bot_id);
+                                self.event_sender.send(BotEvent::Error {
+                                    bot_id,
+                                    message: "Stopped: 3 consecutive errors (credential cache)".to_string(),
+                                }).ok();
+                                let _ = self.stop_bot(bot_id, user_id).await;
+                            }
+                        }
                     }
                 } else {
                     // PAPER TRADING: Record bet, settle on market change
@@ -947,10 +963,14 @@ impl BotOrchestrator {
             ((1.0 - current_price) * 1.01).min(0.99)
         };
 
+        // CLOB `size` = number of shares, not USDC.
+        // Convert USDC bet_size to shares: shares = usdc_amount / price_per_share
+        let order_size = bet_size / order_price;
+
         let order = OrderRequest {
             token_id: token_id.clone(),
             price: order_price,
-            size: bet_size,
+            size: order_size,
             side: "BUY".to_string(),
         };
 

@@ -15,8 +15,10 @@ impl OracleLagStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for OracleLagStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.015, // Lower threshold - exploits small delays

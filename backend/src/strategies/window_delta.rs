@@ -15,8 +15,10 @@ impl WindowDeltaStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for WindowDeltaStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.05,

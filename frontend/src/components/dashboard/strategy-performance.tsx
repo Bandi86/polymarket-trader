@@ -45,14 +45,16 @@ export function StrategyPerformance() {
 
       const key = bot.strategy_type;
       const config = STRATEGY_LABELS[bot.strategy_type as keyof typeof STRATEGY_LABELS];
-      const estWins = Math.round((botPortfolio.win_rate / 100) * botPortfolio.total_trades);
+      const realWins =
+        botPortfolio.winning_trades ??
+        Math.round((botPortfolio.win_rate / 100) * botPortfolio.total_trades);
       const existing = strategyMap.get(key);
 
       if (existing) {
         existing.botCount++;
         existing.totalTrades += botPortfolio.total_trades;
         existing.totalPnl += botPortfolio.total_pnl;
-        existing.winningTrades += estWins;
+        existing.winningTrades += realWins;
       } else {
         strategyMap.set(key, {
           strategyType: key,
@@ -61,8 +63,8 @@ export function StrategyPerformance() {
           botCount: 1,
           totalTrades: botPortfolio.total_trades,
           totalPnl: botPortfolio.total_pnl,
-          winningTrades: estWins,
-          losingTrades: 0,
+          winningTrades: realWins,
+          losingTrades: botPortfolio.losing_trades ?? 0,
           winRate: 0,
           avgPnlPerTrade: 0,
         });

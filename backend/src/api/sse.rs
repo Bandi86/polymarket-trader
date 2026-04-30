@@ -459,10 +459,10 @@ pub async fn bot_events_stream(
                     let current_market = last_market.read().await.clone();
                     let needs_new = if let Some(ref m) = current_market {
                         let end_date = m.get("endDate").and_then(|d| d.as_str());
-                        end_date.map_or(true, |end| {
+                        end_date.is_none_or(|end| {
                             chrono::DateTime::parse_from_rfc3339(end)
                                 .ok()
-                                .map_or(true, |dt| dt.timestamp() < chrono::Utc::now().timestamp())
+                                .is_none_or(|dt| dt.timestamp() < chrono::Utc::now().timestamp())
                         })
                     } else {
                         true
@@ -510,29 +510,25 @@ pub async fn bot_events_stream(
 
                     if !market_id.is_empty() {
                         // Try CLOB API first (fastest)
-                        let mut current_api_latency = 0.0;
                         let (yes, no) = if !yes_token.is_empty() {
                             let start_time = tokio::time::Instant::now();
                             if let Some(yes_price) = fetch_clob_midpoint(&http_client, &yes_token).await {
-                                current_api_latency = start_time.elapsed().as_millis() as f64;
-                                let mut latency_lock = last_api_latency.write().await;
-                                *latency_lock = current_api_latency;
+                                let latency = start_time.elapsed().as_millis() as f64;
+                                *last_api_latency.write().await = latency;
                                 (yes_price, 1.0 - yes_price)
                             } else {
                                 // Fallback to Gamma
                                 let start_time = tokio::time::Instant::now();
                                 let prices = fetch_gamma_prices(&http_client, &market_id).await.unwrap_or((0.5, 0.5));
-                                current_api_latency = start_time.elapsed().as_millis() as f64;
-                                let mut latency_lock = last_api_latency.write().await;
-                                *latency_lock = current_api_latency;
+                                let latency = start_time.elapsed().as_millis() as f64;
+                                *last_api_latency.write().await = latency;
                                 prices
                             }
                         } else {
                             let start_time = tokio::time::Instant::now();
                             let prices = fetch_gamma_prices(&http_client, &market_id).await.unwrap_or((0.5, 0.5));
-                            current_api_latency = start_time.elapsed().as_millis() as f64;
-                            let mut latency_lock = last_api_latency.write().await;
-                            *latency_lock = current_api_latency;
+                            let latency = start_time.elapsed().as_millis() as f64;
+                            *last_api_latency.write().await = latency;
                             prices
                         };
 
@@ -600,7 +596,7 @@ pub async fn bot_events_stream(
                             "market_question": question,
                             "sentiment": sentiment,
                             "event_start_time": event_start_time,
-                            "api_latency": current_api_latency,
+                            "api_latency": *last_api_latency.read().await,
                             "server_timestamp": server_ts,
                             "seq": current_seq
                         });

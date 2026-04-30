@@ -153,6 +153,8 @@ export function useAggregatePortfolio() {
           initial_balance: number;
           total_pnl: number;
           total_trades: number;
+          winning_trades: number;
+          losing_trades: number;
           win_rate: number;
           roi_percent: number;
           drawdown_percent: number;

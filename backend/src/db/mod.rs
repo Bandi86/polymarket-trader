@@ -622,6 +622,7 @@ pub mod queries {
     }
 
     /// Create bot with full trading configuration
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_bot_with_config(
         db: &Db,
         user_id: i64,
@@ -997,6 +998,7 @@ pub mod queries {
     }
 
     /// Update session with final stats
+    #[allow(clippy::too_many_arguments)]
     pub async fn end_session(
         db: &Db,
         session_id: i64,
@@ -1101,6 +1103,7 @@ pub mod queries {
     // === Trade decision queries ===
 
     /// Log a trade decision
+    #[allow(clippy::too_many_arguments)]
     pub async fn log_trade_decision(
         db: &Db,
         bot_id: i64,
@@ -1526,6 +1529,7 @@ pub mod queries {
     }
 
     /// Update bot trading config fields
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_bot_config(
         db: &Db,
         bot_id: i64,

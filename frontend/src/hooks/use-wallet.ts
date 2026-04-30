@@ -23,6 +23,22 @@ const TOKENS = {
 // ERC-20 balanceOf(address) function selector
 const BALANCE_OF_SELECTOR = "0x70a08231";
 
+// Minimal EIP-1193 provider type
+interface EIP1193Provider {
+  isMetaMask?: boolean;
+  request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
+  on: (event: string, callback: (payload: unknown) => void) => void;
+  removeListener: (event: string, callback: (payload: unknown) => void) => void;
+}
+
+function getEthereumProvider(): EIP1193Provider | undefined {
+  return (window as { ethereum?: EIP1193Provider }).ethereum;
+}
+
+function isRpcError(err: unknown): err is { code?: number; message?: string } {
+  return typeof err === "object" && err !== null;
+}
+
 interface WalletState {
   connected: boolean;
   address: string | null;
@@ -41,51 +57,53 @@ function encodeAddressParam(addr: string): string {
   return addr.toLowerCase().replace("0x", "").padStart(64, "0");
 }
 
-async function getChainId(provider: any): Promise<string> {
-  return await provider.request({ method: "eth_chainId" });
+async function getChainId(provider: EIP1193Provider): Promise<string> {
+  return (await provider.request({ method: "eth_chainId" })) as string;
 }
 
-async function switchToPolygon(provider: any): Promise<boolean> {
+async function switchToPolygon(provider: EIP1193Provider): Promise<boolean> {
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
       params: [{ chainId: POLYGON_CHAIN_ID }],
     });
     return true;
-  } catch (switchError: any) {
+  } catch (switchError: unknown) {
     // Chain not added yet
-    if (switchError.code === 4902) {
+    if (isRpcError(switchError) && switchError.code === 4902) {
       try {
         await provider.request({
           method: "wallet_addEthereumChain",
           params: [POLYGON_PARAMS],
         });
         return true;
-      } catch (addError: any) {
-        toast.error(`Polygon hozzáadása sikertelen: ${addError.message ?? "ismeretlen hiba"}`);
+      } catch (addError: unknown) {
+        const msg = isRpcError(addError) ? addError.message : "ismeretlen hiba";
+        toast.error(`Polygon hozzáadása sikertelen: ${msg}`);
         return false;
       }
     }
-    toast.error(`Chain váltás sikertelen: ${switchError.message ?? "ismeretlen hiba"}`);
+    const msg = isRpcError(switchError) ? switchError.message : "ismeretlen hiba";
+    toast.error(`Chain váltás sikertelen: ${msg}`);
     return false;
   }
 }
 
-async function fetchBalance(provider: any, address: string): Promise<Balances> {
+async function fetchBalance(provider: EIP1193Provider, address: string): Promise<Balances> {
   // MATIC (native balance) — use BigInt to avoid precision loss
-  const maticHex = await provider.request({
+  const maticHex = (await provider.request({
     method: "eth_getBalance",
     params: [address, "latest"],
-  });
+  })) as string;
   const matic = (Number(BigInt(maticHex)) / 1e18).toFixed(4);
 
   // ERC-20 balances via eth_call
   async function getTokenBalance(tokenAddr: string): Promise<number> {
     const data = `${BALANCE_OF_SELECTOR}${encodeAddressParam(address)}`;
-    const result = await provider.request({
+    const result = (await provider.request({
       method: "eth_call",
       params: [{ to: tokenAddr, data }, "latest"],
-    });
+    })) as string;
     // eth_call can return "0x" for zero balance
     if (!result || result === "0x") return 0;
     return Number(BigInt(result)) / 1e6; // USDC/pUSD have 6 decimals
@@ -95,13 +113,15 @@ async function fetchBalance(provider: any, address: string): Promise<Balances> {
   let pusd = "0.00";
   try {
     usdc = (await getTokenBalance(TOKENS.USDC_E)).toFixed(2);
-  } catch (e: any) {
-    toast.warning(`USDC egyenleg lekérése sikertelen: ${e?.message ?? "ismeretlen hiba"}`);
+  } catch (e: unknown) {
+    const msg = isRpcError(e) ? e.message : "ismeretlen hiba";
+    toast.warning(`USDC egyenleg lekérése sikertelen: ${msg}`);
   }
   try {
     pusd = (await getTokenBalance(TOKENS.PUSD)).toFixed(2);
-  } catch (e: any) {
-    toast.warning(`pUSD egyenleg lekérése sikertelen: ${e?.message ?? "ismeretlen hiba"}`);
+  } catch (e: unknown) {
+    const msg = isRpcError(e) ? e.message : "ismeretlen hiba";
+    toast.warning(`pUSD egyenleg lekérése sikertelen: ${msg}`);
   }
 
   return { matic, usdc, pusd };
@@ -125,7 +145,7 @@ export function useWallet(expectedAddress?: string) {
   const refreshBalances = useCallback(async () => {
     const w = walletRef.current;
     if (!w.connected || !w.address) return;
-    const ethereum = (window as any).ethereum;
+    const ethereum = getEthereumProvider();
     if (!ethereum) return;
     try {
       const newBalances = await fetchBalance(ethereum, w.address);
@@ -150,11 +170,11 @@ export function useWallet(expectedAddress?: string) {
 
   // Try to reconnect on mount (if already approved)
   const checkConnection = useCallback(async () => {
-    const ethereum = (window as any).ethereum;
+    const ethereum = getEthereumProvider();
     if (!ethereum) return;
 
     try {
-      const accounts: string[] = await ethereum.request({ method: "eth_accounts" });
+      const accounts = (await ethereum.request({ method: "eth_accounts" })) as string[];
       if (accounts.length > 0) {
         const chainId: string = await getChainId(ethereum);
         setWallet({
@@ -175,10 +195,11 @@ export function useWallet(expectedAddress?: string) {
   // Listen for MetaMask events — deps are now stable (no wallet/state deps)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const ethereum = (window as any).ethereum;
+    const ethereum = getEthereumProvider();
     if (!ethereum) return;
 
-    const handleAccountsChanged = (accounts: string[]) => {
+    const handleAccountsChanged = (payload: unknown) => {
+      const accounts = payload as string[];
       if (accounts.length === 0) {
         setWallet({
           connected: false,
@@ -215,7 +236,7 @@ export function useWallet(expectedAddress?: string) {
   }, [checkConnection, stopPolling]);
 
   const connect = useCallback(async () => {
-    const ethereum = (window as any).ethereum;
+    const ethereum = getEthereumProvider();
     if (!ethereum) {
       toast.error("MetaMask nincs telepítve! Telepítsd: https://metamask.io");
       return;
@@ -223,7 +244,7 @@ export function useWallet(expectedAddress?: string) {
 
     setLoading(true);
     try {
-      const accounts: string[] = await ethereum.request({ method: "eth_requestAccounts" });
+      const accounts = (await ethereum.request({ method: "eth_requestAccounts" })) as string[];
       if (accounts.length === 0) {
         toast.error("Nincs fiók kiválasztva");
         return;
@@ -253,11 +274,12 @@ export function useWallet(expectedAddress?: string) {
       toast.success("MetaMask csatlakoztatva!");
       void refreshBalances();
       startPolling();
-    } catch (err: any) {
-      if (err.code === 4001) {
+    } catch (err: unknown) {
+      if (isRpcError(err) && err.code === 4001) {
         toast.error("MetaMask: felhasználó elutasította");
       } else {
-        toast.error(err.message ?? "Csatlakozás sikertelen");
+        const msg = isRpcError(err) ? err.message : "Csatlakozás sikertelen";
+        toast.error(msg);
       }
     } finally {
       setLoading(false);
@@ -278,7 +300,7 @@ export function useWallet(expectedAddress?: string) {
   }, [wallet.isMetaMask, stopPolling]);
 
   const switchChain = useCallback(async () => {
-    const ethereum = (window as any).ethereum;
+    const ethereum = getEthereumProvider();
     if (!ethereum) return;
     const ok = await switchToPolygon(ethereum);
     if (ok) {

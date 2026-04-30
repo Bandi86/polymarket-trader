@@ -29,12 +29,16 @@ impl PositionSide {
             PositionSide::Sell => "sell",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl std::str::FromStr for PositionSide {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "buy" => Some(PositionSide::Buy),
-            "sell" => Some(PositionSide::Sell),
-            _ => None,
+            "buy" => Ok(PositionSide::Buy),
+            "sell" => Ok(PositionSide::Sell),
+            _ => Err(()),
         }
     }
 }

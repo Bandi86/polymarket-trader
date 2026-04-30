@@ -18,6 +18,19 @@ import { useWallet } from "@/hooks/use-wallet";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
+// Minimal EIP-1193 provider type
+interface EIP1193Provider {
+  request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
+}
+
+function getEthereumProvider(): EIP1193Provider | undefined {
+  return (window as { ethereum?: EIP1193Provider }).ethereum;
+}
+
+function isRpcError(err: unknown): err is { code?: number; message?: string } {
+  return typeof err === "object" && err !== null;
+}
+
 // Polygon contract for pUSD wrap
 const ONRAMP_ADDRESS = "0x93070a847efEf7F70739046A929D47a521F5B8ee";
 
@@ -76,19 +89,24 @@ export default function FundingPage() {
         .padStart(64, "0");
       const wrapData = `0xd0e30db0${amountWei}`;
 
-      const ethereum = (window as any).ethereum;
-      const txHash = await ethereum.request({
+      const ethereum = getEthereumProvider();
+      if (!ethereum) {
+        toast.error("MetaMask nem található");
+        return;
+      }
+      const txHash = (await ethereum.request({
         method: "eth_sendTransaction",
         params: [{ from: wallet.address, to: ONRAMP_ADDRESS, data: wrapData }],
-      });
+      })) as string;
 
       toast.success(`Wrap elküldve! ${txHash.slice(0, 10)}...`);
       setTimeout(() => void refreshBalances(), 5000);
-    } catch (err: any) {
-      if (err.code === 4001) {
+    } catch (err: unknown) {
+      if (isRpcError(err) && err.code === 4001) {
         toast.error("Tranzakció elutasítva");
       } else {
-        toast.error(err.message ?? "Wrap sikertelen");
+        const msg = isRpcError(err) ? err.message : "Wrap sikertelen";
+        toast.error(msg);
       }
     } finally {
       setWrapping(false);

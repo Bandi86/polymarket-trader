@@ -407,7 +407,7 @@ pub async fn quick_trade(
             order_id: None,
             btc_price: None,
             beat_price: None,
-            side: side,
+            side,
             amount: payload.amount,
             error_code: Some("INVALID_SIDE".to_string()),
         })
@@ -422,7 +422,7 @@ pub async fn quick_trade(
             order_id: None,
             btc_price: None,
             beat_price: None,
-            side: side,
+            side,
             amount: payload.amount,
             error_code: Some("INVALID_AMOUNT".to_string()),
         })
@@ -439,7 +439,7 @@ pub async fn quick_trade(
                 order_id: None,
                 btc_price: None,
                 beat_price: None,
-                side: side,
+                side,
                 amount: payload.amount,
                 error_code: Some("PRICE_FETCH_FAILED".to_string()),
             })
@@ -457,7 +457,7 @@ pub async fn quick_trade(
                 order_id: None,
                 btc_price: Some(btc_price),
                 beat_price: None,
-                side: side,
+                side,
                 amount: payload.amount,
                 error_code: Some("MARKET_FETCH_FAILED".to_string()),
             })
@@ -556,7 +556,7 @@ pub async fn quick_trade(
                 order_id: None,
                 btc_price: Some(btc_price),
                 beat_price: Some(beat_price),
-                side: side,
+                side,
                 amount: payload.amount,
                 error_code: Some("CREDENTIALS_ERROR".to_string()),
             })
@@ -579,7 +579,7 @@ pub async fn quick_trade(
                 order_id: None,
                 btc_price: Some(btc_price),
                 beat_price: Some(beat_price),
-                side: side,
+                side,
                 amount: payload.amount,
                 error_code: Some(error_code.to_string()),
             })
@@ -597,7 +597,7 @@ pub async fn quick_trade(
                     order_id: None,
                     btc_price: Some(btc_price),
                     beat_price: Some(beat_price),
-                    side: side,
+                    side,
                     amount: payload.amount,
                     error_code: Some("INSUFFICIENT_BALANCE".to_string()),
                 })
@@ -628,7 +628,7 @@ pub async fn quick_trade(
                                 order_id: Some(order_id),
                                 btc_price: Some(btc_price),
                                 beat_price: Some(beat_price),
-                                side: side,
+                                side,
                                 amount: payload.amount,
                                 error_code: None,
                             })
@@ -641,7 +641,7 @@ pub async fn quick_trade(
                         order_id: None,
                         btc_price: Some(btc_price),
                         beat_price: Some(beat_price),
-                        side: side,
+                        side,
                         amount: payload.amount,
                         error_code: Some("ORDER_SUBMIT_FAILED".to_string()),
                     })
@@ -656,7 +656,7 @@ pub async fn quick_trade(
                 order_id: None,
                 btc_price: Some(btc_price),
                 beat_price: Some(beat_price),
-                side: side,
+                side,
                 amount: payload.amount,
                 error_code: Some("BALANCE_CHECK_FAILED".to_string()),
             })

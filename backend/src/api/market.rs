@@ -454,17 +454,14 @@ pub async fn get_btc_price() -> Response {
                 price: String,
             }
 
-            match resp.json::<BinancePrice>().await {
-                Ok(data) => {
-                    if let Ok(price) = data.price.parse::<f64>() {
-                        return Json(BitcoinPriceResponse {
-                            success: true,
-                            price: Some(price),
-                            error: None,
-                        }).into_response();
-                    }
+            if let Ok(data) = resp.json::<BinancePrice>().await {
+                if let Ok(price) = data.price.parse::<f64>() {
+                    return Json(BitcoinPriceResponse {
+                        success: true,
+                        price: Some(price),
+                        error: None,
+                    }).into_response();
                 }
-                _ => {}
             }
         }
         _ => {}

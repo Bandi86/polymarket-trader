@@ -101,6 +101,7 @@ impl StrategyCoordinator {
     }
 
     /// Register a pending decision. Returns whether the trade should proceed.
+    #[allow(clippy::too_many_arguments)]
     pub fn register_decision(
         &mut self,
         market_id: &str,

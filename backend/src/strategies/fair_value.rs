@@ -15,8 +15,10 @@ impl FairValueStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for FairValueStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.03, // Min deviation from 0.5

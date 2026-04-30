@@ -169,7 +169,7 @@ impl RiskManager {
     }
 
     fn init_bot(&mut self, bot_id: i64) {
-        self.bot_states.entry(bot_id).or_insert_with(BotRiskState::default);
+        self.bot_states.entry(bot_id).or_default();
     }
 
     /// Calculate position size using Kelly Criterion

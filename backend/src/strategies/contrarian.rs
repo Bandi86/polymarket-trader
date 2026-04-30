@@ -15,8 +15,10 @@ impl ContrarianStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for ContrarianStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.03,

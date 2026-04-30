@@ -97,7 +97,7 @@ pub async fn register(
             let user_count: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM users")
                 .fetch_one(db.as_ref())
                 .await;
-            if user_count.map_or(false, |c| c == 1) {
+            if user_count.is_ok_and(|c| c == 1) {
                 let _ = db::seed_default_bots(db.as_ref(), user_id).await;
             }
 

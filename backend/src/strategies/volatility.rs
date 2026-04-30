@@ -15,8 +15,10 @@ impl VolatilityStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for VolatilityStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.08, // High threshold for volatility

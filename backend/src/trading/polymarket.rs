@@ -744,7 +744,7 @@ mod tests {
         let client = PolymarketClient::new(private_key).unwrap();
         let address = client.address();
         println!("Generated address: {:?}", address);
-        assert!(address.len() > 0, "Address should not be empty");
+        assert!(!address.is_empty(), "Address should not be empty");
         assert!(address.starts_with("0x"), "Address should start with 0x");
     }
 

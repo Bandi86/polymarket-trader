@@ -15,8 +15,10 @@ impl TrendStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for TrendStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.04, // Higher threshold than momentum

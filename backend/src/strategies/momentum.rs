@@ -15,8 +15,10 @@ impl MomentumStrategy {
     pub fn new(params: StrategyParams) -> Self {
         Self { params }
     }
+}
 
-    pub fn default() -> Self {
+impl Default for MomentumStrategy {
+    fn default() -> Self {
         Self {
             params: StrategyParams {
                 min_delta: 0.02,
