@@ -196,7 +196,7 @@ fn generate_token(user_id: i64, username: &str) -> Result<String, jsonwebtoken::
     }
 
     let secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| "CHANGE_ME_SET_JWT_SECRET_ENV_VAR".to_string());
+    .unwrap_or_else(|_| "CHANGE_ME_SET_JWT_SECRET_ENV_VAR".to_string());
 
     // Token érvényes 1 évig - nem jár le újraindítás után
     let exp = chrono::Utc::now()
