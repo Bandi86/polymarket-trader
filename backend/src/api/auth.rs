@@ -45,55 +45,45 @@ pub async fn register(
 ) -> Response {
     let db = state.db();
 
-    // Validate input
     if payload.username.len() < 3 {
         return Json(ErrorResponse {
             error: "Username must be at least 3 characters".to_string(),
-        })
-        .into_response();
+        }).into_response();
     }
 
     if payload.password.len() < 6 {
         return Json(ErrorResponse {
             error: "Password must be at least 6 characters".to_string(),
-        })
-        .into_response();
+        }).into_response();
     }
 
-    // Check if user exists
     match queries::find_user_by_username(&db, &payload.username).await {
         Ok(Some(_)) => {
             return Json(ErrorResponse {
                 error: "Username already exists".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
         Err(e) => {
             tracing::error!("Database error: {}", e);
             return Json(ErrorResponse {
                 error: "Internal server error".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
         _ => {}
     }
 
-    // Hash password
     let password_hash = match bcrypt::hash(&payload.password, 12) {
         Ok(hash) => hash,
         Err(e) => {
             tracing::error!("Password hashing error: {}", e);
             return Json(ErrorResponse {
                 error: "Internal server error".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
     };
 
-    // Create user
     match queries::create_user(&db, &payload.username, &password_hash).await {
         Ok(user_id) => {
-            // Check if this is the first user — seed default bots if so
             let user_count: Result<i64, _> = sqlx::query_scalar("SELECT COUNT(*) FROM users")
                 .fetch_one(db.as_ref())
                 .await;
@@ -101,20 +91,17 @@ pub async fn register(
                 let _ = db::seed_default_bots(db.as_ref(), user_id).await;
             }
 
-            // Generate token
             match generate_token(user_id, &payload.username) {
                 Ok(token) => Json(AuthResponse {
                     token,
                     user_id,
                     username: payload.username,
-                })
-                .into_response(),
+                }).into_response(),
                 Err(e) => {
                     tracing::error!("Token generation error: {}", e);
                     Json(ErrorResponse {
                         error: "Internal server error".to_string(),
-                    })
-                    .into_response()
+                    }).into_response()
                 }
             }
         }
@@ -122,8 +109,7 @@ pub async fn register(
             tracing::error!("User creation error: {}", e);
             Json(ErrorResponse {
                 error: "Internal server error".to_string(),
-            })
-            .into_response()
+            }).into_response()
         }
     }
 }
@@ -134,61 +120,49 @@ pub async fn login(
 ) -> Response {
     let db = state.db();
 
-    // Find user
     let user = match queries::find_user_by_username(&db, &payload.username).await {
         Ok(Some(user)) => user,
         Ok(None) => {
             return Json(ErrorResponse {
                 error: "Invalid username or password".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
         Err(e) => {
             tracing::error!("Database error: {}", e);
             return Json(ErrorResponse {
                 error: "Internal server error".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
     };
 
-    // Verify password
     match bcrypt::verify(&payload.password, &user.2) {
         Ok(true) => {}
         Ok(false) => {
             return Json(ErrorResponse {
                 error: "Invalid username or password".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
         Err(e) => {
             tracing::error!("Password verification error: {}", e);
             return Json(ErrorResponse {
                 error: "Internal server error".to_string(),
-            })
-            .into_response();
+            }).into_response();
         }
     };
 
-    state
-        .credential_service
-        .set_password(user.0, payload.password.clone())
-        .await;
+    state.credential_service.set_password(user.0, payload.password.clone()).await;
 
-    // Generate token
     match generate_token(user.0, &user.1) {
         Ok(token) => Json(AuthResponse {
             token,
             user_id: user.0,
             username: user.1,
-        })
-        .into_response(),
+        }).into_response(),
         Err(e) => {
             tracing::error!("Token generation error: {}", e);
             Json(ErrorResponse {
                 error: "Internal server error".to_string(),
-            })
-            .into_response()
+            }).into_response()
         }
     }
 }
@@ -198,8 +172,6 @@ pub async fn me(
     Extension(claims): Extension<Claims>,
 ) -> Response {
     let db = state.db();
-
-    // user_id from JWT token claims (injected by auth middleware)
     let user_id = claims.user_id;
 
     match queries::find_user_by_id(&db, user_id).await {
@@ -212,7 +184,6 @@ pub async fn me(
     }
 }
 
-// JWT helpers
 fn generate_token(user_id: i64, username: &str) -> Result<String, jsonwebtoken::errors::Error> {
     use jsonwebtoken::{encode, EncodingKey, Header};
     use serde::Serialize;
@@ -227,8 +198,9 @@ fn generate_token(user_id: i64, username: &str) -> Result<String, jsonwebtoken::
     let secret = std::env::var("JWT_SECRET")
         .unwrap_or_else(|_| "CHANGE_ME_SET_JWT_SECRET_ENV_VAR".to_string());
 
+    // Token érvényes 1 évig - nem jár le újraindítás után
     let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::hours(24))
+        .checked_add_signed(chrono::Duration::days(365))
         .ok_or_else(|| {
             jsonwebtoken::errors::Error::from(jsonwebtoken::errors::ErrorKind::InvalidToken)
         })?

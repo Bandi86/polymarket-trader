@@ -21,7 +21,6 @@ pub struct BotResponse {
     pub params: String,
     pub status: String,
     pub created_at: String,
-    // Trading configuration (matching demo project)
     pub bet_size: f64,
     pub use_kelly: bool,
     pub kelly_fraction: f64,
@@ -29,12 +28,10 @@ pub struct BotResponse {
     pub interval: i64,
     pub stop_loss: f64,
     pub take_profit: f64,
-    // Stats
     pub total_trades: i64,
     pub winning_trades: i64,
     pub losing_trades: i64,
     pub win_rate: f64,
-    // Trading mode: "paper" (simulated) or "live" (real orders)
     pub trading_mode: String,
 }
 
@@ -74,10 +71,8 @@ pub struct CreateBotRequest {
     pub name: String,
     pub market_id: String,
     pub strategy_type: Option<String>,
-    // Fallback field name — some clients send `strategy` instead of `strategy_type`
     pub strategy: Option<String>,
     pub params: Option<String>,
-    // Trading configuration (optional, defaults match demo project)
     #[serde(default = "default_bet_size")]
     pub bet_size: f64,
     #[serde(default = "default_use_kelly")]
@@ -92,7 +87,6 @@ pub struct CreateBotRequest {
     pub stop_loss: f64,
     #[serde(default = "default_take_profit")]
     pub take_profit: f64,
-    // Trading mode: "paper" (default) or "live"
     #[serde(default = "default_trading_mode")]
     pub trading_mode: String,
 }
@@ -101,10 +95,15 @@ fn default_bet_size() -> f64 { 1.0 }
 fn default_use_kelly() -> bool { true }
 fn default_kelly_fraction() -> f64 { 0.25 }
 fn default_max_bet() -> f64 { 0.25 }
-fn default_interval() -> i64 { 60000 } // 60 seconds (1 minute)
-fn default_stop_loss() -> f64 { 0.1 } // 10%
-fn default_take_profit() -> f64 { 0.2 } // 20%
+fn default_interval() -> i64 { 60000 }
+fn default_stop_loss() -> f64 { 0.1 }
+fn default_take_profit() -> f64 { 0.2 }
 fn default_trading_mode() -> String { "paper".to_string() }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StartBotRequest {
+    pub initial_balance: Option<f64>,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct UpdateBotRequest {
@@ -112,7 +111,6 @@ pub struct UpdateBotRequest {
     pub market_id: Option<String>,
     pub strategy_type: Option<String>,
     pub params: Option<String>,
-    // Trading configuration
     pub bet_size: Option<f64>,
     pub use_kelly: Option<bool>,
     pub kelly_fraction: Option<f64>,
@@ -159,7 +157,6 @@ pub struct PortfolioResponse {
     pub roi_percent: f64,
     pub drawdown_percent: f64,
     pub avg_pnl_per_trade: f64,
-    // Unrealized PnL from open positions (live trading only)
     pub unrealized_pnl: f64,
     pub total_position_value: f64,
 }
@@ -259,33 +256,28 @@ pub async fn create_bot(
     if payload.name.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
             error: "Bot name is required".to_string(),
-        }))
-        .into_response();
+        })).into_response();
     }
 
     if payload.market_id.is_empty() {
         return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
             error: "Market ID is required".to_string(),
-        }))
-        .into_response();
+        })).into_response();
     }
 
-    // Check for duplicate bot name for this user
     match queries::get_bot_by_name(&db, user_id, &payload.name).await {
         Ok(Some(_)) => {
             return (StatusCode::CONFLICT, Json(ErrorResponse {
                 error: format!("Bot with name '{}' already exists", payload.name),
-            }))
-            .into_response();
+            })).into_response();
         }
         Err(e) => {
             tracing::error!("Failed to check duplicate bot: {}", e);
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
                 error: "Failed to create bot".to_string(),
-            }))
-            .into_response();
+            })).into_response();
         }
-        _ => {} // No duplicate, proceed
+        _ => {}
     }
 
     let strategy = payload.strategy_type
@@ -308,9 +300,7 @@ pub async fn create_bot(
         payload.stop_loss,
         payload.take_profit,
         &payload.trading_mode,
-    )
-    .await
-    {
+    ).await {
         Ok(bot_id) => Json(serde_json::json!({
             "id": bot_id,
             "name": payload.name,
@@ -326,14 +316,12 @@ pub async fn create_bot(
             "stop_loss": payload.stop_loss,
             "take_profit": payload.take_profit,
             "trading_mode": payload.trading_mode
-        }))
-        .into_response(),
+        })).into_response(),
         Err(e) => {
             tracing::error!("Failed to create bot: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
                 error: "Failed to create bot".to_string(),
-            }))
-            .into_response()
+            })).into_response()
         }
     }
 }
@@ -351,8 +339,7 @@ pub async fn list_bots(
             tracing::error!("Failed to list bots: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
                 error: "Failed to list bots".to_string(),
-            }))
-            .into_response()
+            })).into_response()
         }
     }
 }
@@ -369,14 +356,12 @@ pub async fn get_bot(
         Ok(Some(bot)) => Json(BotResponse::from(bot)).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, Json(ErrorResponse {
             error: "Bot not found".to_string(),
-        }))
-        .into_response(),
+        })).into_response(),
         Err(e) => {
             tracing::error!("Failed to get bot: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
                 error: "Failed to get bot".to_string(),
-            }))
-            .into_response()
+            })).into_response()
         }
     }
 }
@@ -390,30 +375,21 @@ pub async fn update_bot(
     let db = state.db();
     let user_id = claims.user_id;
 
-    // Update basic fields
     if let Err(e) = queries::update_bot(
-        &db,
-        id,
-        user_id,
+        &db, id, user_id,
         payload.name.as_deref(),
         payload.market_id.as_deref(),
         payload.strategy_type.as_deref(),
         payload.params.as_deref(),
-    )
-    .await
-    {
+    ).await {
         tracing::error!("Failed to update bot: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
             error: "Failed to update bot".to_string(),
-        }))
-        .into_response();
+        })).into_response();
     }
 
-    // Update trading config fields
     if let Err(e) = queries::update_bot_config(
-        &db,
-        id,
-        user_id,
+        &db, id, user_id,
         payload.bet_size,
         payload.use_kelly,
         payload.kelly_fraction,
@@ -421,14 +397,11 @@ pub async fn update_bot(
         payload.interval,
         payload.stop_loss,
         payload.take_profit,
-    )
-    .await
-    {
+    ).await {
         tracing::error!("Failed to update bot config: {}", e);
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
             error: "Failed to update bot config".to_string(),
-        }))
-        .into_response();
+        })).into_response();
     }
 
     Json(serde_json::json!({"success": true})).into_response()
@@ -448,8 +421,7 @@ pub async fn delete_bot(
             tracing::error!("Failed to delete bot: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
                 error: "Failed to delete bot".to_string(),
-            }))
-            .into_response()
+            })).into_response()
         }
     }
 }
@@ -458,11 +430,11 @@ pub async fn start_bot(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    payload: Option<Json<StartBotRequest>>,
 ) -> Response {
     let db = state.db();
     let user_id = claims.user_id;
 
-    // Get bot configuration
     let bot = match queries::get_bot_by_id(&db, id, user_id).await {
         Ok(Some(b)) => b,
         Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse {
@@ -476,27 +448,29 @@ pub async fn start_bot(
         }
     };
 
-    // Check if bot is already running
     if state.orchestrator.is_running(id).await {
         return (StatusCode::CONFLICT, Json(ErrorResponse {
             error: "Bot is already running".to_string(),
         })).into_response();
     }
 
-    // For paper trading mode, skip credential/balance checks but enforce minimum simulation balance
+    // Get initial balance from request, or use default $100
+    let requested_balance = payload
+        .and_then(|p| p.initial_balance)
+        .unwrap_or(100.0);
+
     let is_paper = bot.trading_mode == "paper";
     let initial_balance = if is_paper {
-        // Paper trading: use default balance of $1000 for simulation
-        tracing::info!("Bot {} running in paper mode — using simulated $1000 balance", id);
-        // Ensure paper bot has enough simulated balance for at least one bet
-        let paper_balance = 1000.0;
+        let paper_balance = requested_balance.max(10.0);
+        tracing::info!("Bot {} running in paper mode — using simulated ${:.2} balance", id, paper_balance);
+
         let min_required = bot.bet_size.max(1.0);
         if paper_balance < min_required {
             return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
                 error: format!("Bet size ${:.2} exceeds paper trading balance ${:.2}", bot.bet_size, paper_balance),
             })).into_response();
         }
-        // Ensure portfolio exists — create if missing, reset if present
+
         match queries::get_portfolio(&db, id, user_id).await {
             Ok(Some(_)) => {
                 if let Err(e) = queries::reset_portfolio(&db, id, paper_balance).await {
@@ -513,9 +487,7 @@ pub async fn start_bot(
         }
         paper_balance
     } else {
-        // Live trading: require credentials and real wallet balance
-        // Fetch current wallet USDC balance via CLOB API (using API key)
-        // Use CredentialService which lazy-loads from DB if cache is empty
+        // Live trading
         let creds = match state.credential_service.get_credentials(&db, user_id).await {
             Ok(c) => c,
             Err(crate::services::credential_service::CredentialError::NotFound)
@@ -542,7 +514,6 @@ pub async fn start_bot(
             })).into_response();
         }
 
-        // Get actual USDC balance from Polymarket via data-api (wallet address based)
         let pm_client = match crate::trading::PolymarketClient::new(&creds.private_key) {
             Ok(c) => c,
             Err(e) => {
@@ -552,6 +523,7 @@ pub async fn start_bot(
                 })).into_response();
             }
         };
+
         let wallet_balance = match pm_client.get_balance().await {
             Ok(bal) => bal,
             Err(e) => {
@@ -570,10 +542,8 @@ pub async fn start_bot(
 
         tracing::info!("User {} wallet balance: ${:.2}", user_id, wallet_balance);
 
-        // Get or create/update portfolio with current wallet balance
         let portfolio = match queries::get_portfolio(&db, id, user_id).await {
             Ok(Some(mut p)) => {
-                // Always sync portfolio balance with current wallet balance on start
                 if p.balance != wallet_balance {
                     tracing::info!("Syncing portfolio {} balance from ${:.2} to ${:.2}", p.bot_id, p.balance, wallet_balance);
                     if let Err(e) = queries::update_portfolio_balance(&db, id, wallet_balance).await {
@@ -585,11 +555,9 @@ pub async fn start_bot(
                 p
             }
             Ok(None) => {
-                // No portfolio yet — create with wallet balance
                 tracing::info!("Bot {} creating portfolio with wallet balance: ${:.2}", id, wallet_balance);
                 match queries::ensure_portfolio(&db, id, user_id, wallet_balance).await {
                     Ok(_) => {
-                        // Fetch the created portfolio
                         if let Ok(Some(p)) = queries::get_portfolio(&db, id, user_id).await {
                             p
                         } else {
@@ -614,7 +582,6 @@ pub async fn start_bot(
             }
         };
 
-        // Balance validation — ensure bot has enough to cover at least one bet
         let min_required = bot.bet_size.max(1.0);
         if portfolio.balance < min_required {
             return (StatusCode::PAYMENT_REQUIRED, Json(ErrorResponse {
@@ -622,7 +589,6 @@ pub async fn start_bot(
             })).into_response();
         }
 
-        // For live mode, also check MATIC balance
         let wallet = creds.wallet_address.clone();
         match crate::trading::check_matic_balance(&wallet).await {
             Ok(matic) => tracing::info!("Bot {} MATIC balance check: {:.6}", id, matic),
@@ -636,10 +602,8 @@ pub async fn start_bot(
         Ok(session_id) => {
             tracing::info!("Bot {} started with session {} (balance: {:.2})", id, session_id, initial_balance);
 
-            // Use bot's configured interval (convert from ms to seconds)
-            let interval_secs = (bot.interval / 1000).max(10) as u64; // Minimum 10 seconds
+            let interval_secs = (bot.interval / 1000).max(10) as u64;
 
-            // Spawn the orchestrator loop for this bot
             let orchestrator = state.orchestrator.clone();
             let cred_cache = state.credential_cache.clone();
             tokio::spawn(async move {
@@ -669,7 +633,6 @@ pub async fn stop_bot(
 ) -> Response {
     let user_id = claims.user_id;
 
-    // Use orchestrator to stop the bot
     match state.orchestrator.stop_bot(id, user_id).await {
         Ok(_) => Json(BotStatusResponse {
             success: true,
@@ -686,7 +649,6 @@ pub async fn stop_bot(
 
 // ==================== Session Endpoints ====================
 
-/// Get current session for a bot
 pub async fn get_session(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
@@ -695,10 +657,8 @@ pub async fn get_session(
     let db = state.db();
     let user_id = claims.user_id;
 
-    // First verify bot belongs to user
     match queries::get_bot_by_id(&db, id, user_id).await {
         Ok(Some(_)) => {
-            // Bot exists and belongs to user
             match queries::get_active_session(&db, id).await {
                 Ok(Some(session)) => Json(SessionResponse {
                     session_id: session.id,
@@ -737,15 +697,13 @@ pub async fn get_session(
     }
 }
 
-/// Fetch unrealized PnL from open positions via Polymarket data-api
-/// Returns (unrealized_pnl, total_position_value)
 async fn fetch_unrealized_pnl(state: &AppState, user_id: i64) -> (f64, f64) {
     let cache = state.credential_cache.read().await;
     let creds = cache.get(&user_id).cloned();
     drop(cache);
 
     let Some(creds) = creds else {
-        return (0.0, 0.0); // No credentials = no live positions
+        return (0.0, 0.0);
     };
 
     let client = match PolymarketClient::new(&creds.private_key) {
@@ -777,7 +735,6 @@ async fn fetch_unrealized_pnl(state: &AppState, user_id: i64) -> (f64, f64) {
     }
 }
 
-/// Get bot portfolio state
 pub async fn get_portfolio(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
@@ -801,7 +758,6 @@ pub async fn get_portfolio(
         }
     };
 
-    // Fetch unrealized PnL from open positions (live trading)
     let (unrealized_pnl, total_position_value) = fetch_unrealized_pnl(&state, user_id).await;
 
     Json(PortfolioResponse::from_record_with_positions(
@@ -809,7 +765,6 @@ pub async fn get_portfolio(
     )).into_response()
 }
 
-/// Get historical sessions for a bot
 pub async fn get_history(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
@@ -845,7 +800,6 @@ pub async fn get_history(
     }
 }
 
-/// Get trade decisions for a bot
 pub async fn get_trades(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
@@ -883,7 +837,6 @@ pub async fn get_trades(
 
 // ==================== Bulk Operations ====================
 
-/// Start all bots for user
 pub async fn run_all_bots(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -891,7 +844,6 @@ pub async fn run_all_bots(
     let db = state.db();
     let user_id = claims.user_id;
 
-    // Fetch actual wallet balance once
     let cache = state.credential_cache.read().await;
     let creds = cache.get(&user_id).cloned();
     drop(cache);
@@ -921,38 +873,19 @@ pub async fn run_all_bots(
             let mut skipped_no_creds = 0;
 
             for bot in bots {
-                // Check if already running
                 if state.orchestrator.is_running(bot.id).await {
                     continue;
                 }
 
-                // Get bot's portfolio (may be stale)
-                let _portfolio = match queries::get_portfolio(&db, bot.id, user_id).await {
-                    Ok(Some(p)) => p,
-                    Ok(None) => {
-                        // Create portfolio with current wallet balance
-                        if wallet_balance <= 0.0 {
-                            skipped_zero_balance += 1;
-                            continue;
-                        }
-                        if let Err(e) = queries::ensure_portfolio(&db, bot.id, user_id, wallet_balance).await {
-                            tracing::error!("Failed to create portfolio for bot {}: {}", bot.id, e);
-                            continue;
-                        }
-                        // Continue to start
-                        let p = queries::get_portfolio(&db, bot.id, user_id).await.ok().flatten().unwrap();
-                        p
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to get portfolio for bot {}: {}", bot.id, e);
-                        continue;
-                    }
+                let is_paper = bot.trading_mode == "paper";
+                let balance_to_use = if is_paper {
+                    100.0 // Default paper balance
+                } else {
+                    wallet_balance
                 };
 
-                // Check if we have sufficient balance (use wallet balance, not stale portfolio)
-                if wallet_balance <= 0.0 {
+                if !is_paper && balance_to_use <= 0.0 {
                     if has_credentials {
-                        tracing::warn!("Bot {} has zero wallet balance, skipping", bot.id);
                         skipped_zero_balance += 1;
                     } else {
                         skipped_no_creds += 1;
@@ -960,11 +893,23 @@ pub async fn run_all_bots(
                     continue;
                 }
 
-                // Start bot with current wallet balance as initial_balance
-                if state.orchestrator.start_bot(&bot, wallet_balance).await.is_ok() {
-                    // Use bot's configured interval
-                    let interval_secs = (bot.interval / 1000).max(10) as u64;
+                // Ensure portfolio exists
+                match queries::get_portfolio(&db, bot.id, user_id).await {
+                    Ok(None) => {
+                        if let Err(e) = queries::ensure_portfolio(&db, bot.id, user_id, balance_to_use).await {
+                            tracing::error!("Failed to create portfolio for bot {}: {}", bot.id, e);
+                            continue;
+                        }
+                    }
+                    Ok(Some(_)) => {}
+                    Err(e) => {
+                        tracing::error!("Failed to get portfolio for bot {}: {}", bot.id, e);
+                        continue;
+                    }
+                }
 
+                if state.orchestrator.start_bot(&bot, balance_to_use).await.is_ok() {
+                    let interval_secs = (bot.interval / 1000).max(10) as u64;
                     let orchestrator = state.orchestrator.clone();
                     let cred_cache = state.credential_cache.clone();
                     let bot_id = bot.id;
@@ -994,7 +939,6 @@ pub async fn run_all_bots(
     }
 }
 
-/// Stop all bots for user
 pub async fn stop_all_bots(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1016,7 +960,6 @@ pub async fn stop_all_bots(
     })).into_response()
 }
 
-/// Get aggregate portfolio for user
 pub async fn get_aggregate_portfolio(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
@@ -1024,7 +967,6 @@ pub async fn get_aggregate_portfolio(
     let db = state.db();
     let user_id = claims.user_id;
 
-    // Fetch unrealized PnL from open positions (wallet-level, not per-bot)
     let (unrealized_pnl, total_position_value) = fetch_unrealized_pnl(&state, user_id).await;
 
     match queries::get_bots_by_user(&db, user_id).await {
@@ -1038,7 +980,6 @@ pub async fn get_aggregate_portfolio(
             let mut bot_portfolios = Vec::new();
 
             for bot in &bots {
-                // Only include bots that have an actual portfolio
                 if let Ok(Some(portfolio)) = queries::get_portfolio(&db, bot.id, user_id).await {
                     total_balance += portfolio.balance;
                     total_initial += portfolio.initial_balance;
@@ -1047,7 +988,7 @@ pub async fn get_aggregate_portfolio(
                     total_wins += portfolio.winning_trades;
 
                     bot_portfolios.push(PortfolioResponse::from_record_with_positions(
-                        portfolio, 0.0, 0.0, // Per-bot unrealized PnL not tracked for aggregates
+                        portfolio, 0.0, 0.0,
                     ));
                 }
 
@@ -1056,13 +997,12 @@ pub async fn get_aggregate_portfolio(
                 }
             }
 
-            // Only return aggregate data if there's actual trading history
             if total_trades == 0 {
                 return Json(serde_json::json!({
                     "total_bots": bots.len(),
                     "running_bots": running_bots,
-                    "total_balance": 0.0,
-                    "total_initial": 0.0,
+                    "total_balance": total_balance,
+                    "total_initial": total_initial,
                     "total_pnl": 0.0,
                     "total_trades": 0,
                     "overall_win_rate": 0.0,
@@ -1070,7 +1010,7 @@ pub async fn get_aggregate_portfolio(
                     "avg_pnl_per_trade": 0.0,
                     "unrealized_pnl": 0.0,
                     "total_position_value": 0.0,
-                    "bots": []
+                    "bots": bot_portfolios
                 })).into_response();
             }
 

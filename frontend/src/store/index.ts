@@ -10,6 +10,10 @@ interface AppState {
   setAuth: (token: string, user: { id: number; email: string; username: string }) => void;
   clearAuth: () => void;
 
+  // Trading Mode
+  tradingMode: "demo" | "live";
+  setTradingMode: (mode: "demo" | "live") => void;
+
   // Bots
   bots: Bot[];
   selectedBotIds: number[];
@@ -21,8 +25,8 @@ interface AppState {
 
   // Market Data
   btcPrice: number;
-  startPrice: number; // BTC price at market start time (price to beat)
-  priceDelta: number; // Current - Start price
+  startPrice: number;
+  priceDelta: number;
   beatPrice: number;
   yesPrice: number;
   noPrice: number;
@@ -44,13 +48,13 @@ interface AppState {
     apiLatency?: number;
   }) => void;
 
-  // Market History - past 5 completed markets
+  // Market History
   marketHistory: {
     endTime: number;
     targetPrice: number;
     finalPrice: number;
-    delta: number; // final - target (positive = exceeded)
-    duration: number; // 300 seconds
+    delta: number;
+    duration: number;
   }[];
   setMarketHistory: (history: AppState["marketHistory"]) => void;
   addMarketResult: (result: AppState["marketHistory"][0]) => void;
@@ -140,6 +144,10 @@ export const useAppStore = create<AppState>()(
         set({ token: null, user: null, isAuthenticated: false });
       },
 
+      // Trading Mode
+      tradingMode: "demo",
+      setTradingMode: (mode) => set({ tradingMode: mode }),
+
       // Bots
       bots: [],
       selectedBotIds: [],
@@ -207,7 +215,7 @@ export const useAppStore = create<AppState>()(
       logs: [],
       addLog: (log) =>
         set((state) => ({
-          logs: [...state.logs.slice(-100), log], // Keep last 100 logs
+          logs: [...state.logs.slice(-100), log],
         })),
       clearLogs: () => set({ logs: [] }),
 
@@ -284,32 +292,24 @@ export const useAppStore = create<AppState>()(
         user: state.user,
         isAuthenticated: state.isAuthenticated,
         panels: state.panels,
+        tradingMode: state.tradingMode,
       }),
     }
   )
 );
 
-// SSE Connection Hook Helper
 export const createSSEConnection = (onMessage: (event: MessageEvent) => void): EventSource => {
   const token = localStorage.getItem("token");
-
-  // In development, frontend is on port 3000, backend on 3001
-  // SSE needs to connect directly to backend
   const isDev = typeof window !== "undefined" && window.location.port === "3000";
   const baseUrl = isDev ? "http://localhost:3001" : window.location.origin;
-
   const url = new URL(`${baseUrl}/api/events`);
   if (token) {
     url.searchParams.set("token", token);
   }
-
   const eventSource = new EventSource(url.toString());
-
   eventSource.onmessage = onMessage;
   eventSource.onerror = (e) => {
     console.error("SSE connection error:", e);
-    // SSE will auto-reconnect, no need to manually reconnect
   };
-
   return eventSource;
 };

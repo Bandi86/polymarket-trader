@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
+import { TradingModeToggle } from "@/components/ui/trading-mode-toggle";
 
 export const metadata: Metadata = {
   title: "PolyTrade V2 - Command Center",
@@ -25,7 +26,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="apple-touch-icon" href="/icon.svg" />
       </head>
       <body className="bg-background font-sans text-text antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          <TradingModeToggle />
+          {children}
+        </Providers>
       </body>
     </html>
   );

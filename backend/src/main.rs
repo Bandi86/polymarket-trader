@@ -16,9 +16,13 @@ mod services;
 mod trading;
 
 use api::AppState;
+use sqlx::Row;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load .env file FIRST - before anything else
+    dotenv::dotenv().ok();
+
     // Initialize logging
     tracing_subscriber::registry()
         .with(
@@ -34,20 +38,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = db::init_db().await?;
 
     // Initialize app state with db and binance client
-    let app_state = AppState::new(db);
+    let app_state = AppState::new(db.clone());
 
-    // Spawn event broadcaster: reads from orchestrator event_receiver and broadcasts to all SSE clients
+    // === AUTO-LOAD CREDENTIALS FROM DATABASE ON STARTUP ===
+    // This ensures credentials survive backend restarts
+    {
+        let pool = db.as_ref();
+        
+        // Get all users directly
+        let users = sqlx::query("SELECT id, username FROM users")
+            .fetch_all(pool)
+            .await
+            .unwrap_or_default();
+            
+        tracing::info!("Loading credentials for {} users on startup", users.len());
+        
+        for user_row in users {
+            let user_id: i64 = user_row.get("id");
+            
+            match db::queries::get_api_keys(&db, user_id).await {
+                Ok(keys) => {
+                    let api_key = keys.iter().find(|k| k.key_name == "polymarket_api_key").map(|k| k.key_value.clone());
+                    let api_secret = keys.iter().find(|k| k.key_name == "polymarket_api_secret").map(|k| k.key_value.clone());
+                    let passphrase = keys.iter().find(|k| k.key_name == "polymarket_passphrase").map(|k| k.key_value.clone());
+                    let private_key = keys.iter().find(|k| k.key_name == "polymarket_private_key").map(|k| k.key_value.clone());
+
+                    if let (Some(key), Some(secret), Some(pass), Some(pk)) = (api_key, api_secret, passphrase, private_key) {
+                        if key.len() > 5 && secret.len() > 5 && pass.len() > 5 && pk.len() > 5 {
+                            let wallet_address = match trading::polymarket::PolymarketClient::new(&pk) {
+                                Ok(client) => client.address(),
+                                Err(e) => {
+                                    tracing::warn!("Failed to derive wallet for user {}: {}", user_id, e);
+                                    String::new()
+                                }
+                            };
+
+                            let mut cache = app_state.credential_cache.write().await;
+                            cache.insert(user_id, api::CachedCredentials {
+                                api_key: key.clone(),
+                                api_secret: secret.clone(),
+                                api_passphrase: pass.clone(),
+                                private_key: pk.clone(),
+                                funder: None,
+                                signature_type: 0,
+                                wallet_address: wallet_address.clone(),
+                            });
+                            drop(cache);
+
+                            tracing::info!("Loaded credentials for user {} on startup", user_id);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load api_keys for user {}: {}", user_id, e);
+                }
+            }
+        }
+    }
+
+    // Spawn event broadcaster
     let event_receiver = app_state.event_receiver.clone();
     let bot_event_broadcaster = app_state.bot_event_broadcaster.clone();
     tokio::spawn(async move {
         tracing::info!("Event broadcaster started");
         loop {
-            // Lock the RwLock to get mutable access to the underlying receiver
             let mut receiver_lock = event_receiver.write().await;
-            // recv() returns None when channel is closed
             match receiver_lock.recv().await {
                 Some(event) => {
-                    // Broadcast to all SSE subscribers (non-blocking; ignore if no subscribers)
                     let _ = bot_event_broadcaster.send(event);
                 }
                 None => {
@@ -72,7 +129,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .allow_methods(tower_http::cors::Any)
         .allow_headers(tower_http::cors::Any);
 
-    // Build app - need to clone app_state since it will be moved into both routes and with_state
     let api_router = api::routes(app_state.clone());
 
     let app = Router::new()
@@ -81,7 +137,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .layer(cors)
         .with_state(app_state);
 
-    // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
     tracing::info!("Listening on {}", addr);
 
