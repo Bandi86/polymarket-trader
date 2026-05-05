@@ -1136,3 +1136,40 @@ pub async fn get_aggregate_portfolio(
         }
     }
 }
+#[derive(Debug, Deserialize)]
+pub struct SetModeRequest {
+    pub trading_mode: String,
+}
+
+pub async fn set_all_bots_mode(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(payload): Json<SetModeRequest>,
+) -> Response {
+    let db = state.db();
+    let user_id = claims.user_id;
+
+    let mode = match payload.trading_mode.as_str() {
+        "live" => "live",
+        _ => "paper",
+    };
+
+    match sqlx::query(
+        "UPDATE bot_configs SET trading_mode = ?, updated_at = datetime('now') WHERE user_id = ?"
+    )
+    .bind(mode)
+    .bind(user_id)
+    .execute(db.as_ref())
+    .await {
+        Ok(_) => Json(serde_json::json!({
+            "success": true,
+            "trading_mode": mode
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to set bots mode: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to update bots mode".to_string(),
+            })).into_response()
+        }
+    }
+}

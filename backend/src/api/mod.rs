@@ -113,6 +113,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/bots/:id/reset-demo", post(bots::reset_demo_balance))
         .route("/bots/stop-all", post(bots::stop_all_bots))
         .route("/bots/run-all", post(bots::run_all_bots))
+        .route("/bots/set-mode", post(bots::set_all_bots_mode))
         .route("/portfolio", get(bots::get_aggregate_portfolio))
         .route("/bots/:id/status", get(monitoring::get_bot_status))
         .route("/orders", get(orders::list_orders))
