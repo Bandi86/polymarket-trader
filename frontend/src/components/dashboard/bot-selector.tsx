@@ -241,6 +241,20 @@ export function BotSelector() {
           </div>
         )}
 
+        {/* Demo mode indicator */}
+        {tradingMode === "demo" && (
+          <div className="mx-2 mb-2 rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-1.5">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider">
+                🎮 Demo mód – $10/bot | Max 15 bot = $150
+              </p>
+            </div>
+            <p className="text-[9px] text-green-400/60 mt-0.5">
+              Szimulált kereskedés – nincs valódi pénzmozgás
+            </p>
+          </div>
+        )}
+
         {/* Bot list */}
         <div
           className="px-2 pb-3 overflow-y-auto flex-1 space-y-0.5"

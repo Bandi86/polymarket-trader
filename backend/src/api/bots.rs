@@ -8,6 +8,17 @@ use serde::{Deserialize, Serialize};
 use crate::db::{queries, BotRecord};
 use crate::middleware::auth::Claims;
 use crate::trading::PolymarketClient;
+
+/// Normalize trading mode: "paper" is aliased to "demo" for backwards compatibility.
+/// The canonical values are "demo" and "live".
+fn normalize_mode(mode: &str) -> &'static str {
+    match mode {
+        "live" => "live",
+        _ => "demo", // "paper" and any other value maps to "demo"
+    }
+}
+
+fn default_trading_mode() -> String { "demo".to_string() }
 use super::AppState;
 
 // ==================== Response Types ====================
@@ -98,11 +109,11 @@ fn default_max_bet() -> f64 { 0.25 }
 fn default_interval() -> i64 { 60000 }
 fn default_stop_loss() -> f64 { 0.1 }
 fn default_take_profit() -> f64 { 0.2 }
-fn default_trading_mode() -> String { "paper".to_string() }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct StartBotRequest {
     pub initial_balance: Option<f64>,
+    pub mode: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -454,15 +465,18 @@ pub async fn start_bot(
         })).into_response();
     }
 
-    // Get initial balance from request, or use default $100
+    // Get initial balance and mode from request payload, or use defaults
     let requested_balance = payload
+        .as_ref()
         .and_then(|p| p.initial_balance)
-        .unwrap_or(100.0);
-
-    let is_paper = bot.trading_mode == "paper";
-    let initial_balance = if is_paper {
-        let paper_balance = requested_balance.max(10.0);
-        tracing::info!("Bot {} running in paper mode — using simulated ${:.2} balance", id, paper_balance);
+        .unwrap_or(10.0);
+    let requested_mode = payload.as_ref().and_then(|p| p.mode.as_deref());
+    let bot_mode = requested_mode.unwrap_or(&bot.trading_mode);
+    let is_demo = normalize_mode(bot_mode) == "demo";
+    let initial_balance = if is_demo {
+        // Demo mode: use requested balance (default $10) for simulation testing
+        let paper_balance = requested_balance;
+        tracing::info!("Bot {} running in demo mode — using simulated ${:.2} balance", id, paper_balance);
 
         let min_required = bot.bet_size.max(1.0);
         if paper_balance < min_required {
@@ -743,12 +757,31 @@ pub async fn get_portfolio(
     let db = state.db();
     let user_id = claims.user_id;
 
+    // Auto-create portfolio with default balance if none exists (for bots that haven't been started yet)
     let portfolio = match queries::get_portfolio(&db, id, user_id).await {
         Ok(Some(p)) => p,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(ErrorResponse {
-                error: "No portfolio found for this bot".to_string(),
-            })).into_response();
+            // Create a default paper portfolio for bots without one
+            if let Err(e) = queries::ensure_portfolio(&db, id, user_id, 100.0).await {
+                tracing::error!("Failed to create portfolio for bot {}: {}", id, e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                    error: "Failed to create portfolio".to_string(),
+                })).into_response();
+            }
+            match queries::get_portfolio(&db, id, user_id).await {
+                Ok(Some(p)) => p,
+                Ok(None) => {
+                    return (StatusCode::NOT_FOUND, Json(ErrorResponse {
+                        error: "No portfolio found for this bot".to_string(),
+                    })).into_response();
+                }
+                Err(e) => {
+                    tracing::error!("Failed to get portfolio after creation: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                        error: "Failed to get portfolio".to_string(),
+                    })).into_response();
+                }
+            }
         },
         Err(e) => {
             tracing::error!("Failed to get portfolio: {}", e);
@@ -877,14 +910,14 @@ pub async fn run_all_bots(
                     continue;
                 }
 
-                let is_paper = bot.trading_mode == "paper";
-                let balance_to_use = if is_paper {
+                let is_demo = normalize_mode(&bot.trading_mode) == "demo";
+                let balance_to_use = if is_demo {
                     100.0 // Default paper balance
                 } else {
                     wallet_balance
                 };
 
-                if !is_paper && balance_to_use <= 0.0 {
+                if !is_demo && balance_to_use <= 0.0 {
                     if has_credentials {
                         skipped_zero_balance += 1;
                     } else {
@@ -958,6 +991,53 @@ pub async fn stop_all_bots(
         "success": true,
         "stopped": stopped
     })).into_response()
+}
+
+pub async fn reset_demo_balance(
+    Path((id,)): Path<(i64,)>,
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let db = state.db();
+    let user_id = claims.user_id;
+
+    // Verify bot belongs to user
+    match queries::get_bot_by_id(&db, id, user_id).await {
+        Ok(Some(bot)) => {
+            if normalize_mode(&bot.trading_mode) == "live" {
+                return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                    error: "Only demo/paper bots can be reset".to_string(),
+                })).into_response();
+            }
+        }
+        Ok(None) => return (StatusCode::NOT_FOUND, Json(ErrorResponse {
+            error: "Bot not found".to_string(),
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get bot for reset: {}", e);
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to verify bot".to_string(),
+            })).into_response();
+        }
+    }
+
+    // Reset portfolio to $10
+    match queries::reset_portfolio(&db, id, 10.0).await {
+        Ok(_) => {
+            tracing::info!("Demo bot {} reset to $10", id);
+            Json(serde_json::json!({
+                "success": true,
+                "message": "Demo balance reset to $10",
+                "new_balance": 10.0
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to reset demo portfolio: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to reset demo balance".to_string(),
+            })).into_response()
+        }
+    }
 }
 
 pub async fn get_aggregate_portfolio(

@@ -216,8 +216,103 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             status TEXT DEFAULT 'running',
             max_drawdown REAL DEFAULT 0,
             strategy_config TEXT,
+            mode TEXT NOT NULL DEFAULT 'demo',
             created_at TEXT NOT NULL DEFAULT (datetime('now')),
             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (bot_id) REFERENCES bot_configs(id),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Migration: add mode column if it doesn't exist (for existing databases)
+    sqlx::query("ALTER TABLE bot_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'demo'")
+        .execute(pool)
+        .await
+        .ok(); // Ignore error if column already exists
+
+    // bot_runs - complete run tracking with mode and balance
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS bot_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            bot_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'demo',
+            status TEXT NOT NULL DEFAULT 'running',
+            started_at TEXT NOT NULL DEFAULT (datetime('now')),
+            ended_at TEXT,
+            initial_balance REAL NOT NULL DEFAULT 100,
+            final_balance REAL,
+            realized_pnl REAL DEFAULT 0,
+            unrealized_pnl REAL DEFAULT 0,
+            total_trades INTEGER DEFAULT 0,
+            winning_trades INTEGER DEFAULT 0,
+            losing_trades INTEGER DEFAULT 0,
+            max_drawdown REAL DEFAULT 0,
+            strategy_config TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (bot_id) REFERENCES bot_configs(id),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // trade_intents - strategy decisions (even if hold/rejected)
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS trade_intents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id INTEGER,
+            bot_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            market_id TEXT NOT NULL,
+            strategy_type TEXT NOT NULL,
+            side TEXT NOT NULL,
+            confidence REAL NOT NULL,
+            reason TEXT,
+            snapshot_json TEXT,
+            risk_result TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (run_id) REFERENCES bot_runs(id),
+            FOREIGN KEY (bot_id) REFERENCES bot_configs(id),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // executions - paper or live order executions
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS executions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            intent_id INTEGER,
+            run_id INTEGER,
+            bot_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'demo',
+            adapter TEXT NOT NULL DEFAULT 'paper',
+            status TEXT NOT NULL DEFAULT 'pending',
+            market_id TEXT NOT NULL,
+            token_id TEXT,
+            side TEXT NOT NULL,
+            requested_size REAL NOT NULL,
+            filled_size REAL DEFAULT 0,
+            requested_price REAL,
+            avg_fill_price REAL,
+            external_order_id TEXT,
+            error_code TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (intent_id) REFERENCES trade_intents(id),
+            FOREIGN KEY (run_id) REFERENCES bot_runs(id),
             FOREIGN KEY (bot_id) REFERENCES bot_configs(id),
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
@@ -944,23 +1039,26 @@ pub mod queries {
     // === Session queries ===
 
     /// Create a new bot session
+    /// mode: "demo" or "live"
     pub async fn create_session(
         db: &Db,
         bot_id: i64,
         user_id: i64,
         start_balance: f64,
         strategy_config: Option<&str>,
+        mode: &str,
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r#"
-            INSERT INTO bot_sessions (bot_id, user_id, start_time, start_balance, strategy_config, status)
-            VALUES (?, ?, datetime('now'), ?, ?, 'running')
+            INSERT INTO bot_sessions (bot_id, user_id, start_time, start_balance, strategy_config, status, mode)
+            VALUES (?, ?, datetime('now'), ?, ?, 'running', ?)
             "#
         )
         .bind(bot_id)
         .bind(user_id)
         .bind(start_balance)
         .bind(strategy_config)
+        .bind(mode)
         .execute(db.as_ref())
         .await?;
 
@@ -1232,6 +1330,7 @@ pub mod queries {
     // === Portfolio queries ===
 
     /// Get portfolio for a bot (returns None if no portfolio exists)
+    /// NOTE: bot_portfolios.bot_id is unique, user_id is stored for audit only
     pub async fn get_portfolio(
         db: &Db,
         bot_id: i64,
@@ -1741,6 +1840,7 @@ pub struct BotSessionRecord {
     pub status: String,
     pub max_drawdown: f64,
     pub strategy_config: Option<String>,
+    pub mode: String,
 }
 
 /// Trade decision record - why bot traded

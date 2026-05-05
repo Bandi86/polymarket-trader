@@ -2,6 +2,67 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Market snapshot - complete market state at a point in time
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketSnapshot {
+    pub market_id: String,
+    pub question: String,
+    pub yes_price: f64,
+    pub no_price: f64,
+    pub spread: f64,
+    pub volume: f64,
+    pub liquidity: f64,
+    pub time_remaining: i64, // seconds
+    pub btc_price: f64,
+    pub btc_change_24h: Option<f64>,
+    pub btc_velocity: Option<f64>,
+    pub btc_acceleration: Option<f64>,
+    pub btc_volatility: Option<f64>,
+    pub btc_window_open: Option<f64>,
+    pub order_book_bids: Vec<f64>,
+    pub order_book_asks: Vec<f64>,
+    pub fetched_at: i64, // unix timestamp ms
+}
+
+impl MarketSnapshot {
+    pub fn new(market_id: String) -> Self {
+        Self {
+            market_id,
+            question: String::new(),
+            yes_price: 0.5,
+            no_price: 0.5,
+            spread: 0.0,
+            volume: 0.0,
+            liquidity: 0.0,
+            time_remaining: 0,
+            btc_price: 0.0,
+            btc_change_24h: None,
+            btc_velocity: None,
+            btc_acceleration: None,
+            btc_volatility: None,
+            btc_window_open: None,
+            order_book_bids: Vec::new(),
+            order_book_asks: Vec::new(),
+            fetched_at: 0,
+        }
+    }
+
+    /// Build StrategyContext from this MarketSnapshot
+    pub fn to_strategy_context(&self) -> StrategyContext {
+        StrategyContext {
+            btc_price: self.btc_price,
+            btc_change: self.btc_change_24h,
+            btc_window_open: self.btc_window_open,
+            yes_price: self.yes_price,
+            no_price: self.no_price,
+            time_remaining: self.time_remaining * 1000, // convert to ms
+            btc_velocity: self.btc_velocity,
+            btc_acceleration: self.btc_acceleration,
+            btc_volatility: self.btc_volatility,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Signal {
     Yes(f64),  // Buy YES, confidence 0-1

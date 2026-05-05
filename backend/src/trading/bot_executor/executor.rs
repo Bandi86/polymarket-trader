@@ -10,6 +10,7 @@ use crate::db::Db;
 use crate::db::queries;
 use crate::trading::PolymarketClient;
 use crate::trading::bot_executor::strategies::{Signal, StrategyExecutor};
+use crate::trading::market_data::MarketDataService;
 use crate::trading::polymarket;
 use crate::crypto;
 
@@ -17,6 +18,7 @@ pub struct BotExecutor {
     db: Db,
     running: Arc<RwLock<bool>>,
     interval_secs: u64,
+    market_service: MarketDataService,
 }
 
 impl BotExecutor {
@@ -25,6 +27,7 @@ impl BotExecutor {
             db,
             running: Arc::new(RwLock::new(false)),
             interval_secs,
+            market_service: MarketDataService::new(),
         }
     }
 
@@ -45,6 +48,7 @@ impl BotExecutor {
         let db = self.db.clone();
         let interval_secs = self.interval_secs;
         let running = self.running.clone();
+        let market_service = self.market_service.clone();
         let private_key = private_key.to_string(); // Convert to owned String
 
         // Spawn the execution loop
@@ -81,7 +85,7 @@ impl BotExecutor {
                 }
 
                 // Execute the strategy cycle
-                if let Err(e) = Self::execute_bot_cycle(&db, bot_id, user_id, &bot, &private_key).await {
+                if let Err(e) = Self::execute_bot_cycle(&db, bot_id, user_id, &bot, &private_key, &market_service).await {
                     tracing::error!("Bot cycle error: {}", e);
                 }
             }
@@ -110,15 +114,16 @@ impl BotExecutor {
         user_id: i64,
         bot: &crate::db::BotRecord,
         private_key: &str,
+        market_service: &MarketDataService,
     ) -> Result<(), String> {
-        // Get Binance price data
-        let btc_price = Self::get_binance_price().await?;
+        // Get market snapshot with full Polymarket + Binance context
+        let snapshot = market_service.get_snapshot(&bot.market_id).await?;
 
         // Create strategy executor
         let strategy = StrategyExecutor::new(&bot.strategy_type, &bot.params);
 
-        // Evaluate strategy
-        let signal = strategy.evaluate(btc_price, None);
+        // Evaluate strategy with full market context
+        let signal = strategy.evaluate_with_context(snapshot.to_strategy_context());
 
         // Log the signal
         let signal_msg = match &signal {

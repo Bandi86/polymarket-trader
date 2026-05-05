@@ -165,7 +165,7 @@ impl BotOrchestrator {
         let mut running = self.running_bots.write().await;
         if running.contains_key(&bot.id) { return Ok(0); }
         let strategy = StrategyExecutor::new(&bot.strategy_type, &bot.params);
-        let session_id = queries::create_session(&self.db, bot.id, bot.user_id, current_balance, Some(bot.params.as_str())).await.unwrap_or(0);
+        let session_id = queries::create_session(&self.db, bot.id, bot.user_id, current_balance, Some(bot.params.as_str()), &bot.trading_mode).await.unwrap_or(0);
         running.insert(bot.id, RunningBot {
             bot_id: bot.id, session_id, user_id: bot.user_id, strategy, last_market_slug: None,
             consecutive_errors: 0, last_btc_price: None, btc_window_open: None, current_balance,
@@ -180,7 +180,7 @@ impl BotOrchestrator {
         if running.contains_key(&bot.id) { return Err("Bot is already running".to_string()); }
         drop(running);
         queries::update_bot_status(&self.db, bot.id, bot.user_id, "running").await.ok();
-        let session_id = queries::create_session(&self.db, bot.id, bot.user_id, initial_balance, Some(bot.params.as_str())).await.map_err(|e| e.to_string())?;
+        let session_id = queries::create_session(&self.db, bot.id, bot.user_id, initial_balance, Some(bot.params.as_str()), &bot.trading_mode).await.map_err(|e| e.to_string())?;
         let mut running = self.running_bots.write().await;
         running.insert(bot.id, RunningBot {
             bot_id: bot.id, session_id, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params), 
@@ -188,6 +188,7 @@ impl BotOrchestrator {
             current_balance: initial_balance, pending_bet: None, btc_price_history: Vec::new(),
         });
         self.event_sender.send(BotEvent::SessionStarted { bot_id: bot.id, session_id, bot_name: bot.name.clone() }).ok();
+        tracing::info!("Bot {} started (session {}), trading_mode={}", bot.id, session_id, bot.trading_mode);
         Ok(session_id)
     }
 
@@ -202,10 +203,15 @@ impl BotOrchestrator {
 
     pub async fn execute_cycle(&self, bot_id: i64, user_id: i64, credential_cache: Option<Arc<RwLock<HashMap<i64, CachedCredentials>>>>) -> Result<(), String> {
         let running_bot = { let running = self.running_bots.read().await; running.get(&bot_id).cloned() };
-        let mut rb = if let Some(b) = running_bot { b } else { return Ok(()); };
+        let mut rb = if let Some(b) = running_bot { b } else { 
+            eprintln!("[DEBUG] Bot {} not in running_bots map, skipping cycle", bot_id);
+            return Ok(()); 
+        };
 
         let bot = queries::get_bot_by_id(&self.db, bot_id, user_id).await.map_err(|e| e.to_string())?.ok_or("Bot not found")?;
         let portfolio = queries::get_portfolio(&self.db, bot_id, user_id).await.map_err(|e| e.to_string())?.ok_or("No portfolio")?;
+
+        eprintln!("[DEBUG] Bot {} cycle: portfolio.balance={}, trading_mode={}", bot_id, portfolio.balance, bot.trading_mode);
 
         // --- STOP LOSS 30% ---
         if portfolio.balance <= portfolio.initial_balance * 0.7 {
@@ -249,10 +255,17 @@ impl BotOrchestrator {
 
         // Javítva: evaluate_with_context használata evaluate_decision helyett
         let signal = rb.strategy.evaluate_with_context(ctx);
-        
+        eprintln!("[SIGNAL] Bot {} signal: {:?}", bot_id, signal);
+
+        // Debug logging for signal evaluation
+        tracing::debug!(
+            "Bot {} cycle: btc_price={}, btc_change={:?}, time_remaining={}, yes_price={}, window_open={:?}, signal={:?}",
+            bot_id, btc_price, btc_change, market.time_remaining, market.yes_price, rb.btc_window_open, signal
+        );
+
         // Javítva: Signal enum mintaillesztés és eseményküldés
         if let Signal::Yes(conf) | Signal::No(conf) = signal {
-            self.event_sender.send(BotEvent::Evaluating { bot_id, strategy: bot.strategy_type.clone(), confidence: conf }).ok();
+            tracing::info!("Bot {} generated signal: {:?} (confidence: {})", bot_id, signal, conf);
             
             if rb.pending_bet.is_none() {
                 // Javítva: Signal::Yes(_) használata a matches!-ben

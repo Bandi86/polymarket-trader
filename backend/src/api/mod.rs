@@ -10,18 +10,21 @@ use crate::db::Db;
 use crate::middleware::auth as auth_middleware;
 use crate::services::CredentialService;
 use crate::trading::BinanceClient;
+use crate::trading::market_data::MarketDataService;
 use crate::trading::orchestrator::{BotOrchestrator, BotEvent};
 
 pub mod auth;
 pub mod binance;
 pub mod bots;
 pub mod funding;
+pub mod live_readiness;
 pub mod market;
 pub mod monitoring;
 pub mod orders;
 pub mod positions;
 pub mod settings;
 pub mod sse;
+pub mod strategy_tests;
 pub mod user;
 
 #[derive(Clone)]
@@ -36,6 +39,8 @@ pub struct AppState {
     pub credential_cache: Arc<RwLock<HashMap<i64, CachedCredentials>>>,
     /// Centralized credential service for secure decrypt and cache
     pub credential_service: Arc<CredentialService>,
+    /// Market data service for strategy evaluation
+    pub market_service: MarketDataService,
 }
 
 /// Cached trading credentials (decrypted, kept in memory only)
@@ -61,11 +66,12 @@ impl AppState {
         Self {
             db: db.clone(),
             binance_client: Arc::new(RwLock::new(None)),
-            orchestrator: Arc::new(BotOrchestrator::new(db, event_sender)),
+            orchestrator: Arc::new(BotOrchestrator::new(db.clone(), event_sender)),
             event_receiver: Arc::new(RwLock::new(event_receiver)),
             bot_event_broadcaster: Arc::new(broadcaster),
             credential_cache: Arc::new(RwLock::new(HashMap::new())),
             credential_service: Arc::new(CredentialService::new()),
+            market_service: crate::trading::market_data::MarketDataService::new(),
         }
     }
 
@@ -83,7 +89,11 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/market/price", get(market::get_market_price))
         .route("/market/list", get(market::list_markets))
         .route("/market/active", get(market::get_active_markets))
-        .route("/events", get(sse::bot_events_stream));
+        .route("/events", get(sse::bot_events_stream))
+        // Strategy Lab - public (list strategies only)
+        .route("/strategies", get(strategy_tests::list_strategies))
+        // Live trading - public (readiness check)
+        .route("/live-readiness", get(live_readiness::get_live_readiness));
 
     // Protected routes - require JWT auth
     let protected_routes = Router::new()
@@ -100,8 +110,9 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/bots/:id/portfolio", get(bots::get_portfolio))
         .route("/bots/:id/history", get(bots::get_history))
         .route("/bots/:id/trades", get(bots::get_trades))
-        .route("/bots/run-all", post(bots::run_all_bots))
+        .route("/bots/:id/reset-demo", post(bots::reset_demo_balance))
         .route("/bots/stop-all", post(bots::stop_all_bots))
+        .route("/bots/run-all", post(bots::run_all_bots))
         .route("/portfolio", get(bots::get_aggregate_portfolio))
         .route("/bots/:id/status", get(monitoring::get_bot_status))
         .route("/orders", get(orders::list_orders))
@@ -132,6 +143,13 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/binance/start", post(binance::start_binance))
         .route("/binance/stop", post(binance::stop_binance))
         .route("/binance/price", get(binance::get_price))
+        // Strategy Lab routes (protected)
+        .route("/strategy-tests", post(strategy_tests::create_strategy_test))
+        .route("/strategy-tests/:id", get(strategy_tests::get_strategy_test))
+        .route("/strategy-tests/:id/events", get(strategy_tests::get_strategy_test_events))
+        .route("/strategy-tests/:id/performance", get(strategy_tests::get_strategy_test_performance))
+        // Live trading routes (protected)
+        .route("/validate-credentials", axum::routing::post(live_readiness::validate_credentials))
         // Funding routes
         .route("/funding/info", get(funding::funding_info))
         .route("/funding/wallet-info", get(funding::wallet_info))

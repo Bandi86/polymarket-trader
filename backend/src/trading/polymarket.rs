@@ -187,6 +187,11 @@ impl PolymarketClient {
         self.wallet.address()
     }
 
+    /// Get the HTTP client for direct API calls
+    pub fn http_client(&self) -> &Client {
+        &self.http_client
+    }
+
     /// Build a GET request with HMAC-SHA256 auth headers for CLOB API
     /// See: https://docs.polymarket.com/api-reference/authentication
     fn build_authed_get(&self, path: &str) -> reqwest::RequestBuilder {

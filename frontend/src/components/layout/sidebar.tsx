@@ -5,6 +5,7 @@ import {
   Bot,
   ChevronLeft,
   ChevronRight,
+  FlaskConical,
   History,
   LayoutDashboard,
   LineChart,
@@ -18,6 +19,7 @@ import { useAppStore } from "@/store";
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/bots", label: "Bots", icon: Bot },
+  { href: "/strategy-lab", label: "Strategy Lab", icon: FlaskConical },
   { href: "/markets", label: "Markets", icon: LineChart },
   { href: "/orders", label: "Orders", icon: History },
   { href: "/funding", label: "Funding", icon: Wallet },

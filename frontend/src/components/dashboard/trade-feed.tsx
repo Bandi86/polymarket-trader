@@ -21,6 +21,7 @@ interface TradeEntry {
   market?: string;
   reason?: string;
   entryType: "decision" | "order" | "position" | "result";
+  tradingMode: "paper" | "live";
 }
 
 export function TradeFeed() {
@@ -36,7 +37,9 @@ export function TradeFeed() {
     const trades: TradeEntry[] = [];
     for (const [botId, activities] of Object.entries(botActivities)) {
       const bid = Number(botId);
-      const name = bots.find((b) => b.id === bid)?.name ?? `Bot ${bid}`;
+      const bot = bots.find((b) => b.id === bid);
+      const name = bot?.name ?? `Bot ${bid}`;
+      const tradingMode = (bot?.trading_mode as "paper" | "live") ?? "paper";
       for (const activity of activities) {
         if (activity.type === "trade_decision") {
           const rawOutcome = (activity.data.outcome as string) ?? "";
@@ -52,6 +55,7 @@ export function TradeFeed() {
             confidence: (activity.data.confidence as number) ?? 0,
             reason: activity.data.reason as string,
             entryType: "decision",
+            tradingMode,
           });
         }
         if (activity.type === "trade_result") {
@@ -67,6 +71,7 @@ export function TradeFeed() {
             won: activity.data.won as boolean,
             pnl: activity.data.pnl as number,
             entryType: "result",
+            tradingMode,
           });
         }
         if (activity.type === "order_executed") {
@@ -80,6 +85,7 @@ export function TradeFeed() {
             size: 0,
             confidence: 0,
             entryType: "order",
+            tradingMode,
           });
         }
         if (activity.type === "position_update") {
@@ -96,6 +102,7 @@ export function TradeFeed() {
             price: activity.data.price as number,
             pnl: activity.data.unrealizedPnl as number,
             entryType: "position",
+            tradingMode,
           });
         }
       }
@@ -226,14 +233,30 @@ export function TradeFeed() {
                 key={trade.id}
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-xs border transition-colors hover:bg-white/[0.03] ${
-                  isWin
-                    ? "border-green-500/20 bg-green-500/5"
-                    : isLoss
-                      ? "border-red-500/20 bg-red-500/5"
-                      : "border-white/5 bg-white/[0.02]"
+                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-xs border-l-2 transition-colors hover:bg-white/[0.03] ${
+                  trade.tradingMode === "paper"
+                    ? isWin
+                      ? "border-l-green-500 border-y border-r border-y-green-500/20 border-r-green-500/20 bg-green-500/5"
+                      : isLoss
+                        ? "border-l-green-500 border-y border-r border-y-red-500/20 border-r-red-500/20 bg-red-500/5"
+                        : "border-l-indigo-500 border-y border-r border-y-white/5 border-r-white/5 bg-white/[0.02]"
+                    : isWin
+                      ? "border-l-red-500 border-y border-r border-y-green-500/20 border-r-green-500/20 bg-green-500/5"
+                      : isLoss
+                        ? "border-l-red-500 border-y border-r border-y-red-500/20 border-r-red-500/20 bg-red-500/5"
+                        : "border-l-amber-500 border-y border-r border-y-white/5 border-r-white/5 bg-white/[0.02]"
                 }`}
               >
+                {/* Mode badge */}
+                <span
+                  className={`text-[8px] font-bold uppercase shrink-0 px-1 rounded ${
+                    trade.tradingMode === "paper"
+                      ? "bg-green-500/20 text-green-400"
+                      : "bg-red-500/20 text-red-400"
+                  }`}
+                >
+                  {trade.tradingMode === "paper" ? "DEMO" : "LIVE"}
+                </span>
                 {/* Time */}
                 <span className="text-[10px] font-mono text-zinc-600 shrink-0 w-16">
                   {formatTime(trade.timestamp)}

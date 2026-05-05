@@ -9,6 +9,9 @@ pub mod websocket;
 pub mod risk_manager;
 pub mod strategy_coordinator;
 pub mod bot_loss_tracker;
+pub mod market_data;
+pub mod execution;
+pub mod settlement;
 
 pub use binance::client::btc_price_stream;
 pub use binance::client::BinanceClient;

@@ -14,6 +14,7 @@ import {
   TrendingDown,
   TrendingUp,
   Wallet,
+  Zap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
@@ -115,12 +116,12 @@ export default function BotsPage() {
     void loadBotConfigs();
   }, [isAuthenticated, loadBotConfigs, router]);
 
-  const startBot = async (botId: number) => {
+  const startBot = async (botId: number, mode?: string) => {
     setLoading(true);
     try {
       await apiFetch(`/bots/${botId}/start`, {
         method: "POST",
-        body: JSON.stringify({ initial_balance: 100 }),
+        body: JSON.stringify({ initial_balance: 100, mode: mode || "demo" }),
       });
       toast.success("Bot elindítva!");
       await loadBotConfigs();
@@ -499,21 +500,54 @@ export default function BotsPage() {
                           Leállítás
                         </motion.button>
                       ) : (
-                        <motion.button
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={() => startBot(bot.id)}
-                          disabled={loading}
-                          className="btn-green"
-                          style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}
-                        >
-                          {loading ? (
-                            <Loader2 size={16} className="animate-spin" />
-                          ) : (
-                            <Play size={16} />
-                          )}
-                          Indítás
-                        </motion.button>
+                        <div style={{ display: "flex", gap: "0.5rem" }}>
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => startBot(bot.id, "demo")}
+                            disabled={loading}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.5rem",
+                              padding: "0.5rem 1rem",
+                              borderRadius: 8,
+                              fontSize: 13,
+                              fontWeight: 600,
+                              background: "rgba(34, 197, 94, 0.15)",
+                              border: "1px solid rgba(34, 197, 94, 0.3)",
+                              color: "#22c55e",
+                              cursor: loading ? "not-allowed" : "pointer",
+                              opacity: loading ? 0.5 : 1,
+                            }}
+                          >
+                            <Play size={14} />
+                            Demo
+                          </motion.button>
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => startBot(bot.id, "live")}
+                            disabled={loading}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "0.5rem",
+                              padding: "0.5rem 1rem",
+                              borderRadius: 8,
+                              fontSize: 13,
+                              fontWeight: 600,
+                              background: "rgba(239, 68, 68, 0.15)",
+                              border: "1px solid rgba(239, 68, 68, 0.3)",
+                              color: "#ef4444",
+                              cursor: loading ? "not-allowed" : "pointer",
+                              opacity: loading ? 0.5 : 1,
+                            }}
+                          >
+                            <Zap size={14} />
+                            Live
+                          </motion.button>
+                        </div>
                       )}
                       <button
                         type="button"
