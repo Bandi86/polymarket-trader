@@ -235,13 +235,16 @@ pub async fn place_order(
     };
 
     // Check balance
+    // payload.size is USDC amount from frontend, convert to shares for CLOB
+    // CLOB size = number of shares = USDC_amount / price_per_share
+    let size_in_shares = payload.size / payload.price;
+    let order_value = payload.size; // Order value in USDC is just the amount
+
     match pm_client.get_balance().await {
         Ok(balance) => {
-            let order_value = payload.price * payload.size;
-
             tracing::info!(
-                "Order check - Balance: {} USDC, Order value: {} USDC",
-                balance, order_value
+                "Order check - Balance: {} USDC, Order value: {} USDC, Size: {} shares @ {}",
+                balance, order_value, size_in_shares, payload.price
             );
 
             if balance < order_value {
@@ -258,10 +261,11 @@ pub async fn place_order(
             }
 
             // Balance sufficient - place real order on Polymarket
+            // CLOB `size` = number of shares, not USDC
             let order_request = trading::polymarket::OrderRequest {
                 token_id: payload.token_id.clone(),
                 price: payload.price,
-                size: payload.size,
+                size: size_in_shares,
                 side: side.clone(),
             };
 

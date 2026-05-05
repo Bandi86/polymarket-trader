@@ -59,6 +59,8 @@ export function useSSE() {
         // Measure SSE event processing latency: from event arrival to state update
         const t0 = performance.now();
         const data = JSON.parse(e.data);
+        // Check if start_price is explicitly present in the event (backend sends it only when captured)
+        const hasStartPrice = data.start_price !== undefined || data.price_to_beat !== undefined;
         const newStartPrice = data.start_price || data.price_to_beat || 0;
         const eventStartTime = data.event_start_time || 0;
 
@@ -95,13 +97,16 @@ export function useSSE() {
         // Batch all market data updates into single set() call
         const updates: Record<string, number | string> = {};
         if (data.btc_price !== undefined) updates.btcPrice = data.btc_price;
-        if (newStartPrice > 0) {
+        // Only include startPrice and priceDelta when start_price has been captured (hasStartPrice)
+        // This prevents flickering during market transitions
+        if (hasStartPrice && newStartPrice > 0) {
           updates.startPrice = newStartPrice;
           updates.priceDelta = data.price_delta ?? data.btc_price - newStartPrice;
-        } else if (lastConfirmedStartPriceRef.current > 0) {
+        } else if (hasStartPrice && lastConfirmedStartPriceRef.current > 0) {
+          // Only show delta if we have a confirmed start price AND start_price was in the event
           updates.priceDelta = data.btc_price - lastConfirmedStartPriceRef.current;
         }
-        if (data.price_to_beat || data.beat_price)
+        if (hasStartPrice && (data.price_to_beat || data.beat_price))
           updates.beatPrice = data.price_to_beat || data.beat_price;
         if (data.yes !== undefined) updates.yesPrice = data.yes;
         if (data.no !== undefined) updates.noPrice = data.no;

@@ -582,24 +582,45 @@ pub async fn bot_events_stream(
                         let current_seq = *seq_lock;
                         let server_ts = chrono::Utc::now().timestamp_millis();
 
-                        let update = serde_json::json!({
-                            "type": "market_price",
-                            "btc_price": btc_price,
-                            "start_price": start_price,
-                            "price_to_beat": start_price,
-                            "price_delta": price_delta,
-                            "yes": yes,
-                            "no": no,
-                            "time_remaining": time_remaining,
-                            "market_duration": 300,
-                            "volume": volume,
-                            "market_question": question,
-                            "sentiment": sentiment,
-                            "event_start_time": event_start_time,
-                            "api_latency": *last_api_latency.read().await,
-                            "server_timestamp": server_ts,
-                            "seq": current_seq
-                        });
+                        // Only include start_price/price_to_beat/price_delta once start_price has been captured
+                        // This prevents flickering on market transitions where start_price is temporarily 0
+                        let update = if start_price > 0.0 {
+                            serde_json::json!({
+                                "type": "market_price",
+                                "btc_price": btc_price,
+                                "start_price": start_price,
+                                "price_to_beat": start_price,
+                                "price_delta": price_delta,
+                                "yes": yes,
+                                "no": no,
+                                "time_remaining": time_remaining,
+                                "market_duration": 300,
+                                "volume": volume,
+                                "market_question": question,
+                                "sentiment": sentiment,
+                                "event_start_time": event_start_time,
+                                "api_latency": *last_api_latency.read().await,
+                                "server_timestamp": server_ts,
+                                "seq": current_seq
+                            })
+                        } else {
+                            // start_price not yet captured - don't send it to avoid flickering
+                            serde_json::json!({
+                                "type": "market_price",
+                                "btc_price": btc_price,
+                                "yes": yes,
+                                "no": no,
+                                "time_remaining": time_remaining,
+                                "market_duration": 300,
+                                "volume": volume,
+                                "market_question": question,
+                                "sentiment": sentiment,
+                                "event_start_time": event_start_time,
+                                "api_latency": *last_api_latency.read().await,
+                                "server_timestamp": server_ts,
+                                "seq": current_seq
+                            })
+                        };
 
                         yield Ok(Event::default()
                             .event("market")

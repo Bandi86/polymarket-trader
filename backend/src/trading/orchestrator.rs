@@ -73,6 +73,84 @@ pub struct BotOrchestrator {
     pub coordinator: Arc<RwLock<StrategyCoordinator>>,
 }
 
+/// Restore running bots from database on startup
+/// This is called once at startup to restore any bots that were running before the server stopped
+pub async fn restore_running_bots(orchestrator: Arc<BotOrchestrator>) {
+    tracing::info!("Restoring running bots from database...");
+
+    let running_sessions = match queries::get_all_running_sessions(&orchestrator.db).await {
+        Ok(sessions) => sessions,
+        Err(e) => {
+            tracing::error!("Failed to fetch running sessions for restore: {}", e);
+            return;
+        }
+    };
+
+    if running_sessions.is_empty() {
+        tracing::info!("No running bots to restore");
+        return;
+    }
+
+    tracing::info!("Found {} running sessions to restore", running_sessions.len());
+
+    for session in &running_sessions {
+        // Get bot config for this session
+        let bot = match queries::get_bot_by_id(&orchestrator.db, session.bot_id, session.user_id).await {
+            Ok(Some(b)) => b,
+            Ok(None) => {
+                tracing::warn!("Bot {} not found for session {}, skipping restore", session.bot_id, session.id);
+                continue;
+            }
+            Err(e) => {
+                tracing::warn!("Failed to fetch bot {} for restore: {}", session.bot_id, e);
+                continue;
+            }
+        };
+
+        // Recreate strategy executor from bot config
+        let strategy = StrategyExecutor::new(&bot.strategy_type, &bot.params);
+
+        // Recreate running bot state
+        let running_bot = RunningBot {
+            bot_id: bot.id,
+            session_id: session.id,
+            user_id: session.user_id,
+            strategy,
+            last_market_slug: None,
+            consecutive_errors: 0,
+            last_btc_price: None,
+            btc_window_open: None,
+            current_balance: session.start_balance,
+            pending_bet: None,
+        };
+
+        // Insert into running_bots map
+        {
+            let mut running = orchestrator.running_bots.write().await;
+            running.insert(bot.id, running_bot);
+        }
+
+        tracing::info!("Restored bot {} (session {}) with balance {:.2}", bot.id, session.id, session.start_balance);
+
+        // Start the orchestrator loop for this restored bot
+        // Copy values needed for the async task (session fields must outlive the await)
+        let orchestrator_clone = orchestrator.clone();
+        let bot_id = bot.id;
+        let session_user_id = session.user_id;
+        tokio::spawn(async move {
+            start_orchestrator_loop(
+                orchestrator_clone,
+                bot_id,
+                session_user_id,
+                5, // 5 second interval
+                None,
+            ).await;
+        });
+    }
+
+    tracing::info!("Finished restoring {} running bots", running_sessions.len());
+}
+
 impl BotOrchestrator {
     pub fn new(db: Db, event_sender: mpsc::UnboundedSender<BotEvent>) -> Self {
         Self {

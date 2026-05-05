@@ -66,6 +66,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
     tracing::info!("Auto-save loop started (every 30 seconds)");
 
+    // Restore any running bots from previous session
+    // This restarts bots that were running before the server was stopped
+    let restore_orchestrator = app_state.orchestrator.clone();
+    tokio::spawn(async move {
+        trading::orchestrator::restore_running_bots(restore_orchestrator).await;
+    });
+    tracing::info!("Bot restore from database started");
+
     // CORS layer
     let cors = CorsLayer::new()
         .allow_origin(tower_http::cors::Any)
