@@ -37,7 +37,7 @@ export function useUser() {
     queryKey: ["user"],
     queryFn: () => apiFetch<{ id: number; username: string }>("/auth/me"),
     enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
-    retry: false, // Don't retry on 401 - user not logged in
+    retry: false,
   });
 }
 
@@ -78,11 +78,15 @@ export function useStartBot() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: number) => apiFetch<Bot>(`/bots/${id}/start`, { method: "POST" }),
+    mutationFn: async ({ id, initial_balance = 100 }: { id: number; initial_balance?: number }) =>
+      apiFetch<Bot>(`/bots/${id}/start`, {
+        method: "POST",
+        body: JSON.stringify({ initial_balance }),
+      }),
     retry: 0,
-    onSuccess: (_, id) => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["bots"] });
-      useAppStore.getState().updateBot(id, { status: "running" });
+      useAppStore.getState().updateBot(variables.id, { status: "running" });
     },
   });
 }

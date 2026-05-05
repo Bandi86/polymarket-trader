@@ -33,41 +33,89 @@ import { useAppStore } from "@/store";
 
 // Compact Account Info - Always visible, single row
 function AccountInfoBar() {
-  const { userBalance, latency } = useAppStore();
+  const { userBalance, latency, tradingMode } = useAppStore();
   const { data: balanceData } = useUserBalance();
   const { data: agg, isLoading: aggLoading } = useAggregatePortfolio();
 
   const balance = balanceData?.balance ?? userBalance;
   const hasCredentials = balanceData?.has_credentials ?? false;
 
+  // Demo mode: show aggregate bot balance instead of wallet balance
+  const isDemo = tradingMode === "demo";
+  const demoBalance = agg?.total_balance ?? 0;
+  const demoInitial = agg?.total_initial ?? 0;
+  const demoPnl = agg?.total_pnl ?? 0;
+  const demoHasTrades = (agg?.total_trades ?? 0) > 0;
+
   // Latency sparkline data (last 20 samples)
   const sparkline = latency.samples.slice(-20);
   const maxSpark = Math.max(...sparkline, 1);
 
   return (
-    <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 backdrop-blur-xl px-4 py-3">
+    <div
+      className={`rounded-xl border backdrop-blur-xl px-4 py-3 ${
+        isDemo ? "border-indigo-500/20 bg-indigo-500/5" : "border-emerald-500/20 bg-emerald-500/5"
+      }`}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-6">
+          {/* Mode badge */}
+          <div
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${
+              isDemo ? "bg-indigo-500/20 text-indigo-400" : "bg-green-500/20 text-green-400"
+            }`}
+          >
+            <span>{isDemo ? "🎮" : "⚡"}</span>
+            <span>{isDemo ? "Demo" : "Live"}</span>
+          </div>
+
           {/* Balance */}
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/15">
-              <Wallet className="h-5 w-5 text-emerald-400" />
+            <div
+              className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                isDemo ? "bg-indigo-500/15" : "bg-emerald-500/15"
+              }`}
+            >
+              <Wallet className={`h-5 w-5 ${isDemo ? "text-indigo-400" : "text-emerald-400"}`} />
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                Egyenleg
+                {isDemo ? "Demo Egyenleg" : "Egyenleg"}
               </span>
-              <div className="text-xl font-extrabold font-mono text-emerald-400">
-                ${hasCredentials && typeof balance === "number" ? balance.toFixed(2) : "---"}
+              <div
+                className={`text-xl font-extrabold font-mono ${
+                  isDemo ? "text-indigo-400" : "text-emerald-400"
+                }`}
+              >
+                {isDemo
+                  ? `$${demoBalance.toFixed(2)}`
+                  : hasCredentials && typeof balance === "number"
+                    ? `$${balance.toFixed(2)}`
+                    : "---"}
               </div>
             </div>
           </div>
+
+          {/* Demo: show initial balance info */}
+          {isDemo && demoInitial > 0 && (
+            <>
+              <div className="h-8 w-px bg-white/10" />
+              <div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+                  Kezdő
+                </span>
+                <div className="text-xl font-extrabold font-mono text-zinc-400">
+                  ${demoInitial.toFixed(2)}
+                </div>
+              </div>
+            </>
+          )}
 
           {/* P&L Divider */}
           <div className="h-8 w-px bg-white/10" />
 
           {/* Aggregate P&L */}
-          {!aggLoading && agg && agg.total_trades > 0 && (
+          {!aggLoading && agg && demoHasTrades && (
             <>
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-500/15">
@@ -75,14 +123,14 @@ function AccountInfoBar() {
                 </div>
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-                    Bot P&L
+                    {isDemo ? "Demo PnL" : "Bot P&L"}
                   </span>
                   <div
                     className={`text-xl font-extrabold font-mono ${
-                      agg.total_pnl >= 0 ? "text-green-400" : "text-red-400"
+                      demoPnl >= 0 ? "text-green-400" : "text-red-400"
                     }`}
                   >
-                    {agg.total_pnl >= 0 ? "+" : ""}${agg.total_pnl.toFixed(2)}
+                    {demoPnl >= 0 ? "+" : ""}${demoPnl.toFixed(2)}
                   </div>
                 </div>
               </div>
@@ -100,6 +148,11 @@ function AccountInfoBar() {
               </div>
             </>
           )}
+
+          {/* Demo: no trades yet message */}
+          {isDemo && !demoHasTrades && (
+            <span className="text-xs text-zinc-500">Indítsd el a botokat a kereskedéshez!</span>
+          )}
         </div>
 
         <Link
@@ -112,7 +165,7 @@ function AccountInfoBar() {
       </div>
 
       {/* Bottom row: P&L bar + Latency sparkline */}
-      {!aggLoading && agg && agg.total_trades > 0 && (
+      {!aggLoading && agg && demoHasTrades && (
         <div className="mt-3 flex items-center gap-4">
           {/* P&L distribution bar */}
           <div className="flex-1 flex h-1.5 rounded-full bg-zinc-800 overflow-hidden">
@@ -286,10 +339,10 @@ function MarketBar() {
           </span>
         </div>
 
-        {/* SSE Latency (JS processing time) */}
+        {/* SSE Latency */}
         <div
           className="flex items-center gap-2"
-          title={`JS processing: ${latency.current.toFixed(1)}ms | Avg: ${latency.avg.toFixed(1)}ms | Min: ${latency.min.toFixed(1)}ms | Max: ${latency.max.toFixed(1)}ms`}
+          title={`JS processing: ${latency.current.toFixed(1)}ms`}
         >
           <Zap className="h-3.5 w-3.5 text-zinc-500" />
           <span className={`text-xs font-mono font-bold ${latencyColor}`}>
@@ -340,7 +393,7 @@ export function CommandCenter() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* 1. Global Header - Always visible */}
+      {/* 1. Global Header */}
       <div className="flex flex-col gap-3">
         {!bannerHidden && !isConnected ? (
           <motion.div
@@ -403,7 +456,7 @@ export function CommandCenter() {
         icon={<LineChart className="h-4 w-4" />}
         isOpen={panels.tradeAndChart}
         onToggle={() => togglePanel("tradeAndChart")}
-        bodyClassName="p-0" // removed padding for nested grids
+        bodyClassName="p-0"
       >
         <div className="grid gap-4 lg:grid-cols-[320px_1fr] p-4">
           <div className="min-w-0">

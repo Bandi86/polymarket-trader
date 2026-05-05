@@ -6,8 +6,6 @@ import { usePortfolio } from "@/hooks";
 import { getStrategyColor, strategyAbbr } from "@/lib/utils";
 import type { Bot as BotType } from "@/types";
 
-// ── Compact Bot Row ──
-
 export function BotRow({
   bot,
   isSelected,
@@ -47,7 +45,6 @@ export function BotRow({
   );
 }
 
-// Inner component that uses usePortfolio (avoids hooks-in-loop)
 function BotRowInner({
   bot,
   color,
@@ -131,15 +128,34 @@ function BotRowInner({
         </span>
       </div>
 
-      {/* Inline P&L */}
-      {portfolio && portfolio.total_trades > 0 && (
-        <span
-          className={`shrink-0 text-xs font-mono font-semibold ${
-            portfolio.total_pnl >= 0 ? "text-green-400" : "text-red-400"
-          }`}
-        >
-          {portfolio.total_pnl >= 0 ? "+" : ""}${portfolio.total_pnl.toFixed(1)}
-        </span>
+      {/* Portfolio info */}
+      {portfolio && (
+        <div className="flex shrink-0 items-center gap-2 text-xs font-mono">
+          {/* Balance */}
+          <span className="text-zinc-400" title="Egyenleg">
+            ${portfolio.balance.toFixed(2)}
+          </span>
+
+          {/* Divider */}
+          {portfolio.total_trades > 0 && (
+            <>
+              <span className="text-zinc-600">|</span>
+              {/* PnL */}
+              <span
+                className={`font-semibold ${
+                  portfolio.total_pnl >= 0 ? "text-green-400" : "text-red-400"
+                }`}
+                title="PnL"
+              >
+                {portfolio.total_pnl >= 0 ? "+" : ""}${portfolio.total_pnl.toFixed(2)}
+              </span>
+              {/* Win rate */}
+              <span className="text-zinc-500" title="Win Rate">
+                {portfolio.win_rate.toFixed(0)}%
+              </span>
+            </>
+          )}
+        </div>
       )}
 
       {/* Actions */}
