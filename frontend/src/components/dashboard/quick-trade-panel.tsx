@@ -185,8 +185,8 @@ export function QuickTradePanel() {
           className={`flex flex-col items-center justify-center gap-1 rounded-xl p-4 font-bold cursor-pointer transition-all
           ${
             selectedSide === "UP"
-              ? "bg-green-500/20 border-2 border-green-500"
-              : "bg-green-500/8 border border-green-500/30 hover:border-green-500"
+              ? "bg-green-500/20 border-2 border-green-500 shadow-[0_0_20px_rgba(34,197,94,0.3)]"
+              : "bg-green-500/8 border border-green-500/30 hover:border-green-500 hover:shadow-[0_0_20px_rgba(34,197,94,0.25)]"
           }
           ${isLoading && selectedSide !== "UP" ? "opacity-50 cursor-not-allowed" : ""}`}
         >
@@ -210,8 +210,8 @@ export function QuickTradePanel() {
           className={`flex flex-col items-center justify-center gap-1 rounded-xl p-4 font-bold cursor-pointer transition-all
           ${
             selectedSide === "DOWN"
-              ? "bg-red-500/20 border-2 border-red-500"
-              : "bg-red-500/8 border border-red-500/30 hover:border-red-500"
+              ? "bg-red-500/20 border-2 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.3)]"
+              : "bg-red-500/8 border border-red-500/30 hover:border-red-500 hover:shadow-[0_0_20px_rgba(239,68,68,0.25)]"
           }
           ${isLoading && selectedSide !== "DOWN" ? "opacity-50 cursor-not-allowed" : ""}`}
         >

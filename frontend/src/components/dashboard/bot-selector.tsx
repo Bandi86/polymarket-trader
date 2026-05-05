@@ -3,6 +3,7 @@
 import { Crosshair, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { EmptyState, SkeletonCard } from "@/components/ui";
 import { useBots, useStartBot, useStopBot } from "@/hooks";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -65,26 +66,28 @@ export function BotSelector() {
   if (isLoading) {
     return (
       <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl p-4">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mb-4">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
           <span className="text-sm text-zinc-500">Botok betöltése...</span>
         </div>
+        <SkeletonCard variant="bot-row" count={3} />
       </div>
     );
   }
 
   if (botList.length === 0) {
     return (
-      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl p-6 text-center">
-        <Crosshair className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
-        <p className="text-sm font-medium text-zinc-400">Nincsenek botok</p>
-        <p className="text-xs text-zinc-600 mt-1">
-          Hozz létre egy botot a{" "}
-          <a href="/bots" className="text-indigo-400 hover:underline">
-            Botok
-          </a>{" "}
-          oldalon
-        </p>
+      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl overflow-hidden flex flex-col">
+        <EmptyState
+          variant="bot"
+          title="Nincsenek botok"
+          description="Hozz létre egy botot a Botok oldalon"
+          action={
+            <a href="/bots" className="btn-primary text-sm">
+              Bot létrehozása
+            </a>
+          }
+        />
       </div>
     );
   }

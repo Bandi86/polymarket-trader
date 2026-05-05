@@ -47,12 +47,15 @@ export function CollapsiblePanel({
     >
       <button
         type="button"
-        className="flex items-center justify-between w-full px-4 py-3 cursor-pointer select-none hover:bg-white/5 transition-colors focus:outline-none bg-transparent border-0 text-left"
+        className="flex items-center justify-between w-full px-4 py-3 cursor-pointer select-none hover:bg-white/5 transition-colors focus:outline-none bg-transparent border-0 text-left group"
         onClick={handleToggle}
       >
         <div className="flex items-center gap-3">
           {icon && <div className="text-zinc-400">{icon}</div>}
-          <h3 className="text-sm font-semibold text-zinc-200">{title}</h3>
+          <h3 className="text-sm font-semibold text-zinc-200 group-hover:text-zinc-100 transition-colors relative">
+            {title}
+            <span className="absolute -bottom-0.5 left-0 w-0 h-0.5 bg-indigo-500/50 group-hover:w-full transition-all duration-200 rounded-full" />
+          </h3>
         </div>
 
         <div className="flex items-center gap-3">
@@ -63,7 +66,7 @@ export function CollapsiblePanel({
           )}
           <motion.div
             animate={{ rotate: isOpen ? 180 : 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 20 }}
+            transition={{ type: "spring", stiffness: 280, damping: 28 }}
             className="text-zinc-400"
           >
             <ChevronDown className="h-4 w-4" />
@@ -77,10 +80,17 @@ export function CollapsiblePanel({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+            transition={{ type: "spring", stiffness: 280, damping: 28 }}
             className="overflow-hidden"
           >
-            <div className={`px-4 pt-0 pb-4 ${bodyClassName}`}>{children}</div>
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, delay: 0.05 }}
+              className={`px-4 pt-0 pb-4 ${bodyClassName}`}
+            >
+              {children}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

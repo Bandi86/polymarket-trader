@@ -135,6 +135,21 @@ export function TradeFeed() {
       {/* Header: filter + controls */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
+          {/* Live indicator */}
+          <div className="flex items-center gap-1.5 mr-2">
+            <motion.span
+              animate={paused ? {} : { scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
+              transition={paused ? {} : { duration: 2, repeat: Infinity }}
+              className={`w-2 h-2 rounded-full ${paused ? "bg-amber-500" : "bg-green-500"}`}
+            />
+            <span
+              className={`text-[10px] font-semibold ${
+                paused ? "text-amber-500" : "text-green-500"
+              }`}
+            >
+              {paused ? "PAUSED" : "LIVE"}
+            </span>
+          </div>
           <Filter className="h-3.5 w-3.5 text-zinc-500" />
           {(["ALL", "UP", "DOWN", "WIN", "LOSS"] as const).map((f) => (
             <button
