@@ -159,6 +159,9 @@ impl StrategyExecutor {
             "sniper_value" => self.evaluate_sniper_value(ctx),
             "odds_swing" => self.evaluate_odds_swing(ctx),
             "bayesian_ev" => self.evaluate_bayesian_ev(ctx),
+            "high_conviction_momentum" => self.evaluate_high_conviction_momentum(ctx),
+            "sniper_arb" => self.evaluate_sniper_arb(ctx),
+            "volatility_filtered" => self.evaluate_volatility_filtered(ctx),
             _ => Signal::Hold(format!("Unknown strategy: {}", self.strategy_type)),
         }
     }
@@ -685,5 +688,156 @@ impl StrategyExecutor {
         } else {
             Signal::Hold("No Bayesian edge".to_string())
         }
+    }
+
+    // ============================================================
+    // NEW PROFITABLE STRATEGIES FOR LOW-VOLATILITY BTC MARKET
+    // ============================================================
+
+    /// HIGH_CONVICTION_MOMENTUM - Only trades when confidence > 0.75
+    /// Key insight: Need >75% win rate to overcome the 50c edge
+    /// Only triggers on STRONG momentum (+/- 0.15%+ BTC change)
+    fn evaluate_high_conviction_momentum(&self, ctx: StrategyContext) -> Signal {
+        if ctx.time_remaining < self.params.min_time_remaining {
+            return Signal::Hold("Too late".to_string());
+        }
+        if ctx.time_remaining > 240 {
+            return Signal::Hold("Window just opened".to_string());
+        }
+
+        let change = match ctx.btc_change {
+            Some(c) => c,
+            None => return Signal::Hold("No BTC data".to_string()),
+        };
+
+        // Strong threshold: 0.05% minimum (was 0.15%)
+        let strong_threshold = 0.0005; // 0.05%
+
+        if change > strong_threshold && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
+            // Only trade if price is reasonable (not already inflated)
+            if ctx.yes_price > 0.60 {
+                return Signal::Hold(format!("YES price too high: {:.0}c", ctx.yes_price * 100.0));
+            }
+            let confidence = (0.75_f64 + change * 100.0).min(0.92_f64);
+            if confidence >= 0.75 {
+                return Signal::Yes(confidence);
+            }
+            return Signal::Hold(format!("Confidence too low: {:.2}", confidence));
+        }
+
+        if change < -strong_threshold && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
+            if ctx.no_price > 0.60 {
+                return Signal::Hold(format!("NO price too high: {:.0}c", ctx.no_price * 100.0));
+            }
+            let confidence = (0.75_f64 + change.abs() * 100.0).min(0.92_f64);
+            if confidence >= 0.75 {
+                return Signal::No(confidence);
+            }
+            return Signal::Hold(format!("Confidence too low: {:.2}", confidence));
+        }
+
+        Signal::Hold(format!("No strong momentum: {:.4}%", change * 100.0))
+    }
+
+    /// SNIPER_ARB - Extreme price deviation + BTC confirmation
+    /// Only trades when YES/NO is 42c or less (big deviation from 50c)
+    /// With BTC confirmation for direction
+    fn evaluate_sniper_arb(&self, ctx: StrategyContext) -> Signal {
+        if ctx.time_remaining < self.params.min_time_remaining {
+            return Signal::Hold("Too close to close".to_string());
+        }
+        if ctx.time_remaining > 240 {
+            return Signal::Hold("Window just opened".to_string());
+        }
+
+        let change = match ctx.btc_change {
+            Some(c) => c,
+            None => return Signal::Hold("No BTC data".to_string()),
+        };
+
+        // Only trade when market mispriced: YES < 0.42 or NO < 0.42
+        // These are "cheap" and likely to revert to 50c
+
+        // YES is cheap (< 42c) + BTC going UP = buy YES (will revert up)
+        if ctx.yes_price < 0.42 && ctx.yes_price >= 0.30 {
+            if change > 0.0005 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
+                let edge = 0.50 - ctx.yes_price; // How much discount from fair value
+                let confidence = (0.60_f64 + edge * 5.0 + change * 50.0).min(0.88_f64);
+                return Signal::Yes(confidence);
+            }
+        }
+
+        // NO is cheap (< 42c) + BTC going DOWN = buy NO (will revert up)
+        if ctx.no_price < 0.42 && ctx.no_price >= 0.30 {
+            if change < -0.0005 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
+                let edge = 0.50 - ctx.no_price;
+                let confidence = (0.60_f64 + edge * 5.0 + change.abs() * 50.0).min(0.88_f64);
+                return Signal::No(confidence);
+            }
+        }
+
+        // Also: YES > 58c = slightly expensive, BTC going DOWN = bet NO
+        if ctx.yes_price > 0.58 && ctx.yes_price <= 0.70 {
+            if change < -0.0005 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
+                let confidence = (0.58_f64 + change.abs() * 50.0).min(0.80_f64);
+                return Signal::No(confidence);
+            }
+        }
+
+        Signal::Hold(format!(
+            "No sniper arb: YES={:.0}c NO={:.0}c",
+            ctx.yes_price * 100.0,
+            ctx.no_price * 100.0
+        ))
+    }
+
+    /// VOLATILITY_FILTERED - Only trades when volatility is "sweet spot"
+    /// Too low = random walk, Too high = unpredictable
+    /// Sweet spot: 0.02% - 0.25% per 5-min window
+    fn evaluate_volatility_filtered(&self, ctx: StrategyContext) -> Signal {
+        if ctx.time_remaining < self.params.min_time_remaining {
+            return Signal::Hold("Too close to close".to_string());
+        }
+        if ctx.time_remaining > 240 {
+            return Signal::Hold("Window just opened".to_string());
+        }
+
+        let change = match ctx.btc_change {
+            Some(c) => c,
+            None => return Signal::Hold("No BTC data".to_string()),
+        };
+
+        let abs_change = change.abs();
+
+        // Sweet spot: 0.03% to 0.15% volatility (tightened)
+        let min_vol = 0.0003; // 0.03%
+        let max_vol = 0.0015; // 0.15%
+
+        if abs_change < min_vol {
+            return Signal::Hold(format!("Volatility too low: {:.4}%", abs_change * 100.0));
+        }
+        if abs_change > max_vol {
+            return Signal::Hold(format!("Volatility too high: {:.4}%", abs_change * 100.0));
+        }
+
+        // Sweet spot - calculate confidence based on consistency
+        let confidence = 0.62_f64 + (abs_change / max_vol) * 0.25_f64;
+
+        if change > 0.0 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
+            // Only buy YES if price is reasonable
+            if ctx.yes_price > 0.65 {
+                return Signal::Hold(format!("YES price too high: {:.0}c", ctx.yes_price * 100.0));
+            }
+            return Signal::Yes(confidence.min(0.85_f64));
+        }
+
+        if change < 0.0 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
+            if ctx.no_price > 0.65 {
+                return Signal::Hold(format!("NO price too high: {:.0}c", ctx.no_price * 100.0));
+            }
+            return Signal::No(confidence.min(0.85_f64));
+        }
+
+        Signal::Hold(format!("No clear direction: {:.4}%", change * 100.0))
     }
 }

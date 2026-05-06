@@ -222,22 +222,75 @@ impl BotOrchestrator {
         let all_markets = fetch_active_markets("5").await;
         let market = if let Some(m) = all_markets.first() { m.clone() } else { return Ok(()); };
         let btc_price = self.fetch_btc_price().await?;
-        let btc_change = rb.last_btc_price.map(|last| (btc_price - last) / last);
+        
+        // Calculate BTC change and velocity/acceleration from price history
+        let btc_change;
+        let btc_velocity;
+        let btc_acceleration;
+        {
+            let now = Instant::now();
+            rb.btc_price_history.push((btc_price, now));
+            // Keep only last 30 seconds of history for velocity calc
+            let cutoff = now - Duration::from_secs(30);
+            rb.btc_price_history.retain(|(_, t)| *t > cutoff);
+            
+            if rb.btc_price_history.len() >= 2 {
+                // Change from oldest in window
+                let oldest = rb.btc_price_history.first().map(|(p, _)| *p).unwrap_or(btc_price);
+                btc_change = Some((btc_price - oldest) / oldest);
+                
+                // Velocity: % change per second over window
+                let duration_secs = rb.btc_price_history.last().map(|(_, t)| t.elapsed().as_secs_f64()).unwrap_or(1.0).max(1.0);
+                btc_velocity = Some(btc_change.unwrap() / duration_secs);
+                
+                // Acceleration: change in velocity (simplified)
+                if rb.btc_price_history.len() >= 3 {
+                    let oldest2 = rb.btc_price_history[rb.btc_price_history.len()/2].0;
+                    let mid_change = (oldest2 - oldest) / oldest;
+                    let mid_duration = duration_secs / 2.0;
+                    let prev_velocity = mid_change / mid_duration.max(1.0);
+                    btc_acceleration = Some((btc_velocity.unwrap() - prev_velocity) / mid_duration.max(1.0));
+                } else {
+                    btc_acceleration = Some(0.0);
+                }
+            } else {
+                // Fallback to last_btc_price
+                btc_change = rb.last_btc_price.map(|last| (btc_price - last) / last);
+                btc_velocity = btc_change;
+                btc_acceleration = Some(0.0);
+            }
+        }
+        
         let market_slug = format!("btc-updown-5m-{}", market.end_time);
         
         self.event_sender.send(BotEvent::Scanning { bot_id, market_slug: market_slug.clone() }).ok();
 
-        if rb.last_market_slug.as_ref() != Some(&market_slug) {
-            rb.btc_window_open = Some(btc_price);
-            rb.last_market_slug = Some(market_slug.clone());
+        // Settlement: check if market transitioned OR if time is up
+        let market_ended = market.time_remaining <= 5;
+        let market_changed = rb.last_market_slug.as_ref() != Some(&market_slug);
+        
+        if market_changed || market_ended {
             // Settlement paper trade
             if let Some(ref bet) = rb.pending_bet {
                 let diff = (btc_price - bet.start_price) / bet.start_price;
+                // FIXED: won logic - YES bet wins if BTC goes UP, NO bet wins if BTC goes DOWN
                 let won = if bet.side == "YES" { diff > 0.0 } else { diff < 0.0 };
-                let pnl = if won { bet.bet_size * (1.0 - bet.entry_price) / bet.entry_price } else { -bet.bet_size };
-                queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, pnl).await.ok();
-                self.event_sender.send(BotEvent::TradeResult { bot_id, won, pnl }).ok();
+                // PnL: if won, you get back your bet_size + profit; if lost, you lose your bet_size
+                // profit = bet_size * (1.0 - entry_price) / entry_price (for YES) or (entry_price) for NO?
+                // Actually: YES pays (1/yes_price - 1) * bet_size, NO pays (1/no_price - 1) * bet_size
+                // For simplicity: WIN = +bet_size * (1 - entry_price), LOSE = -bet_size
+                let profit = if won { bet.bet_size * (1.0 - bet.entry_price) } else { -bet.bet_size };
+                queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, profit).await.ok();
+                self.event_sender.send(BotEvent::TradeResult { bot_id, won, pnl: profit }).ok();
+                eprintln!("[SETTLE] Bot {}: {} won={} profit={:.4} price_diff={:.6}", bot_id, bet.side, won, profit, diff);
                 rb.pending_bet = None;
+            }
+            
+            // Reset window on market change
+            if market_changed {
+                rb.btc_window_open = Some(btc_price);
+                rb.last_market_slug = Some(market_slug.clone());
+                tracing::info!("[MARKET] Bot {} new market: {} (time_remaining={}s)", bot_id, market_slug, market.time_remaining);
             }
         }
 
@@ -248,9 +301,9 @@ impl BotOrchestrator {
             yes_price: market.yes_price,
             no_price: market.no_price,
             time_remaining: market.time_remaining,
-            btc_velocity: btc_change,
-            btc_acceleration: None,
-            btc_volatility: None,
+            btc_velocity: btc_velocity,
+            btc_acceleration: btc_acceleration,
+            btc_volatility: btc_acceleration.map(|a| a.abs()),
         };
 
         // Javítva: evaluate_with_context használata evaluate_decision helyett
