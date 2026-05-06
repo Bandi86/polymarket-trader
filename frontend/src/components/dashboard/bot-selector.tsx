@@ -3,7 +3,6 @@
 import { AlertTriangle, Crosshair, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { EmptyState, SkeletonCard } from "@/components/ui";
 import { useBots, useStartBot, useStopBot } from "@/hooks";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
@@ -31,18 +30,13 @@ function LiveModeConfirmDialog({
             <h3 className="text-base font-bold text-white">Valódi pénz!</h3>
             <p className="text-xs text-zinc-400">Live kereskedés megerősítése</p>
           </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="ml-auto text-zinc-500 hover:text-zinc-300"
-          >
+          <button type="button" onClick={onCancel} className="ml-auto text-zinc-500 hover:text-zinc-300">
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 mb-4">
           <p className="text-sm text-red-300">
-            ⚠️ A <strong>{botName}</strong> bot valódi USDC-t fog felhasználni a Polymarket
-            tárcádból!
+            ⚠️ A <strong>{botName}</strong> bot valódi USDC-t fog felhasználni a Polymarket tárcádból!
           </p>
           <p className="text-xs text-red-400 mt-1">
             A veszteségek valódiak. Csak akkor folytasd, ha tudod mit csinálsz!
@@ -81,9 +75,8 @@ export function BotSelector() {
   const isMutating = startBotMutation.isPending || stopBotMutation.isPending;
 
   // Filter bots by trading mode
-  const filteredBots = botList.filter((b) =>
-    tradingMode === "demo" ? b.trading_mode === "paper" : b.trading_mode === "live"
-  );
+  const filteredBots = botList;
+
 
   const startBot = (id: number) => {
     const bot = botList.find((b) => b.id === id);
@@ -94,30 +87,24 @@ export function BotSelector() {
       return;
     }
 
-    startBotMutation.mutate(
-      { id, initial_balance: 100 },
-      {
-        onSuccess: () => toast.success("Bot elindítva"),
-        onError: (err) => toast.error(err.message || "Hiba a bot indításakor"),
-      }
-    );
+    startBotMutation.mutate({ id, initial_balance: 100 }, {
+      onSuccess: () => toast.success("Bot elindítva"),
+      onError: (err) => toast.error(err.message || "Hiba a bot indításakor"),
+    });
   };
 
   const confirmStartLiveBot = () => {
     if (!confirmBot) return;
-    startBotMutation.mutate(
-      { id: confirmBot.id, initial_balance: 0 },
-      {
-        onSuccess: () => {
-          toast.success("Live bot elindítva!");
-          setConfirmBot(null);
-        },
-        onError: (err) => {
-          toast.error(err.message || "Hiba a bot indításakor");
-          setConfirmBot(null);
-        },
-      }
-    );
+    startBotMutation.mutate({ id: confirmBot.id, initial_balance: 0 }, {
+      onSuccess: () => {
+        toast.success("Live bot elindítva!");
+        setConfirmBot(null);
+      },
+      onError: (err) => {
+        toast.error(err.message || "Hiba a bot indításakor");
+        setConfirmBot(null);
+      },
+    });
   };
 
   const stopBot = (id: number) => {
@@ -158,34 +145,34 @@ export function BotSelector() {
   if (isLoading) {
     return (
       <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl p-4">
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2">
           <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
           <span className="text-sm text-zinc-500">Botok betöltése...</span>
         </div>
-        <SkeletonCard variant="bot-row" count={3} />
       </div>
     );
   }
 
   if (filteredBots.length === 0) {
-    const modeText = tradingMode === "demo" ? "demo" : "live";
-    const modeDescription =
-      tradingMode === "live"
-        ? "Hozz létre live botokat a Botok oldalon"
-        : "Hozz létre egy botot a Botok oldalon";
-
     return (
-      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl overflow-hidden flex flex-col">
-        <EmptyState
-          variant="bot"
-          title={`Nincsenek ${modeText} botok`}
-          description={modeDescription}
-          action={
-            <a href="/bots" className="btn-primary text-sm">
-              Bot létrehozása
-            </a>
-          }
-        />
+      <div className="rounded-xl border border-white/8 bg-white/3 backdrop-blur-xl p-6 text-center">
+        <Crosshair className="h-8 w-8 text-zinc-600 mx-auto mb-2" />
+        <p className="text-sm font-medium text-zinc-400">
+          Nincsenek {tradingMode === "demo" ? "demo" : "live"} botok
+        </p>
+        <p className="text-xs text-zinc-600 mt-1">
+          {tradingMode === "live" ? (
+            <>
+              Hozz létre live botokat a{" "}
+              <a href="/bots" className="text-indigo-400 hover:underline">Botok</a> oldalon
+            </>
+          ) : (
+            <>
+              Hozz létre egy botot a{" "}
+              <a href="/bots" className="text-indigo-400 hover:underline">Botok</a> oldalon
+            </>
+          )}
+        </p>
       </div>
     );
   }
@@ -204,16 +191,10 @@ export function BotSelector() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div
-              className={`flex h-7 w-7 items-center justify-center rounded-lg ${
-                tradingMode === "demo" ? "bg-indigo-500/15" : "bg-red-500/15"
-              }`}
-            >
-              <Crosshair
-                className={`h-3.5 w-3.5 ${
-                  tradingMode === "demo" ? "text-indigo-400" : "text-red-400"
-                }`}
-              />
+            <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${tradingMode === "demo" ? "bg-indigo-500/15" : "bg-red-500/15"
+              }`}>
+              <Crosshair className={`h-3.5 w-3.5 ${tradingMode === "demo" ? "text-indigo-400" : "text-red-400"
+                }`} />
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold text-zinc-200">
@@ -227,9 +208,7 @@ export function BotSelector() {
               </span>
             </div>
           </div>
-          {isFetching && !isLoading && (
-            <Loader2 className="h-3.5 w-3.5 text-zinc-600 animate-spin" />
-          )}
+          {isFetching && !isLoading && <Loader2 className="h-3.5 w-3.5 text-zinc-600 animate-spin" />}
         </div>
 
         {/* Live mode warning */}
@@ -237,20 +216,6 @@ export function BotSelector() {
           <div className="mx-2 mb-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-1.5">
             <p className="text-[10px] font-bold text-red-400 uppercase tracking-wider">
               ⚡ Live mód – Valódi pénz!
-            </p>
-          </div>
-        )}
-
-        {/* Demo mode indicator */}
-        {tradingMode === "demo" && (
-          <div className="mx-2 mb-2 rounded-lg border border-green-500/20 bg-green-500/10 px-3 py-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold text-green-400 uppercase tracking-wider">
-                🎮 Demo mód – $10/bot | Max 15 bot = $150
-              </p>
-            </div>
-            <p className="text-[9px] text-green-400/60 mt-0.5">
-              Szimulált kereskedés – nincs valódi pénzmozgás
             </p>
           </div>
         )}
