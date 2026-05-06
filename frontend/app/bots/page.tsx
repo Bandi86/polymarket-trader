@@ -1,550 +1,1036 @@
-"use client";
+'use client'
 
-import { AnimatePresence, motion } from "framer-motion";
-import { Activity, Bot, Loader2, Play, Plus, Square, Trash2, TrendingUp, TrendingDown, Target, Shield, Wallet } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { toast } from "sonner";
-import { apiFetch } from "@/lib/utils";
-import { useAppStore } from "@/store";
-import type { Bot as BotType, StrategyType } from "@/types";
+import { useState, useMemo } from 'react'
 
-type PortfolioData = {
-  balance: number;
-  initial_balance: number;
-  total_trades: number;
-  winning_trades: number;
-  losing_trades: number;
-  total_pnl: number;
-  win_rate: number;
-  roi_percent: number;
-};
+// ---- Types ----
+type BotStatus = 'active' | 'stopped' | 'error'
 
-type BotConfig = BotType & {
-  pnl?: number;
-  trades_count?: number;
-  win_rate?: number;
-  portfolio?: PortfolioData;
-};
+type SortKey = 'pnl' | 'winRate' | 'trades' | 'name' | 'wins' | 'losses'
+type SortDir = 'asc' | 'desc'
 
-const STRATEGIES: { id: StrategyType; name: string; description: string }[] = [
-  { id: "momentum", name: "Momentum", description: "BTC momentum alapú kereskedés" },
-  { id: "mean_reversion", name: "Mean Reversion", description: "Trend forduló pontokon kereskedés" },
-  { id: "last_seconds_scalp", name: "Scalping", description: "Rövid pozíciók, gyors profit" },
-  { id: "binance_signal", name: "Binance Signal", description: "Binance szignál alapú" },
-];
+interface Bot {
+  id: string
+  name: string
+  strategy: string
+  status: BotStatus
+  pnl: number
+  trades: number
+  wins: number
+  losses: number
+  winRate: number
+  market: string
+  createdAt: string
+}
 
-export default function BotsPage() {
-  const router = useRouter();
-  const { isAuthenticated, setBots } = useAppStore();
-  const [botConfigs, setBotConfigs] = useState<BotConfig[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newBotName, setNewBotName] = useState("");
-  const [newBotStrategy, setNewBotStrategy] = useState<StrategyType>("momentum");
-  const [newBotBetSize, setNewBotBetSize] = useState(10);
-  const [newBotTradingMode, setNewBotTradingMode] = useState<"paper" | "live">("paper");
+// ---- Mock data (remove when backend is connected) ----
+const MOCK_BOTS: Bot[] = [
+  {
+    id: '1',
+    name: 'Alpha Momentum',
+    strategy: 'Momentum',
+    status: 'active',
+    pnl: 142.5,
+    trades: 38,
+    wins: 26,
+    losses: 12,
+    winRate: 68.4,
+    market: 'BTC/USD',
+    createdAt: '2025-04-01',
+  },
+  {
+    id: '2',
+    name: 'Mean Rev Bot',
+    strategy: 'Mean Reversion',
+    status: 'stopped',
+    pnl: -23.1,
+    trades: 15,
+    wins: 6,
+    losses: 9,
+    winRate: 40.0,
+    market: 'ETH/USD',
+    createdAt: '2025-04-10',
+  },
+  {
+    id: '3',
+    name: 'Sniper v2',
+    strategy: 'Sniper',
+    status: 'active',
+    pnl: 310.8,
+    trades: 72,
+    wins: 51,
+    losses: 21,
+    winRate: 70.8,
+    market: 'BTC/USD',
+    createdAt: '2025-03-22',
+  },
+  {
+    id: '4',
+    name: 'Trend Chaser',
+    strategy: 'Trend Following',
+    status: 'error',
+    pnl: 55.2,
+    trades: 20,
+    wins: 13,
+    losses: 7,
+    winRate: 65.0,
+    market: 'SOL/USD',
+    createdAt: '2025-04-15',
+  },
+  {
+    id: '5',
+    name: 'Oracle Hawk',
+    strategy: 'Oracle Lag',
+    status: 'active',
+    pnl: 88.0,
+    trades: 44,
+    wins: 30,
+    losses: 14,
+    winRate: 68.2,
+    market: 'BTC/USD',
+    createdAt: '2025-04-18',
+  },
+  {
+    id: '6',
+    name: 'Contra Beast',
+    strategy: 'Contrarian',
+    status: 'stopped',
+    pnl: -5.6,
+    trades: 11,
+    wins: 5,
+    losses: 6,
+    winRate: 45.5,
+    market: 'ETH/USD',
+    createdAt: '2025-04-20',
+  },
+  {
+    id: '7',
+    name: 'Velocity X',
+    strategy: 'Binance Velocity',
+    status: 'active',
+    pnl: 201.3,
+    trades: 55,
+    wins: 40,
+    losses: 15,
+    winRate: 72.7,
+    market: 'BTC/USD',
+    createdAt: '2025-04-22',
+  },
+  {
+    id: '8',
+    name: 'Window Watcher',
+    strategy: 'Window Delta',
+    status: 'stopped',
+    pnl: 12.4,
+    trades: 9,
+    wins: 5,
+    losses: 4,
+    winRate: 55.6,
+    market: 'SOL/USD',
+    createdAt: '2025-04-23',
+  },
+  {
+    id: '9',
+    name: 'Fair Hunter',
+    strategy: 'Fair Value',
+    status: 'active',
+    pnl: 67.9,
+    trades: 31,
+    wins: 20,
+    losses: 11,
+    winRate: 64.5,
+    market: 'ETH/USD',
+    createdAt: '2025-04-25',
+  },
+  {
+    id: '10',
+    name: 'Vola Storm',
+    strategy: 'Volatility',
+    status: 'error',
+    pnl: -44.2,
+    trades: 18,
+    wins: 7,
+    losses: 11,
+    winRate: 38.9,
+    market: 'BTC/USD',
+    createdAt: '2025-04-26',
+  },
+  {
+    id: '11',
+    name: 'Trend Ghost',
+    strategy: 'Trend Following',
+    status: 'active',
+    pnl: 155.0,
+    trades: 48,
+    wins: 33,
+    losses: 15,
+    winRate: 68.8,
+    market: 'SOL/USD',
+    createdAt: '2025-04-28',
+  },
+  {
+    id: '12',
+    name: 'Reverse Arc',
+    strategy: 'Mean Reversion',
+    status: 'stopped',
+    pnl: 3.1,
+    trades: 7,
+    wins: 4,
+    losses: 3,
+    winRate: 57.1,
+    market: 'ETH/USD',
+    createdAt: '2025-04-29',
+  },
+  {
+    id: '13',
+    name: 'Delta Pulse',
+    strategy: 'Window Delta',
+    status: 'active',
+    pnl: 93.7,
+    trades: 29,
+    wins: 19,
+    losses: 10,
+    winRate: 65.5,
+    market: 'BTC/USD',
+    createdAt: '2025-04-30',
+  },
+  {
+    id: '14',
+    name: 'Shadow Sniper',
+    strategy: 'Sniper',
+    status: 'active',
+    pnl: 278.4,
+    trades: 63,
+    wins: 47,
+    losses: 16,
+    winRate: 74.6,
+    market: 'SOL/USD',
+    createdAt: '2025-05-01',
+  },
+  {
+    id: '15',
+    name: 'Binance Wolf',
+    strategy: 'Binance Velocity',
+    status: 'stopped',
+    pnl: -18.9,
+    trades: 13,
+    wins: 5,
+    losses: 8,
+    winRate: 38.5,
+    market: 'BTC/USD',
+    createdAt: '2025-05-02',
+  },
+]
 
-  const loadBotConfigs = useCallback(async () => {
-    try {
-      const configs = await apiFetch<BotConfig[]>("/bots", { method: "GET" });
+// ---- Helpers ----
+function fmt(n: number, prefix = '') {
+  const abs = Math.abs(n).toFixed(2)
+  return n >= 0 ? `${prefix}+$${abs}` : `${prefix}-$${abs}`
+}
 
-      const configsWithPortfolio = await Promise.all(
-        configs.map(async (bot) => {
-          try {
-            const portfolio = await apiFetch<PortfolioData>(`/bots/${bot.id}/portfolio`);
-            return { ...bot, portfolio };
-          } catch {
-            return bot;
-          }
-        })
-      );
+function statusLabel(s: BotStatus) {
+  if (s === 'active') return { text: 'Aktív', color: '#22c55e' }
+  if (s === 'error') return { text: 'Hiba', color: '#ef4444' }
+  return { text: 'Leállítva', color: '#6b7280' }
+}
 
-      setBotConfigs(configsWithPortfolio);
-      setBots(
-        configsWithPortfolio.map((c) => ({
-          id: c.id,
-          name: c.name,
-          strategy: (c.strategy_type || "momentum") as StrategyType,
-          strategy_type: c.strategy_type || "momentum",
-          trading_mode: c.trading_mode || "paper",
-          market_id: c.market_id || "btc-5m",
-          interval: c.interval || 300000,
-          status: c.status,
-          bet_size: c.bet_size,
-          max_bet: c.max_bet,
-          use_kelly: c.use_kelly,
-          kelly_fraction: c.kelly_fraction,
-          interval_seconds: (c.interval || 300000) / 1000,
-          stop_loss: c.stop_loss ?? 0.1,
-          take_profit: c.take_profit ?? 0.2,
-          pnl: c.pnl,
-          trades_count: c.trades_count,
-          win_rate: c.win_rate,
-          created_at: c.created_at,
-        }))
-      );
-    } catch (_err) {
-      // Silently fail
-    }
-  }, [setBots]);
+const STRATEGY_COLORS: Record<string, string> = {
+  Momentum: '#818cf8',
+  'Mean Reversion': '#34d399',
+  'Trend Following': '#60a5fa',
+  Contrarian: '#f87171',
+  Volatility: '#fbbf24',
+  'Oracle Lag': '#a78bfa',
+  'Fair Value': '#2dd4bf',
+  Sniper: '#f472b6',
+  'Window Delta': '#fb923c',
+  'Binance Velocity': '#38bdf8',
+}
 
-  useEffect(() => {
-    const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
-    if (!isAuthenticated && !hasToken) {
-      router.push("/login");
-      return;
-    }
-    void loadBotConfigs();
-  }, [isAuthenticated, loadBotConfigs, router]);
+// ---- Sort options ----
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'pnl', label: 'Legtöbb nyereség (PnL)' },
+  { key: 'winRate', label: 'Win rate' },
+  { key: 'trades', label: 'Legtöbb trade' },
+  { key: 'wins', label: 'Legtöbb nyerés' },
+  { key: 'losses', label: 'Legtöbb veszítés' },
+  { key: 'name', label: 'Név (A-Z)' },
+]
 
-  const startBot = async (botId: number) => {
-    setLoading(true);
-    try {
-      await apiFetch(`/bots/${botId}/start`, {
-        method: "POST",
-        body: JSON.stringify({ initial_balance: 100 }),
-      });
-      toast.success("Bot elindítva!");
-      await loadBotConfigs();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Bot indítása sikertelen");
-    } finally {
-      setLoading(false);
-    }
-  };
+// ---- Summary stats ----
+function Stats({ bots }: { bots: Bot[] }) {
+  const totalPnl = bots.reduce((a, b) => a + b.pnl, 0)
+  const totalTrades = bots.reduce((a, b) => a + b.trades, 0)
+  const totalWins = bots.reduce((a, b) => a + b.wins, 0)
+  const totalLosses = bots.reduce((a, b) => a + b.losses, 0)
+  const avgWinRate =
+    bots.length > 0
+      ? bots.reduce((a, b) => a + b.winRate, 0) / bots.length
+      : 0
+  const activeBots = bots.filter((b) => b.status === 'active').length
 
-  const stopBot = async (botId: number) => {
-    setLoading(true);
-    try {
-      await apiFetch(`/bots/${botId}/stop`, { method: "POST" });
-      toast.success("Bot leállítva!");
-      await loadBotConfigs();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Bot leállítása sikertelen");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const createBot = async () => {
-    if (!newBotName.trim()) {
-      toast.error("Kérlek adj meg egy nevet a botnak");
-      return;
-    }
-
-    const exists = botConfigs.some((b) => b.name.toLowerCase() === newBotName.toLowerCase());
-    if (exists) {
-      toast.error("Botnév már létezik. Válassz másik nevet.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await apiFetch<BotConfig>("/bots", {
-        method: "POST",
-        body: JSON.stringify({
-          name: newBotName,
-          market_id: "btc-5m",
-          strategy_type: newBotStrategy,
-          params: "{}",
-          bet_size: newBotBetSize,
-          max_bet: 100,
-          use_kelly: false,
-          kelly_fraction: 0.5,
-          interval: 300000,
-          stop_loss: 0.1,
-          take_profit: 0.2,
-          trading_mode: newBotTradingMode,
-        }),
-      });
-      toast.success(`Bot létrehozva (${newBotTradingMode === "live" ? "⚡ Live" : "🎮 Demo"} mód)!`);
-      setShowCreateModal(false);
-      setNewBotName("");
-      setNewBotStrategy("momentum");
-      setNewBotBetSize(10);
-      setNewBotTradingMode("paper");
-      await loadBotConfigs();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Bot létrehozása sikertelen");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const deleteBot = async (botId: number) => {
-    try {
-      await apiFetch(`/bots/${botId}`, { method: "DELETE" });
-      toast.success("Bot törölve!");
-      await loadBotConfigs();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Bot törlése sikertelen");
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "running": return "#22c55e";
-      case "paused": return "#f59e0b";
-      case "error": return "#ef4444";
-      default: return "#71717a";
-    }
-  };
-
-  const totalPnl = botConfigs.reduce((sum, b) => sum + (b.portfolio?.total_pnl ?? b.pnl ?? 0), 0);
-  const totalTrades = botConfigs.reduce((sum, b) => sum + (b.portfolio?.total_trades ?? b.trades_count ?? 0), 0);
-  const totalWins = botConfigs.reduce((sum, b) => sum + (b.portfolio?.winning_trades ?? 0), 0);
-  const totalLosses = botConfigs.reduce((sum, b) => sum + (b.portfolio?.losing_trades ?? 0), 0);
-  const avgWinRate = totalTrades > 0 ? (totalWins / totalTrades * 100) : 0;
+  const cards = [
+    { label: 'Aktív botok', value: activeBots, color: '#a3e635' },
+    {
+      label: 'Összes PnL',
+      value: fmt(totalPnl),
+      color: totalPnl >= 0 ? '#4ade80' : '#f87171',
+    },
+    { label: 'Trades', value: totalTrades, color: '#e2e8f0' },
+    {
+      label: 'Nyerés / Vesztés',
+      value: null,
+      wins: totalWins,
+      losses: totalLosses,
+    },
+    {
+      label: 'Avg Win Rate',
+      value: `${avgWinRate.toFixed(1)}%`,
+      color: '#e2e8f0',
+    },
+  ]
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0b0b0f", padding: "2rem", position: "relative" }}>
-      <div className="ambient-glow ambient-glow-primary" style={{ width: 600, height: 600, top: "10%", left: "20%" }} />
-      <div className="ambient-glow ambient-glow-green" style={{ width: 400, height: 400, bottom: "20%", right: "10%" }} />
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ maxWidth: 1100, margin: "0 auto" }}>
-        {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "2rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-            <div style={{ width: 48, height: 48, borderRadius: 12, background: "rgba(99, 102, 241, 0.15)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Bot size={24} style={{ color: "#6366f1" }} />
-            </div>
-            <div>
-              <h1 style={{ fontWeight: 700, fontSize: 24, color: "#fafafa" }}>Botok</h1>
-              <span style={{ fontSize: 14, color: "#71717a" }}>Trading botok kezelése</span>
-            </div>
-          </div>
-          <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setShowCreateModal(true)} className="btn-primary" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <Plus size={16} />
-            Új bot
-          </motion.button>
-        </div>
-
-        {/* Stats summary */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "1rem", marginBottom: "2rem" }}>
-          <div className="glass-card" style={{ padding: "1rem" }}>
-            <span style={{ fontSize: 12, color: "#71717a" }}>Aktív botok</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#22c55e", display: "block", marginTop: 8 }}>
-              {botConfigs.filter((b) => b.status === "running").length}
-            </span>
-          </div>
-          <div className="glass-card" style={{ padding: "1rem" }}>
-            <span style={{ fontSize: 12, color: "#71717a" }}>Összes PnL</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: totalPnl >= 0 ? "#22c55e" : "#ef4444", display: "block", marginTop: 8 }}>
-              {totalPnl >= 0 ? "+" : ""}${totalPnl.toFixed(2)}
-            </span>
-          </div>
-          <div className="glass-card" style={{ padding: "1rem" }}>
-            <span style={{ fontSize: 12, color: "#71717a" }}>Trades</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#fafafa", display: "block", marginTop: 8 }}>
-              {totalTrades}
-            </span>
-          </div>
-          <div className="glass-card" style={{ padding: "1rem" }}>
-            <span style={{ fontSize: 12, color: "#71717a" }}>Nyerés / Vesztés</span>
-            <span style={{ fontSize: 18, fontWeight: 700, display: "block", marginTop: 8 }}>
-              <span style={{ color: "#22c55e" }}>{totalWins}W</span>
-              <span style={{ color: "#71717a", margin: "0 4px" }}>/</span>
-              <span style={{ color: "#ef4444" }}>{totalLosses}L</span>
-            </span>
-          </div>
-          <div className="glass-card" style={{ padding: "1rem" }}>
-            <span style={{ fontSize: 12, color: "#71717a" }}>Avg Win Rate</span>
-            <span className="price-ticker" style={{ fontSize: 24, fontWeight: 700, color: "#fafafa", display: "block", marginTop: 8 }}>
-              {avgWinRate.toFixed(1)}%
-            </span>
-          </div>
-        </div>
-
-        {/* Bot cards */}
-        <AnimatePresence>
-          {botConfigs.length === 0 ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card" style={{ padding: "3rem", textAlign: "center" }}>
-              <Bot size={48} style={{ color: "#71717a", marginBottom: "1rem" }} />
-              <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa", marginBottom: "0.5rem" }}>Nincs bot konfiguráció</h3>
-              <span style={{ fontSize: 14, color: "#71717a" }}>Hozzon létre egy új trading botot a kezdéshez</span>
-            </motion.div>
-          ) : (
-            botConfigs.map((bot) => {
-              const p = bot.portfolio;
-              const pnl = p?.total_pnl ?? bot.pnl ?? 0;
-              const trades = p?.total_trades ?? bot.trades_count ?? 0;
-              const wins = p?.winning_trades ?? 0;
-              const losses = p?.losing_trades ?? 0;
-              const winRate = p?.win_rate ?? (bot.win_rate ? bot.win_rate * 100 : 0);
-              const balance = p?.balance ?? 0;
-              const initialBalance = p?.initial_balance ?? 0;
-
-              const avgWin = wins > 0 && pnl > 0 ? (pnl + (losses * bot.bet_size)) / wins : bot.bet_size * 1.5;
-              const wonAmount = wins * avgWin;
-              const lostAmount = losses * bot.bet_size;
-
-              return (
-                <motion.div
-                  key={bot.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -20 }}
-                  className="glass-card"
-                  style={{ padding: "1.5rem", marginBottom: "1rem" }}
-                >
-                  {/* Top row: name + status + actions */}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                      <div style={{
-                        width: 40, height: 40, borderRadius: 10,
-                        background: bot.status === "running" ? "rgba(34, 197, 94, 0.15)" : bot.status === "error" ? "rgba(239, 68, 68, 0.15)" : "rgba(99, 102, 241, 0.15)",
-                        display: "flex", alignItems: "center", justifyContent: "center"
-                      }}>
-                        <Activity size={20} style={{ color: getStatusColor(bot.status) }} />
-                      </div>
-                      <div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          <h3 style={{ fontWeight: 600, fontSize: 16, color: "#fafafa" }}>{bot.name}</h3>
-                          {bot.trading_mode === "live" ? (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "rgba(239, 68, 68, 0.15)", color: "#ef4444" }}>
-                              ⚡ LIVE
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "rgba(99, 102, 241, 0.15)", color: "#818cf8" }}>
-                              🎮 DEMO
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: 4 }}>
-                          <span style={{
-                            fontSize: 10, fontWeight: 600, padding: "0.25rem 0.5rem", borderRadius: 4,
-                            background: bot.status === "running" ? "rgba(34, 197, 94, 0.15)" : "rgba(113, 113, 122, 0.15)",
-                            color: getStatusColor(bot.status)
-                          }}>
-                            {bot.status.toUpperCase()}
-                          </span>
-                          <span style={{ fontSize: 12, color: "#71717a" }}>{bot.strategy_type}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      {bot.status === "running" ? (
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => stopBot(bot.id)} disabled={loading} className="btn-red" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          {loading ? <Loader2 size={16} className="animate-spin" /> : <Square size={16} />}
-                          Leállítás
-                        </motion.button>
-                      ) : (
-                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => startBot(bot.id)} disabled={loading} className="btn-green" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                          {loading ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
-                          Indítás
-                        </motion.button>
-                      )}
-                      <button type="button" onClick={() => deleteBot(bot.id)} style={{ padding: "0.5rem", borderRadius: 8, color: "#71717a", background: "transparent", border: "none", cursor: "pointer" }}>
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Stats grid */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
-                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "0.75rem", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: 6 }}>
-                        <Wallet size={12} style={{ color: "#6366f1" }} />
-                        <span style={{ fontSize: 11, color: "#71717a", fontWeight: 600 }}>EGYENLEG</span>
-                      </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#fafafa" }}>
-                        ${balance.toFixed(2)}
-                      </div>
-                      {initialBalance > 0 && (
-                        <div style={{ fontSize: 11, color: "#71717a", marginTop: 2 }}>
-                          Kezdő: ${initialBalance.toFixed(2)}
-                        </div>
-                      )}
-                    </div>
-
-                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "0.75rem", border: "1px solid rgba(255,255,255,0.06)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: 6 }}>
-                        <Activity size={12} style={{ color: pnl >= 0 ? "#22c55e" : "#ef4444" }} />
-                        <span style={{ fontSize: 11, color: "#71717a", fontWeight: 600 }}>ÖSSZES PnL</span>
-                      </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: pnl >= 0 ? "#22c55e" : "#ef4444" }}>
-                        {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
-                      </div>
-                      <div style={{ fontSize: 11, color: "#71717a", marginTop: 2 }}>
-                        {trades} trade
-                      </div>
-                    </div>
-
-                    <div style={{ background: "rgba(34, 197, 94, 0.05)", borderRadius: 8, padding: "0.75rem", border: "1px solid rgba(34, 197, 94, 0.1)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: 6 }}>
-                        <TrendingUp size={12} style={{ color: "#22c55e" }} />
-                        <span style={{ fontSize: 11, color: "#71717a", fontWeight: 600 }}>NYERÉSEK</span>
-                      </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#22c55e" }}>
-                        {wins}x
-                      </div>
-                      <div style={{ fontSize: 11, color: "#22c55e", marginTop: 2, opacity: 0.7 }}>
-                        ≈ +${wonAmount.toFixed(2)}
-                      </div>
-                    </div>
-
-                    <div style={{ background: "rgba(239, 68, 68, 0.05)", borderRadius: 8, padding: "0.75rem", border: "1px solid rgba(239, 68, 68, 0.1)" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: 6 }}>
-                        <TrendingDown size={12} style={{ color: "#ef4444" }} />
-                        <span style={{ fontSize: 11, color: "#71717a", fontWeight: 600 }}>VESZTESÉGEK</span>
-                      </div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>
-                        {losses}x
-                      </div>
-                      <div style={{ fontSize: 11, color: "#ef4444", marginTop: 2, opacity: 0.7 }}>
-                        ≈ -${lostAmount.toFixed(2)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Bottom row */}
-                  <div style={{ marginTop: "0.75rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, color: "#71717a" }}>Win Rate</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: winRate >= 50 ? "#22c55e" : "#ef4444" }}>
-                          {winRate.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,0.06)", overflow: "hidden" }}>
-                        <div style={{ height: "100%", width: `${winRate}%`, background: winRate >= 50 ? "#22c55e" : "#ef4444", borderRadius: 2, transition: "width 0.5s ease" }} />
-                      </div>
-                    </div>
-
-                    <div style={{ display: "flex", gap: "0.5rem" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "3px 8px", borderRadius: 4, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
-                        <span style={{ fontSize: 10, color: "#71717a" }}>Tét</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#fafafa" }}>${bot.bet_size}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "3px 8px", borderRadius: 4, background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)" }}>
-                        <Shield size={10} style={{ color: "#ef4444" }} />
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#ef4444" }}>SL {((bot.stop_loss ?? 0.1) * 100).toFixed(0)}%</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", padding: "3px 8px", borderRadius: 4, background: "rgba(34, 197, 94, 0.08)", border: "1px solid rgba(34, 197, 94, 0.15)" }}>
-                        <Target size={10} style={{ color: "#22c55e" }} />
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#22c55e" }}>TP {((bot.take_profit ?? 0.2) * 100).toFixed(0)}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })
-          )}
-        </AnimatePresence>
-      </motion.div>
-
-      {/* Create bot modal */}
-      <AnimatePresence>
-        {showCreateModal && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0, 0, 0, 0.8)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}
-            onClick={() => setShowCreateModal(false)}
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+        gap: '12px',
+        marginBottom: '28px',
+      }}
+    >
+      {cards.map((c, i) => (
+        <div
+          key={i}
+          style={{
+            background: '#1a1a2e',
+            border: '1px solid #2a2a3e',
+            borderRadius: '12px',
+            padding: '16px 18px',
+          }}
+        >
+          <p
+            style={{
+              fontSize: '12px',
+              color: '#6b7280',
+              margin: '0 0 8px',
+              letterSpacing: '0.04em',
+            }}
           >
-            <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
-              className="glass-card" style={{ padding: "2rem", width: 420, maxHeight: "90vh", overflowY: "auto" }}
-              onClick={(e) => e.stopPropagation()}
+            {c.label}
+          </p>
+          {c.wins !== undefined ? (
+            <p style={{ fontSize: '22px', fontWeight: 600, margin: 0 }}>
+              <span style={{ color: '#4ade80' }}>{c.wins}W</span>
+              <span style={{ color: '#4b5563', margin: '0 4px' }}>/</span>
+              <span style={{ color: '#f87171' }}>{c.losses}L</span>
+            </p>
+          ) : (
+            <p
+              style={{
+                fontSize: '22px',
+                fontWeight: 600,
+                margin: 0,
+                color: c.color ?? '#e2e8f0',
+              }}
             >
-              <h3 style={{ fontWeight: 600, fontSize: 18, color: "#fafafa", marginBottom: "1.5rem" }}>Új bot létrehozása</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-
-                {/* Bot neve */}
-                <div>
-                  <label htmlFor="new-bot-name" style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>Bot neve</label>
-                  <input id="new-bot-name" type="text" value={newBotName} onChange={(e) => setNewBotName(e.target.value)} className="input" placeholder="My Trading Bot" />
-                </div>
-
-                {/* Tét méret */}
-                <div>
-                  <label htmlFor="new-bot-bet-size" style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>Tét méret ($)</label>
-                  <input id="new-bot-bet-size" type="number" value={newBotBetSize} onChange={(e) => setNewBotBetSize(Number(e.target.value))} className="input" placeholder="10" min={1} />
-                </div>
-
-                {/* Trading mód választó — ÚJ */}
-                <div>
-                  <label style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>Kereskedési mód</label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                    <motion.button
-                      type="button"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setNewBotTradingMode("paper")}
-                      style={{
-                        padding: "0.75rem",
-                        borderRadius: 8,
-                        background: newBotTradingMode === "paper" ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)",
-                        border: newBotTradingMode === "paper" ? "1px solid rgba(99, 102, 241, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
-                        cursor: "pointer",
-                        textAlign: "center",
-                      }}
-                    >
-                      <div style={{ fontSize: 18, marginBottom: 4 }}>🎮</div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: newBotTradingMode === "paper" ? "#818cf8" : "#fafafa" }}>Demo</div>
-                      <div style={{ fontSize: 11, color: "#71717a", marginTop: 2 }}>Szimulált pénz</div>
-                    </motion.button>
-
-                    <motion.button
-                      type="button"
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
-                      onClick={() => setNewBotTradingMode("live")}
-                      style={{
-                        padding: "0.75rem",
-                        borderRadius: 8,
-                        background: newBotTradingMode === "live" ? "rgba(239, 68, 68, 0.15)" : "rgba(20, 20, 28, 0.6)",
-                        border: newBotTradingMode === "live" ? "1px solid rgba(239, 68, 68, 0.4)" : "1px solid rgba(255, 255, 255, 0.08)",
-                        cursor: "pointer",
-                        textAlign: "center",
-                      }}
-                    >
-                      <div style={{ fontSize: 18, marginBottom: 4 }}>⚡</div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: newBotTradingMode === "live" ? "#f87171" : "#fafafa" }}>Live</div>
-                      <div style={{ fontSize: 11, color: "#71717a", marginTop: 2 }}>Valódi USDC</div>
-                    </motion.button>
-                  </div>
-
-                  {/* Live módra figyelmeztetés */}
-                  {newBotTradingMode === "live" && (
-                    <div style={{ marginTop: "0.5rem", padding: "0.75rem", borderRadius: 8, background: "rgba(239, 68, 68, 0.1)", border: "1px solid rgba(239, 68, 68, 0.2)" }}>
-                      <p style={{ fontSize: 12, color: "#f87171", margin: 0 }}>
-                        ⚠️ Ez a bot valódi USDC-t fog használni a Polymarket tárcádból! Győződj meg róla, hogy az API kulcsok be vannak állítva a Beállításokban.
-                      </p>
-                    </div>
-                  )}
-                </div>
-
-                {/* Stratégia */}
-                <div>
-                  <label htmlFor="new-bot-strategy" style={{ fontSize: 14, color: "#a1a1aa", marginBottom: "0.5rem", display: "block" }}>Stratégia</label>
-                  <div id="new-bot-strategy" style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                    {STRATEGIES.map((strat) => (
-                      <motion.button key={strat.id} type="button" whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }} onClick={() => setNewBotStrategy(strat.id)}
-                        style={{ padding: "1rem", borderRadius: 8, background: newBotStrategy === strat.id ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)", border: newBotStrategy === strat.id ? "1px solid rgba(99, 102, 241, 0.3)" : "1px solid rgba(255, 255, 255, 0.08)", cursor: "pointer", textAlign: "left" }}
-                      >
-                        <span style={{ fontWeight: 600, fontSize: 14, color: "#fafafa" }}>{strat.name}</span>
-                        <span style={{ fontSize: 12, color: "#71717a", display: "block", marginTop: 4 }}>{strat.description}</span>
-                      </motion.button>
-                    ))}
-                  </div>
-                </div>
-
-                <div style={{ display: "flex", gap: "1rem", marginTop: "1rem" }}>
-                  <button type="button" onClick={() => setShowCreateModal(false)} style={{ padding: "0.75rem 1rem", borderRadius: 8, fontSize: 14, color: "#71717a", background: "rgba(20, 20, 28, 0.6)", border: "1px solid rgba(255, 255, 255, 0.08)", cursor: "pointer", flex: 1 }}>
-                    Mégse
-                  </button>
-                  <motion.button type="button" whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={createBot} disabled={loading}
-                    className={newBotTradingMode === "live" ? "btn-red" : "btn-primary"}
-                    style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}>
-                    {loading ? <Loader2 size={16} className="animate-spin" /> : (newBotTradingMode === "live" ? "⚡ Live bot létrehozása" : "🎮 Demo bot létrehozása")}
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              {c.value}
+            </p>
+          )}
+        </div>
+      ))}
     </div>
-  );
+  )
+}
+
+// ---- Bot Card ----
+function BotCard({
+  bot,
+  onStart,
+  onStop,
+  onDelete,
+  onReset,
+}: {
+  bot: Bot
+  onStart: (id: string) => void
+  onStop: (id: string) => void
+  onDelete: (id: string) => void
+  onReset: (id: string) => void
+}) {
+  const { text: statusText, color: statusColor } = statusLabel(bot.status)
+  const stratColor = STRATEGY_COLORS[bot.strategy] ?? '#818cf8'
+  const pnlColor = bot.pnl >= 0 ? '#4ade80' : '#f87171'
+
+  return (
+    <div
+      style={{
+        background: '#13131f',
+        border: '1px solid #252535',
+        borderRadius: '12px',
+        padding: '10px 12px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '7px',
+        transition: 'border-color 0.2s',
+      }}
+      onMouseEnter={(e) =>
+        ((e.currentTarget as HTMLDivElement).style.borderColor = '#3f3f5e')
+      }
+      onMouseLeave={(e) =>
+        ((e.currentTarget as HTMLDivElement).style.borderColor = '#252535')
+      }
+    >
+      {/* Header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div>
+          <h3
+            style={{
+              margin: 0,
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#e2e8f0',
+            }}
+          >
+            {bot.name}
+          </h3>
+          <span
+            style={{
+              fontSize: '11px',
+              fontWeight: 600,
+              color: stratColor,
+              background: `${stratColor}18`,
+              padding: '2px 8px',
+              borderRadius: '6px',
+              marginTop: '5px',
+              display: 'inline-block',
+            }}
+          >
+            {bot.strategy}
+          </span>
+        </div>
+        <span
+          style={{
+            fontSize: '11px',
+            fontWeight: 600,
+            color: statusColor,
+            background: `${statusColor}18`,
+            border: `1px solid ${statusColor}40`,
+            padding: '3px 10px',
+            borderRadius: '8px',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          ● {statusText}
+        </span>
+      </div>
+
+      {/* PnL big number */}
+      <div style={{ borderTop: '1px solid #1e1e30', paddingTop: '7px' }}>
+        <p
+          style={{ fontSize: '10px', color: '#4b5563', margin: '0 0 2px' }}
+        >
+          PnL
+        </p>
+        <p
+          style={{
+            fontSize: '18px',
+            fontWeight: 700,
+            color: pnlColor,
+            margin: 0,
+            letterSpacing: '-0.5px',
+          }}
+        >
+          {fmt(bot.pnl)}
+        </p>
+      </div>
+
+      {/* Stats grid */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr 1fr',
+          gap: '5px',
+        }}
+      >
+        {[
+          { label: 'Trades', value: bot.trades },
+          { label: 'Win rate', value: `${bot.winRate.toFixed(1)}%` },
+          { label: 'Piac', value: bot.market },
+        ].map((s) => (
+          <div
+            key={s.label}
+            style={{
+              background: '#0d0d1a',
+              borderRadius: '6px',
+              padding: '5px 7px',
+            }}
+          >
+            <p
+              style={{
+                fontSize: '10px',
+                color: '#4b5563',
+                margin: '0 0 2px',
+              }}
+            >
+              {s.label}
+            </p>
+            <p
+              style={{
+                fontSize: '13px',
+                fontWeight: 600,
+                color: '#cbd5e1',
+                margin: 0,
+              }}
+            >
+              {s.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {/* W/L bar */}
+      <div>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            fontSize: '11px',
+            color: '#4b5563',
+            marginBottom: '4px',
+          }}
+        >
+          <span style={{ color: '#4ade80' }}>{bot.wins}W</span>
+          <span style={{ color: '#f87171' }}>{bot.losses}L</span>
+        </div>
+        <div
+          style={{
+            height: '4px',
+            background: '#1e1e30',
+            borderRadius: '2px',
+            overflow: 'hidden',
+          }}
+        >
+          <div
+            style={{
+              height: '100%',
+              width:
+                bot.trades > 0
+                  ? `${(bot.wins / bot.trades) * 100}%`
+                  : '0%',
+              background:
+                'linear-gradient(90deg, #22c55e, #4ade80)',
+              borderRadius: '2px',
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: '6px', marginTop: '0px' }}>
+        {bot.status !== 'active' ? (
+          <button
+            onClick={() => onStart(bot.id)}
+            style={{
+              flex: 1,
+              padding: '5px 0',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#4ade80',
+              background: '#4ade8014',
+              border: '1px solid #4ade8030',
+              borderRadius: '7px',
+              cursor: 'pointer',
+            }}
+          >
+            ▶ Indítás
+          </button>
+        ) : (
+          <button
+            onClick={() => onStop(bot.id)}
+            style={{
+              flex: 1,
+              padding: '5px 0',
+              fontSize: '11px',
+              fontWeight: 600,
+              color: '#fbbf24',
+              background: '#fbbf2414',
+              border: '1px solid #fbbf2430',
+              borderRadius: '7px',
+              cursor: 'pointer',
+            }}
+          >
+            ■ Leállítás
+          </button>
+        )}
+        <button
+          onClick={() => onReset(bot.id)}
+          title="Adatok nullázása"
+          style={{
+            padding: '5px 10px',
+            fontSize: '11px',
+            fontWeight: 600,
+            color: '#818cf8',
+            background: '#818cf814',
+            border: '1px solid #818cf830',
+            borderRadius: '7px',
+            cursor: 'pointer',
+          }}
+        >
+          ↺
+        </button>
+        <button
+          onClick={() => onDelete(bot.id)}
+          title="Bot törlése"
+          style={{
+            padding: '5px 10px',
+            fontSize: '11px',
+            fontWeight: 600,
+            color: '#f87171',
+            background: '#f8717114',
+            border: '1px solid #f8717130',
+            borderRadius: '7px',
+            cursor: 'pointer',
+          }}
+        >
+          🗑
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---- Main Page ----
+export default function BotsPage() {
+  const [bots, setBots] = useState<Bot[]>(MOCK_BOTS)
+  const [sortKey, setSortKey] = useState<SortKey>('pnl')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [statusFilter, setStatusFilter] = useState<BotStatus | 'all'>('all')
+  const [search, setSearch] = useState('')
+  const [quickFilter, setQuickFilter] = useState<'none' | 'top3' | 'bottom3'>('none')
+
+  const filtered = useMemo(() => {
+    let list = bots
+    if (statusFilter !== 'all') list = list.filter((b) => b.status === statusFilter)
+    if (search.trim())
+      list = list.filter(
+        (b) =>
+          b.name.toLowerCase().includes(search.toLowerCase()) ||
+          b.strategy.toLowerCase().includes(search.toLowerCase())
+      )
+    const dir = sortDir === 'asc' ? 1 : -1
+    let sorted = [...list].sort((a, b) => {
+      if (sortKey === 'name') return dir * a.name.localeCompare(b.name)
+      return dir * ((a[sortKey] as number) - (b[sortKey] as number))
+    })
+    if (quickFilter === 'top3') {
+      sorted = [...list].sort((a, b) => b.pnl - a.pnl).slice(0, 3)
+    } else if (quickFilter === 'bottom3') {
+      sorted = [...list].sort((a, b) => a.pnl - b.pnl).slice(0, 3)
+    }
+    return sorted
+  }, [bots, sortKey, sortDir, statusFilter, search, quickFilter])
+
+  const toggleDir = () => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+
+  const handleStartAll = () =>
+    setBots((prev) => prev.map((b) => ({ ...b, status: 'active' as BotStatus })))
+
+  const handleStopAll = () =>
+    setBots((prev) => prev.map((b) => ({ ...b, status: 'stopped' as BotStatus })))
+
+  const handleStart = (id: string) =>
+    setBots((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, status: 'active' } : b))
+    )
+  const handleStop = (id: string) =>
+    setBots((prev) =>
+      prev.map((b) => (b.id === id ? { ...b, status: 'stopped' } : b))
+    )
+  const handleDelete = (id: string) =>
+    setBots((prev) => prev.filter((b) => b.id !== id))
+
+  const handleResetAll = () =>
+    setBots((prev) =>
+      prev.map((b) => ({ ...b, pnl: 0, trades: 0, wins: 0, losses: 0, winRate: 0 }))
+    )
+
+  const handleReset = (id: string) =>
+    setBots((prev) =>
+      prev.map((b) =>
+        b.id === id
+          ? { ...b, pnl: 0, trades: 0, wins: 0, losses: 0, winRate: 0 }
+          : b
+      )
+    )
+
+  return (
+    <div
+      style={{
+        padding: '24px',
+        background: '#0b0b14',
+        minHeight: '100vh',
+        overflowY: 'auto',
+        color: '#e2e8f0',
+        fontFamily: 'system-ui, sans-serif',
+      }}
+    >
+      {/* Page header */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '28px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+          <div
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              background: '#3b3bff22',
+              border: '1px solid #3b3bff44',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '22px',
+            }}
+          >
+            🤖
+          </div>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>
+              Botok
+            </h1>
+            <p style={{ margin: 0, fontSize: '13px', color: '#4b5563' }}>
+              Trading botok kezelése
+            </p>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button
+            onClick={handleResetAll}
+            style={{
+              padding: '10px 18px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#818cf8',
+              background: '#818cf814',
+              border: '1px solid #818cf840',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            ↺ Összes nullázása
+          </button>
+          <button
+            style={{
+              padding: '10px 20px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: '#fff',
+              background: '#3b3bff',
+              border: 'none',
+              borderRadius: '10px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            + Új bot
+          </button>
+        </div>
+      </div>
+
+      {/* Stats */}
+      <Stats bots={bots} />
+
+      {/* Controls bar */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '10px',
+          alignItems: 'center',
+          marginBottom: '20px',
+          flexWrap: 'wrap',
+        }}
+      >
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="🔍  Bot keresése..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{
+            flex: '1',
+            minWidth: '180px',
+            padding: '9px 14px',
+            fontSize: '13px',
+            background: '#13131f',
+            border: '1px solid #252535',
+            borderRadius: '10px',
+            color: '#e2e8f0',
+            outline: 'none',
+          }}
+        />
+
+        {/* Status filter */}
+        {(['all', 'active', 'stopped', 'error'] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatusFilter(s)}
+            style={{
+              padding: '8px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '9px',
+              cursor: 'pointer',
+              border:
+                statusFilter === s
+                  ? '1px solid #3b3bff'
+                  : '1px solid #252535',
+              background: statusFilter === s ? '#3b3bff22' : '#13131f',
+              color:
+                statusFilter === s
+                  ? '#818cf8'
+                  : s === 'active'
+                  ? '#4ade80'
+                  : s === 'error'
+                  ? '#f87171'
+                  : '#6b7280',
+            }}
+          >
+            {s === 'all'
+              ? 'Összes'
+              : s === 'active'
+              ? '● Aktív'
+              : s === 'stopped'
+              ? '■ Leállítva'
+              : '✕ Hiba'}
+          </button>
+        ))}
+
+        {/* Sort selector */}
+        <select
+          value={sortKey}
+          onChange={(e) => setSortKey(e.target.value as SortKey)}
+          style={{
+            padding: '9px 12px',
+            fontSize: '12px',
+            background: '#13131f',
+            border: '1px solid #252535',
+            borderRadius: '10px',
+            color: '#e2e8f0',
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          {SORT_OPTIONS.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+
+        {/* Sort direction */}
+        <button
+          onClick={toggleDir}
+          title={sortDir === 'desc' ? 'Csökkenő' : 'Növekvő'}
+          style={{
+            padding: '9px 14px',
+            fontSize: '14px',
+            background: '#13131f',
+            border: '1px solid #252535',
+            borderRadius: '10px',
+            color: '#6b7280',
+            cursor: 'pointer',
+          }}
+        >
+          {sortDir === 'desc' ? '↓' : '↑'}
+        </button>
+      </div>
+
+      {/* Quick actions bar */}
+      <div
+        style={{
+          display: 'flex',
+          gap: '8px',
+          alignItems: 'center',
+          marginBottom: '18px',
+          flexWrap: 'wrap',
+        }}
+      >
+        <span style={{ fontSize: '11px', color: '#4b5563', marginRight: '4px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Gyors műveletek:
+        </span>
+
+        <button
+          onClick={handleStartAll}
+          style={{
+            padding: '7px 14px',
+            fontSize: '12px',
+            fontWeight: 600,
+            color: '#4ade80',
+            background: '#4ade8014',
+            border: '1px solid #4ade8030',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+        >
+          ▶ Összes indítása
+        </button>
+
+        <button
+          onClick={handleStopAll}
+          style={{
+            padding: '7px 14px',
+            fontSize: '12px',
+            fontWeight: 600,
+            color: '#fbbf24',
+            background: '#fbbf2414',
+            border: '1px solid #fbbf2430',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+        >
+          ■ Összes leállítása
+        </button>
+
+        <div style={{ width: '1px', height: '22px', background: '#252535', margin: '0 4px' }} />
+
+        <span style={{ fontSize: '11px', color: '#4b5563', marginRight: '2px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+          Nézet:
+        </span>
+
+        <button
+          onClick={() => setQuickFilter(quickFilter === 'top3' ? 'none' : 'top3')}
+          style={{
+            padding: '7px 14px',
+            fontSize: '12px',
+            fontWeight: 600,
+            color: quickFilter === 'top3' ? '#fbbf24' : '#6b7280',
+            background: quickFilter === 'top3' ? '#fbbf2418' : '#13131f',
+            border: quickFilter === 'top3' ? '1px solid #fbbf2440' : '1px solid #252535',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+        >
+          🏆 Top 3 legjobb
+        </button>
+
+        <button
+          onClick={() => setQuickFilter(quickFilter === 'bottom3' ? 'none' : 'bottom3')}
+          style={{
+            padding: '7px 14px',
+            fontSize: '12px',
+            fontWeight: 600,
+            color: quickFilter === 'bottom3' ? '#f87171' : '#6b7280',
+            background: quickFilter === 'bottom3' ? '#f8717118' : '#13131f',
+            border: quickFilter === 'bottom3' ? '1px solid #f8717140' : '1px solid #252535',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+        >
+          ⚠ Top 3 legrosszabb
+        </button>
+
+        {quickFilter !== 'none' && (
+          <button
+            onClick={() => setQuickFilter('none')}
+            style={{
+              padding: '7px 12px',
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#6b7280',
+              background: '#13131f',
+              border: '1px solid #252535',
+              borderRadius: '8px',
+              cursor: 'pointer',
+            }}
+          >
+            ✕ Szűrő törlése
+          </button>
+        )}
+      </div>
+
+      {/* Grid or empty state */}
+      {filtered.length === 0 ? (
+        <div
+          style={{
+            background: '#13131f',
+            border: '1px dashed #252535',
+            borderRadius: '16px',
+            padding: '60px 32px',
+            textAlign: 'center',
+          }}
+        >
+          <p style={{ fontSize: '40px', margin: '0 0 12px' }}>🤖</p>
+          <p
+            style={{ fontSize: '16px', color: '#6b7280', margin: '0 0 6px' }}
+          >
+            {bots.length === 0
+              ? 'Nincs bot konfiguráció'
+              : 'Nincs találat a szűrési feltételekre'}
+          </p>
+          <p style={{ fontSize: '13px', color: '#374151', margin: 0 }}>
+            {bots.length === 0
+              ? 'Hozzon létre egy új trading botot a kezdéshez'
+              : 'Próbáljon más keresési feltételt'}
+          </p>
+        </div>
+      ) : (
+        <>
+          <p
+            style={{
+              fontSize: '12px',
+              color: '#374151',
+              margin: '0 0 14px',
+            }}
+          >
+            {filtered.length} bot találat
+          </p>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, 1fr)',
+              gap: '10px',
+            }}
+          >
+            {filtered.map((bot) => (
+              <BotCard
+                key={bot.id}
+                bot={bot}
+                onStart={handleStart}
+                onStop={handleStop}
+                onDelete={handleDelete}
+                onReset={handleReset}
+              />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
