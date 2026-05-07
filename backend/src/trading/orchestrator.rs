@@ -17,7 +17,6 @@ use crate::trading::bot_loss_tracker::BotLossTrackerManager;
 use crate::trading::strategy_coordinator::StrategyCoordinator;
 use crate::api::market::fetch_active_markets;
 use crate::api::CachedCredentials;
-use crate::trading::polymarket::{PolymarketClient, OrderRequest};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum BotEvent {
@@ -356,8 +355,8 @@ impl BotOrchestrator {
         data.price.parse::<f64>().map_err(|e| e.to_string())
     }
 
-    async fn place_order(market: &crate::api::market::ActiveMarket, outcome: &str, bet_size: f64, creds: &CachedCredentials) -> Result<String, String> {
-        let order_price = if outcome == "YES" { (market.yes_price * 1.0001).min(0.99) } else { ((1.0 - market.yes_price) * 1.0001).min(0.99) };
+    async fn place_order(market: &crate::api::market::ActiveMarket, outcome: &str, _bet_size: f64, _creds: &CachedCredentials) -> Result<String, String> {
+        let _order_price = if outcome == "YES" { (market.yes_price * 1.0001).min(0.99) } else { ((1.0 - market.yes_price) * 1.0001).min(0.99) };
         Ok("order_id_simulated".to_string())
     }
 

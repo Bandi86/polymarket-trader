@@ -62,7 +62,7 @@ impl Strategy for EdgeHunterStrategy {
         }
 
         // Calculate BTC delta
-        let (delta_pct, btc_price) = match (ctx.btc_price, ctx.btc_window_open) {
+        let (delta_pct, _btc_price) = match (ctx.btc_price, ctx.btc_window_open) {
             (Some(cur), Some(open)) if open > 0.0 => {
                 (calculate_delta(cur, open), cur)
             }

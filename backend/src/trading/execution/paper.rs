@@ -4,7 +4,6 @@
 use crate::db::Db;
 use crate::db::queries;
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Paper execution result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -162,7 +161,7 @@ impl PaperExecutionAdapter {
         let db = &self.db;
 
         // Get bot config
-        let bot = queries::get_bot_by_id(db, intent.bot_id, intent.user_id)
+        let _bot = queries::get_bot_by_id(db, intent.bot_id, intent.user_id)
             .await
             .map_err(|e| e.to_string())?
             .ok_or("Bot not found")?;
@@ -312,7 +311,7 @@ impl PaperExecutionAdapter {
         user_id: i64,
         size: f64,
         price: f64,
-        side: &str,
+        _side: &str,
     ) -> Result<(), String> {
         let cost = size * price;
 

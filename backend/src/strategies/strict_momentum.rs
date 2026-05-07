@@ -7,7 +7,7 @@
 //! By only trading on strong momentum, we filter out the noise trades.
 
 use super::base::{
-    check_price_limits, check_time_remaining, calculate_delta,
+    check_time_remaining, calculate_delta,
     Signal, Strategy, StrategyContext, StrategyDecision, StrategyParams,
 };
 
