@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { TradingModeToggle } from "@/components/ui/trading-mode-toggle";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
@@ -26,10 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="apple-touch-icon" href="/icon.svg" />
       </head>
       <body className="bg-background font-sans text-text antialiased">
-        <Providers>
-          <TradingModeToggle />
-          {children}
-        </Providers>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

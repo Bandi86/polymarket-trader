@@ -1,461 +1,762 @@
-'use client'
+"use client";
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity, Bot as BotIcon, Loader2, Play, Plus, Square, Trash2, RotateCcw,
-  Shield, Target, Wallet, Search, ArrowUpDown, Wifi, WifiOff, Trophy, AlertTriangle,
-  X, TrendingUp, ScrollText, Clock, History
-} from "lucide-react"
-import { toast } from "sonner"
-import { apiFetch } from "@/lib/utils"
-import { useAppStore } from "@/store"
+  Shield, Wallet, Search, ArrowUpDown, WifiOff, Trophy, AlertTriangle,
+  TrendingUp, ScrollText, Filter, ChevronDown, BarChart3
+} from "lucide-react";
+import { toast } from "sonner";
+import { apiFetch } from "@/lib/utils";
+import { AppShell } from "@/components/layout/app-shell";
 
 // ---- Típusok ----
-type BotStatus = 'running' | 'paused' | 'error' | 'stopped'
-type SortKey = 'pnl' | 'winRate' | 'trades' | 'balance' | 'name'
+type BotStatus = "running" | "paused" | "error" | "stopped";
+type SortKey = "pnl" | "winRate" | "trades" | "balance" | "name";
 
 interface TradeResult {
-  id: string
-  win: boolean
-  amount: number
-  time: string
+  id: string;
+  win: boolean;
+  amount: number;
+  time: string;
 }
 
 interface Bot {
-  id: string
-  name: string
-  strategy_type: string
-  status: BotStatus
-  trading_mode: 'paper' | 'live'
-  bet_size: number
-  stop_loss: number
-  take_profit: number
-  market_id: string
-  history?: TradeResult[]
+  id: string;
+  name: string;
+  strategy_type: string;
+  status: BotStatus;
+  trading_mode: "paper" | "live";
+  bet_size: number;
+  stop_loss: number;
+  take_profit: number;
+  market_id: string;
+  history?: TradeResult[];
   portfolio?: {
-    balance: number
-    total_pnl: number
-    total_trades: number
-    winning_trades: number
-    losing_trades: number
-    win_rate: number
-  }
+    balance: number;
+    total_pnl: number;
+    total_trades: number;
+    winning_trades: number;
+    losing_trades: number;
+    win_rate: number;
+  };
 }
 
 interface LogEntry {
-  id: string
-  time: string
-  msg: string
-  type: 'info' | 'success' | 'warn' | 'error'
+  id: string;
+  time: string;
+  msg: string;
+  type: "info" | "success" | "warn" | "error";
 }
 
 const STRATEGY_COLORS: Record<string, string> = {
-  momentum: '#818cf8',
-  mean_reversion: '#34d399',
-  last_seconds_scalp: '#f472b6',
-  binance_signal: '#38bdf8',
-  scalping: '#fb923c',
-  edge_hunter: '#a78bfa',
-  strict_momentum: '#60a5fa',
-  patient_waiter: '#fbbf24',
-  signal_momentum_v2: '#f87171',
-  extreme_edge: '#4ade80',
-}
+  momentum: "#818cf8",
+  mean_reversion: "#34d399",
+  last_seconds_scalp: "#f472b6",
+  binance_signal: "#38bdf8",
+  scalping: "#fb923c",
+  edge_hunter: "#a78bfa",
+  strict_momentum: "#60a5fa",
+  patient_waiter: "#fbbf24",
+  signal_momentum_v2: "#f87171",
+  extreme_edge: "#4ade80",
+  sniper_arb: "#22c55e",
+  volatility_filtered: "#8b5cf6",
+  high_conviction_momentum: "#f59e0b",
+};
+
+const STATUS_COLORS = {
+  running: "bg-green-500",
+  paused: "bg-amber-500",
+  error: "bg-red-500",
+  stopped: "bg-zinc-500",
+};
 
 export default function BotsPage() {
-  const [bots, setBots] = useState<Bot[]>([])
-  const [logs, setLogs] = useState<LogEntry[]>([])
-  const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [lastSync, setLastSync] = useState<Date>(new Date())
-  const [isSyncing, setIsSyncing] = useState(false)
-  const [serverOnline, setServerOnline] = useState(true)
-  const [mounted, setMounted] = useState(false)
-
-  const prevBotsRef = useRef<Bot[]>([])
+  const [bots, setBots] = useState<Bot[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [lastSync, setLastSync] = useState<Date>(new Date());
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [serverOnline, setServerOnline] = useState(true);
+  const [mounted, setMounted] = useState(false);
 
   // UI State
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all' | BotStatus>('all')
-  const [sortKey, setSortKey] = useState<SortKey>('pnl')
-  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
-  const [quickFilter, setQuickFilter] = useState<'none' | 'best3' | 'worst3'>('none')
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | BotStatus>("all");
+  const [sortKey, setSortKey] = useState<SortKey>("pnl");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [quickFilter, setQuickFilter] = useState<"none" | "best3" | "worst3">("none");
+  const [expandedBot, setExpandedBot] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
 
-  const addLog = useCallback((msg: string, type: LogEntry['type'] = 'info') => {
-    const newEntry = { id: Math.random().toString(), time: new Date().toLocaleTimeString(), msg, type }
-    setLogs(prev => [newEntry, ...prev].slice(0, 20))
-  }, [])
+  const prevBotsRef = useRef<Bot[]>([]);
 
-  // ---- Adatbetöltés és Trade Naplózás ----
+  const addLog = useCallback((msg: string, type: LogEntry["type"] = "info") => {
+    const newEntry = { id: Math.random().toString(), time: new Date().toLocaleTimeString(), msg, type };
+    setLogs((prev) => [newEntry, ...prev].slice(0, 50));
+  }, []);
+
   const loadBots = useCallback(async () => {
-    setIsSyncing(true)
+    setIsSyncing(true);
     try {
-      const data = await apiFetch<Bot[]>("/bots")
+      const data = await apiFetch<Bot[]>("/bots");
       const withPortfolio = await Promise.all(
         data.map(async (bot) => {
           try {
-            const p = await apiFetch<any>(`/bots/${bot.id}/portfolio`)
-            return { ...bot, portfolio: p }
-          } catch { return bot }
+            const p = await apiFetch<any>(`/bots/${bot.id}/portfolio`);
+            return { ...bot, portfolio: p };
+          } catch {
+            return bot;
+          }
         })
-      )
+      );
 
       if (prevBotsRef.current.length > 0) {
         withPortfolio.forEach((newBot) => {
-          const oldBot = prevBotsRef.current.find(b => b.id === newBot.id)
+          const oldBot = prevBotsRef.current.find((b) => b.id === newBot.id);
           if (oldBot?.portfolio && newBot.portfolio) {
             if (newBot.portfolio.total_trades > oldBot.portfolio.total_trades) {
-              const pnlDiff = newBot.portfolio.total_pnl - oldBot.portfolio.total_pnl
-              const isWin = pnlDiff >= 0
+              const pnlDiff = newBot.portfolio.total_pnl - oldBot.portfolio.total_pnl;
+              const isWin = pnlDiff >= 0;
               const newTrade: TradeResult = {
                 id: Math.random().toString(),
                 win: isWin,
                 amount: Math.abs(pnlDiff),
-                time: new Date().toLocaleTimeString()
-              }
-              newBot.history = [newTrade, ...(oldBot.history || [])].slice(0, 100)
-              addLog(`${newBot.name}: ${isWin ? 'NYERTES' : 'VESZTES'} trade ($${newTrade.amount.toFixed(2)})`, isWin ? 'success' : 'warn')
+                time: new Date().toLocaleTimeString(),
+              };
+              newBot.history = [newTrade, ...(oldBot.history || [])].slice(0, 100);
+              addLog(
+                `${newBot.name}: ${isWin ? "NYERTES" : "VESZTES"} trade ($${newTrade.amount.toFixed(2)})`,
+                isWin ? "success" : "warn"
+              );
             } else {
-              newBot.history = oldBot.history
+              newBot.history = oldBot.history;
             }
           }
-        })
+        });
       }
 
-      prevBotsRef.current = withPortfolio
-      setBots(withPortfolio)
-      setLastSync(new Date())
-      setServerOnline(true)
+      prevBotsRef.current = withPortfolio;
+      setBots(withPortfolio);
+      setLastSync(new Date());
+      setServerOnline(true);
     } catch (err) {
-      setServerOnline(false)
+      setServerOnline(false);
     } finally {
-      setIsSyncing(false)
+      setIsSyncing(false);
     }
-  }, [addLog])
+  }, [addLog]);
 
   useEffect(() => {
-    setMounted(true)
-    loadBots()
-    const interval = setInterval(loadBots, 15000)
-    return () => clearInterval(interval)
-  }, [loadBots])
+    setMounted(true);
+    loadBots();
+    const interval = setInterval(loadBots, 15000);
+    return () => clearInterval(interval);
+  }, [loadBots]);
 
-  // ---- Műveletek ----
   const handleStart = async (id: string, name: string) => {
-    setActionLoading(id)
+    setActionLoading(id);
     try {
-      await apiFetch(`/bots/${id}/start`, { method: "POST" })
-      toast.success(`${name} elindítva`)
-      addLog(`${name}: Elindítva.`, "success")
-      await loadBots()
-    } catch (err: any) { toast.error(err.message) }
-    finally { setActionLoading(null) }
-  }
+      await apiFetch(`/bots/${id}/start`, { method: "POST" });
+      toast.success(`${name} elindítva`);
+      addLog(`${name}: Elindítva.`, "success");
+      await loadBots();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const handleStop = async (id: string, name: string) => {
-    setActionLoading(id)
+    setActionLoading(id);
     try {
-      await apiFetch(`/bots/${id}/stop`, { method: "POST" })
-      toast.success(`${name} leállítva`)
-      addLog(`${name}: Leállítva.`, "warn")
-      await loadBots()
-    } catch (err: any) { toast.error(err.message) }
-    finally { setActionLoading(null) }
-  }
+      await apiFetch(`/bots/${id}/stop`, { method: "POST" });
+      toast.success(`${name} leállítva`);
+      addLog(`${name}: Leállítva.`, "warn");
+      await loadBots();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const handleReset = async (id: string, name: string) => {
-    if (!confirm(`Resetelsz minden értéket: ${name}?`)) return
-    setActionLoading(id)
+    if (!confirm(`Resetelsz minden értéket: ${name}?`)) return;
+    setActionLoading(id);
     try {
-      await apiFetch(`/bots/${id}/reset`, { method: "POST" })
-      toast.success("Nullázva")
-      addLog(`${name}: Statisztikák nullázva.`, "info")
-      setBots(prev => prev.map(b => b.id === id ? { ...b, history: [] } : b))
-      await loadBots()
-    } catch { toast.error("Backend hiba") }
-    finally { setActionLoading(null) }
-  }
+      await apiFetch(`/bots/${id}/reset`, { method: "POST" });
+      toast.success("Nullázva");
+      addLog(`${name}: Statisztikák nullázva.`, "info");
+      setBots((prev) => prev.map((b) => (b.id === id ? { ...b, history: [] } : b)));
+      await loadBots();
+    } catch {
+      toast.error("Backend hiba");
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
-  // ÖSSZES RESETELÉSE FUNKCIÓ
   const handleResetAll = async () => {
-    if (!confirm("BIZTOSAN nullázni akarod az ÖSSZES bot statisztikáját és egyenlegét?")) return
-    addLog("Összes bot nullázása folyamatban...", "warn")
+    if (!confirm("BIZTOSAN nullázni akarod az ÖSSZES bot statisztikáját és egyenlegét?")) return;
+    addLog("Összes bot nullázása folyamatban...", "warn");
     try {
-      await Promise.all(bots.map(bot => apiFetch(`/bots/${bot.id}/reset`, { method: "POST" })))
-      toast.success("Minden bot nullázva!")
-      setBots(prev => prev.map(b => ({ ...b, history: [] })))
-      await loadBots()
-    } catch { toast.error("Hiba történt a tömeges reset során") }
-  }
+      await Promise.all(bots.map((bot) => apiFetch(`/bots/${bot.id}/reset`, { method: "POST" })));
+      toast.success("Minden bot nullázva!");
+      setBots((prev) => prev.map((b) => ({ ...b, history: [] })));
+      await loadBots();
+    } catch {
+      toast.error("Hiba történt a tömeges reset során");
+    }
+  };
 
-  const handleBulkAction = async (action: 'start' | 'stop') => {
-    const targets = bots.filter(b => action === 'start' ? b.status !== 'running' : b.status === 'running')
-    if (targets.length === 0) return
-    toast.promise(Promise.all(targets.map(b => apiFetch(`/bots/${b.id}/${action}`, { method: "POST" }))), {
+  const handleBulkAction = async (action: "start" | "stop") => {
+    const targets = bots.filter((b) => (action === "start" ? b.status !== "running" : b.status === "running"));
+    if (targets.length === 0) return;
+    toast.promise(Promise.all(targets.map((b) => apiFetch(`/bots/${b.id}/${action}`, { method: "POST" }))), {
       loading: "Művelet folyamatban...",
       success: "Kész!",
-      error: "Hiba történt"
-    })
-    addLog(`Minden bot ${action === 'start' ? 'indítása' : 'leállítása'}.`, "info")
-    setTimeout(loadBots, 2000)
-  }
+      error: "Hiba történt",
+    });
+    addLog(`Minden bot ${action === "start" ? "indítása" : "leállítása"}.`, "info");
+    setTimeout(loadBots, 2000);
+  };
 
   const filteredBots = useMemo(() => {
-    let list = [...bots]
-    if (search) list = list.filter(b => b.name.toLowerCase().includes(search.toLowerCase()))
-    if (statusFilter !== 'all') list = list.filter(b => b.status === statusFilter)
+    let list = [...bots];
+    if (search) list = list.filter((b) => b.name.toLowerCase().includes(search.toLowerCase()));
+    if (statusFilter !== "all") list = list.filter((b) => b.status === statusFilter);
 
     list.sort((a, b) => {
-      let valA: any = 0; let valB: any = 0
-      if (sortKey === 'pnl') { valA = a.portfolio?.total_pnl || 0; valB = b.portfolio?.total_pnl || 0 }
-      else if (sortKey === 'balance') { valA = a.portfolio?.balance || 0; valB = b.portfolio?.balance || 0 }
-      else if (sortKey === 'winRate') { valA = a.portfolio?.win_rate || 0; valB = b.portfolio?.win_rate || 0 }
-      else if (sortKey === 'trades') { valA = a.portfolio?.total_trades || 0; valB = b.portfolio?.total_trades || 0 }
-      else if (sortKey === 'name') return sortDir === 'desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name)
-      return sortDir === 'desc' ? valB - valA : valA - valB
-    })
+      let valA: any = 0;
+      let valB: any = 0;
+      if (sortKey === "pnl") {
+        valA = a.portfolio?.total_pnl || 0;
+        valB = b.portfolio?.total_pnl || 0;
+      } else if (sortKey === "balance") {
+        valA = a.portfolio?.balance || 0;
+        valB = b.portfolio?.balance || 0;
+      } else if (sortKey === "winRate") {
+        valA = a.portfolio?.win_rate || 0;
+        valB = b.portfolio?.win_rate || 0;
+      } else if (sortKey === "trades") {
+        valA = a.portfolio?.total_trades || 0;
+        valB = b.portfolio?.total_trades || 0;
+      } else if (sortKey === "name")
+        return sortDir === "desc" ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
+      return sortDir === "desc" ? valB - valA : valA - valB;
+    });
 
-    if (quickFilter === 'best3') return [...list].sort((a, b) => (b.portfolio?.total_pnl || 0) - (a.portfolio?.total_pnl || 0)).slice(0, 3)
-    if (quickFilter === 'worst3') return [...list].sort((a, b) => (a.portfolio?.total_pnl || 0) - (b.portfolio?.total_pnl || 0)).slice(0, 3)
-    return list
-  }, [bots, search, statusFilter, sortKey, sortDir, quickFilter])
+    if (quickFilter === "best3")
+      return [...list].sort((a, b) => (b.portfolio?.total_pnl || 0) - (a.portfolio?.total_pnl || 0)).slice(0, 3);
+    if (quickFilter === "worst3")
+      return [...list].sort((a, b) => (a.portfolio?.total_pnl || 0) - (b.portfolio?.total_pnl || 0)).slice(0, 3);
+    return list;
+  }, [bots, search, statusFilter, sortKey, sortDir, quickFilter]);
 
   const totalStats = {
-    active: bots.filter(b => b.status === 'running').length,
+    active: bots.filter((b) => b.status === "running").length,
     pnl: bots.reduce((a, b) => a + (b.portfolio?.total_pnl || 0), 0),
     balance: bots.reduce((a, b) => a + (b.portfolio?.balance || 0), 0),
     trades: bots.reduce((a, b) => a + (b.portfolio?.total_trades || 0), 0),
     wins: bots.reduce((a, b) => a + (b.portfolio?.winning_trades || 0), 0),
     losses: bots.reduce((a, b) => a + (b.portfolio?.losing_trades || 0), 0),
-  }
+  };
 
-  if (!mounted) return null
+  if (!mounted) return null;
 
   return (
-    <div style={{ padding: '24px', background: '#0b0b14', minHeight: '100vh', color: '#e2e8f0', fontFamily: 'system-ui, sans-serif' }}>
-
-      {/* 1. FEJLÉC */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '25px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-          <div style={{ background: '#1a1a2e', padding: '10px', borderRadius: '12px', border: '1px solid #252535' }}><BotIcon size={24} color="#6366f1" /></div>
-          <div>
-            <h1 style={{ fontSize: '22px', fontWeight: 700, margin: 0 }}>Trading Dashboard</h1>
-            <p style={{ color: '#4b5563', fontSize: '13px', margin: 0 }}>Advanced Bot Management</p>
-          </div>
-        </div>
-        <button style={{ padding: '10px 20px', background: '#3b3bff', border: 'none', borderRadius: '10px', color: '#fff', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>+ Új bot</button>
-      </div>
-
-      {/* 2. STATISZTIKÁK */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '25px' }}>
-        <SummaryCard label="Aktív botok" value={totalStats.active} color="#a3e635" />
-        <SummaryCard label="Összes PnL" value={`$${totalStats.pnl.toFixed(2)}`} color={totalStats.pnl >= 0 ? "#4ade80" : "#f87171"} />
-        <SummaryCard label="Összes Trade" value={totalStats.trades} color="#e2e8f0" />
-        <SummaryCard label="Egyenleg Sum" value={`$${totalStats.balance.toFixed(2)}`} color="#6366f1" />
-        <div style={{ background: '#13131f', padding: '15px', borderRadius: '12px', border: '1px solid #252535' }}>
-          <p style={{ fontSize: '11px', color: '#4b5563', margin: '0 0 8px' }}>Total Win / Loss</p>
-          <p style={{ fontSize: '20px', fontWeight: 700, margin: 0 }}>
-            <span style={{ color: '#4ade80' }}>{totalStats.wins}W</span>
-            <span style={{ color: '#4b5563', margin: '0 5px' }}>/</span>
-            <span style={{ color: '#f87171' }}>{totalStats.losses}L</span>
-          </p>
-        </div>
-      </div>
-
-      {/* 3. SZŰRŐ ÉS RENDEZŐ */}
-      <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: '200px' }}>
-          <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#4b5563' }} />
-          <input type="text" placeholder="Bot keresése..." value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%', padding: '10px 10px 10px 38px', background: '#13131f', border: '1px solid #252535', borderRadius: '10px', color: '#fff', outline: 'none', fontSize: '13px' }} />
-        </div>
-
-        <div style={{ display: 'flex', background: '#13131f', padding: '3px', borderRadius: '10px', border: '1px solid #252535' }}>
-          {(['all', 'running', 'stopped', 'error'] as const).map(f => (
-            <button key={f} onClick={() => setStatusFilter(f)} style={{ padding: '7px 14px', fontSize: '12px', borderRadius: '8px', border: 'none', background: statusFilter === f ? '#3b3bff20' : 'transparent', color: statusFilter === f ? '#818cf8' : '#4b5563', cursor: 'pointer' }}>
-              {f === 'all' ? 'Összes' : f === 'running' ? '● Aktív' : f === 'stopped' ? '■ Leállítva' : '✕ Hiba'}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <select value={sortKey} onChange={e => setSortKey(e.target.value as SortKey)} style={{ background: '#13131f', color: '#fff', border: '1px solid #252535', padding: '10px 15px', borderRadius: '10px', outline: 'none', fontSize: '13px', cursor: 'pointer' }}>
-            <option value="pnl">Profit</option>
-            <option value="winRate">Win Rate</option>
-            <option value="balance">Egyenleg</option>
-            <option value="name">Név</option>
-          </select>
-          <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')} style={{ background: '#13131f', border: '1px solid #252535', borderRadius: '10px', padding: '10px', color: '#4b5563', cursor: 'pointer' }}><ArrowUpDown size={16} /></button>
-        </div>
-      </div>
-
-      {/* 4. GYORS MŰVELETEK (Reset All Gombbal) */}
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={() => handleBulkAction('start')} style={{ padding: '8px 15px', background: '#22c55e15', color: '#22c55e', border: '1px solid #22c55e30', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>▶ Indít mind</button>
-        <button onClick={() => handleBulkAction('stop')} style={{ padding: '8px 15px', background: '#fbbf2415', color: '#fbbf24', border: '1px solid #fbbf2430', borderRadius: '8px', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>■ Megállít mind</button>
-
-        <div style={{ width: '1px', height: '18px', background: '#252535', margin: '0 5px' }} />
-
-        <button onClick={() => setQuickFilter(quickFilter === 'best3' ? 'none' : 'best3')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 15px', borderRadius: '8px', border: '1px solid #252535', background: quickFilter === 'best3' ? '#fbbf2415' : '#13131f', color: quickFilter === 'best3' ? '#fbbf24' : '#6b7280', fontSize: '12px', cursor: 'pointer' }}>
-          <Trophy size={14} /> Top 3 Legjobb
-        </button>
-        <button onClick={() => setQuickFilter(quickFilter === 'worst3' ? 'none' : 'worst3')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 15px', borderRadius: '8px', border: '1px solid #252535', background: quickFilter === 'worst3' ? '#ef444415' : '#13131f', color: quickFilter === 'worst3' ? '#ef4444' : '#6b7280', fontSize: '12px', cursor: 'pointer' }}>
-          <AlertTriangle size={14} /> Top 3 Legrosszabb
-        </button>
-
-        <div style={{ width: '1px', height: '18px', background: '#252535', margin: '0 5px' }} />
-
-        {/* --- ÚJ: ÖSSZES RESETELÉSE GOMB --- */}
-        <button onClick={handleResetAll} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '7px 15px', borderRadius: '8px', border: '1px solid #3b3bff40', background: '#3b3bff15', color: '#818cf8', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
-          <RotateCcw size={14} /> Összes statisztika nullázása
-        </button>
-      </div>
-
-      {/* 5. BOT RÁCS */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '12px', marginBottom: '30px' }}>
-        {filteredBots.map((bot) => (
-          <BotCard
-            key={bot.id}
-            bot={bot}
-            isLoading={actionLoading === bot.id}
-            onStart={() => handleStart(bot.id, bot.name)}
-            onStop={() => handleStop(bot.id, bot.name)}
-            onReset={() => handleReset(bot.id, bot.name)}
-            onDelete={() => { if (confirm("Végleges törlés?")) apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots) }}
-          />
-        ))}
-      </div>
-
-      {/* 6. GLOBAL LOG */}
-      <div style={{ background: '#13131f', border: '1px solid #252535', borderRadius: '16px', padding: '18px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '15px', color: '#6366f1' }}>
-          <ScrollText size={18} />
-          <h2 style={{ fontSize: '14px', fontWeight: 700, margin: 0, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Eseménynapló</h2>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto' }}>
-          {logs.map(log => (
-            <div key={log.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', padding: '8px 12px', background: '#0b0b14', borderRadius: '8px', borderLeft: `3px solid ${log.type === 'success' ? '#22c55e' : log.type === 'warn' ? '#fbbf24' : '#6366f1'}` }}>
-              <span>{log.msg}</span>
-              <span style={{ color: '#4b5563' }}>{log.time}</span>
+    <AppShell>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10">
+              <BotIcon className="h-6 w-6 text-indigo-400" />
             </div>
+            <div>
+              <h1 className="text-2xl font-bold text-white">Bot Fleet Manager</h1>
+              <p className="text-sm text-zinc-500">
+                {bots.length} bot · {totalStats.active} aktív
+              </p>
+            </div>
+          </div>
+
+          <button className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600">
+            <Plus className="h-4 w-4" />
+            Új bot
+          </button>
+        </div>
+
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+          <StatCard
+            label="Aktív Botok"
+            value={totalStats.active}
+            icon={<Activity className="h-4 w-4" />}
+            color="green"
+          />
+          <StatCard
+            label="Összes PnL"
+            value={`$${totalStats.pnl.toFixed(2)}`}
+            icon={<TrendingUp className="h-4 w-4" />}
+            color={totalStats.pnl >= 0 ? "green" : "red"}
+          />
+          <StatCard
+            label="Összes Trade"
+            value={totalStats.trades}
+            icon={<BarChart3 className="h-4 w-4" />}
+            color="blue"
+          />
+          <StatCard
+            label="Egyenleg"
+            value={`$${totalStats.balance.toFixed(2)}`}
+            icon={<Wallet className="h-4 w-4" />}
+            color="indigo"
+          />
+          <StatCard
+            label="Win Rate"
+            value={`${bots.length > 0 ? (((totalStats.wins / (totalStats.wins + totalStats.losses)) * 100) || 0).toFixed(1) : 0}%`}
+            icon={<Trophy className="h-4 w-4" />}
+            color="amber"
+          />
+          <StatCard
+            label="W / L"
+            value={`${totalStats.wins} / ${totalStats.losses}`}
+            icon={<Shield className="h-4 w-4" />}
+            color="violet"
+          />
+        </div>
+
+        {/* Filters */}
+        <div className="space-y-4 rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search */}
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+              <input
+                type="text"
+                placeholder="Bot keresése..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-zinc-800/50 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-500 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
+              />
+            </div>
+
+            {/* Status Filters */}
+            <div className="flex rounded-lg border border-white/10 bg-zinc-800/30 p-1">
+              {(["all", "running", "stopped", "error"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setStatusFilter(f)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                    statusFilter === f
+                      ? "bg-indigo-500/20 text-indigo-400"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                >
+                  {f === "all"
+                    ? "Összes"
+                    : f === "running"
+                      ? `● Aktív (${bots.filter((b) => b.status === "running").length})`
+                      : f === "stopped"
+                        ? `■ Leállítva`
+                        : `✕ Hiba`}
+                </button>
+              ))}
+            </div>
+
+            {/* Sort */}
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as SortKey)}
+              className="rounded-lg border border-white/10 bg-zinc-800/50 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
+            >
+              <option value="pnl">Profit</option>
+              <option value="winRate">Win Rate</option>
+              <option value="balance">Egyenleg</option>
+              <option value="trades">Trade-ek</option>
+              <option value="name">Név</option>
+            </select>
+
+            <button
+              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-zinc-800/50 text-zinc-400 transition-colors hover:text-white hover:border-white/20"
+            >
+              <ArrowUpDown className={`h-4 w-4 transition-transform ${sortDir === "asc" ? "rotate-180" : ""}`} />
+            </button>
+
+            {/* Quick filters toggle */}
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-all ${
+                showFilters || quickFilter !== "none"
+                  ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+                  : "border-white/10 bg-zinc-800/50 text-zinc-400 hover:text-white"
+              }`}
+            >
+              <Filter className="h-4 w-4" />
+              Gyorsszűrők
+              <ChevronDown className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+
+          {/* Quick filters panel */}
+          <AnimatePresence>
+            {showFilters && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/5"
+              >
+                <span className="text-xs text-zinc-500">Gyors nézet:</span>
+                <button
+                  onClick={() => setQuickFilter(quickFilter === "best3" ? "none" : "best3")}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                    quickFilter === "best3"
+                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                      : "bg-zinc-800/50 text-zinc-400 border border-white/5 hover:text-white"
+                  }`}
+                >
+                  <Trophy className="h-3 w-3" />
+                  Top 3 Legjobb
+                </button>
+                <button
+                  onClick={() => setQuickFilter(quickFilter === "worst3" ? "none" : "worst3")}
+                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                    quickFilter === "worst3"
+                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                      : "bg-zinc-800/50 text-zinc-400 border border-white/5 hover:text-white"
+                  }`}
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                  Top 3 Legrosszabb
+                </button>
+
+                <div className="h-4 w-px bg-white/10 mx-2" />
+
+                <button
+                  onClick={handleBulkAction.bind(null, "start")}
+                  className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+                >
+                  <Play className="h-3 w-3" />
+                  Indít mind
+                </button>
+                <button
+                  onClick={handleBulkAction.bind(null, "stop")}
+                  className="flex items-center gap-1.5 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+                >
+                  <Square className="h-3 w-3" />
+                  Megállít mind
+                </button>
+                <button
+                  onClick={handleResetAll}
+                  className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Összes nullázása
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
+        {/* Bot Grid */}
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {filteredBots.map((bot) => (
+            <BotCard
+              key={bot.id}
+              bot={bot}
+              isExpanded={expandedBot === bot.id}
+              isLoading={actionLoading === bot.id}
+              onToggle={() => setExpandedBot(expandedBot === bot.id ? null : bot.id)}
+              onStart={() => handleStart(bot.id, bot.name)}
+              onStop={() => handleStop(bot.id, bot.name)}
+              onReset={() => handleReset(bot.id, bot.name)}
+              onDelete={() => {
+                if (confirm("Végleges törlés?")) apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots);
+              }}
+            />
           ))}
         </div>
-      </div>
 
-      <div style={{ marginTop: '20px', display: 'flex', alignItems: 'center', gap: '10px', fontSize: '11px', color: '#4b5563' }}>
-        {serverOnline ? <Wifi size={14} color="#22c55e" /> : <WifiOff size={14} color="#ef4444" />}
-        <span>Kapcsolat: {serverOnline ? 'ONLINE' : 'OFFLINE'}</span>
-        <span style={{ margin: '0 5px' }}>•</span>
-        <span>Frissítve: {lastSync.toLocaleTimeString()}</span>
-        {isSyncing && <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />}
-      </div>
-    </div>
-  )
-}
-
-function SummaryCard({ label, value, color }: { label: string, value: string | number, color: string }) {
-  return (
-    <div style={{ background: '#13131f', padding: '15px', borderRadius: '12px', border: '1px solid #252535' }}>
-      <p style={{ fontSize: '11px', color: '#4b5563', margin: '0 0 8px' }}>{label}</p>
-      <p style={{ fontSize: '20px', fontWeight: 700, color: color, margin: 0 }}>{value}</p>
-    </div>
-  )
-}
-
-function BotCard({ bot, onStart, onStop, onReset, onDelete, isLoading }: { bot: Bot, onStart: any, onStop: any, onReset: any, onDelete: any, isLoading: boolean }) {
-  const pnl = bot.portfolio?.total_pnl || 0
-  const balance = bot.portfolio?.balance || 0
-  const wins = bot.portfolio?.winning_trades || 0
-  const losses = bot.portfolio?.losing_trades || 0
-  const strategyColor = STRATEGY_COLORS[bot.strategy_type] || '#818cf8'
-
-  return (
-    <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ background: '#13131f', border: '1px solid #252535', borderRadius: '16px', padding: '15px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {/* Fejléc */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ overflow: 'hidden' }}>
-          <h3 style={{ fontSize: '14px', fontWeight: 700, margin: 0, whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{bot.name}</h3>
-          <span style={{ fontSize: '9px', fontWeight: 800, color: strategyColor, background: `${strategyColor}15`, padding: '2px 6px', borderRadius: '4px', marginTop: '4px', display: 'inline-block' }}>{bot.strategy_type.toUpperCase()}</span>
-        </div>
-        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: bot.status === 'running' ? '#22c55e' : '#4b5563', boxShadow: bot.status === 'running' ? '0 0 10px #22c55e' : 'none' }} />
-      </div>
-
-      {/* Értékek */}
-      <div style={{ background: '#0d0d1a', padding: '10px', borderRadius: '12px', border: '1px solid #1e1e30' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Wallet size={12} color="#6366f1" />
-            <span style={{ fontSize: '9px', color: '#4b5563', fontWeight: 600 }}>EGYENLEG</span>
+        {filteredBots.length === 0 && (
+          <div className="flex flex-col items-center justify-center rounded-xl border border-white/5 bg-zinc-900/30 py-16">
+            <BotIcon className="h-12 w-12 text-zinc-700 mb-4" />
+            <p className="text-lg font-medium text-zinc-400">Nincs találat</p>
+            <p className="text-sm text-zinc-600">Próbáld módosítani a szűrőket</p>
           </div>
-          <span style={{ fontSize: '13px', fontWeight: 700 }}>${balance.toFixed(2)}</span>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <TrendingUp size={12} color={pnl >= 0 ? '#4ade80' : '#f87171'} />
-            <span style={{ fontSize: '9px', color: '#4b5563', fontWeight: 600 }}>PnL</span>
-          </div>
-          <span style={{ fontSize: '15px', fontWeight: 800, color: pnl >= 0 ? '#4ade80' : '#f87171' }}>{pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}</span>
-        </div>
-      </div>
-
-      {/* Config rács */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '5px' }}>
-        <div style={{ background: '#1a1a2e', padding: '5px', borderRadius: '8px', textAlign: 'center' }}>
-          <p style={{ fontSize: '7px', color: '#4b5563', margin: 0 }}>TÉT</p>
-          <p style={{ fontSize: '10px', fontWeight: 700, margin: 0 }}>${bot.bet_size}</p>
-        </div>
-        <div style={{ background: '#1a1a2e', padding: '5px', borderRadius: '8px', textAlign: 'center' }}>
-          <p style={{ fontSize: '7px', color: '#ef4444', margin: 0 }}>SL</p>
-          <p style={{ fontSize: '10px', fontWeight: 700, margin: 0 }}>-{(bot.stop_loss * 100).toFixed(0)}%</p>
-        </div>
-        <div style={{ background: '#1a1a2e', padding: '5px', borderRadius: '8px', textAlign: 'center' }}>
-          <p style={{ fontSize: '7px', color: '#22c55e', margin: 0 }}>TP</p>
-          <p style={{ fontSize: '10px', fontWeight: 700, margin: 0 }}>+{(bot.take_profit * 100).toFixed(0)}%</p>
-        </div>
-      </div>
-
-      {/* Bot Log Ablak */}
-      <div style={{ background: '#080812', borderRadius: '10px', padding: '8px', border: '1px solid #1a1a2e' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
-          <History size={10} color="#4b5563" />
-          <span style={{ fontSize: '9px', fontWeight: 700, color: '#4b5563' }}>UTÓBBI KÖTÉSEK ({wins}W / {losses}L)</span>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', height: '60px', overflowY: 'auto' }}>
-          {bot.history && bot.history.length > 0 ? (
-            bot.history.map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', background: '#13131f', padding: '3px 6px', borderRadius: '4px' }}>
-                <span style={{ color: t.win ? '#22c55e' : '#ef4444', fontWeight: 800 }}>{t.win ? '✅ NYERT' : '❌ VESZTETT'}</span>
-                <span style={{ fontWeight: 700 }}>${t.amount.toFixed(2)}</span>
-              </div>
-            ))
-          ) : (
-            <p style={{ fontSize: '8px', color: '#333', textAlign: 'center', marginTop: '15px' }}>Még nincs kötés...</p>
-          )}
-        </div>
-      </div>
-
-      {/* Win Rate Bar */}
-      <div style={{ height: '4px', background: '#1e1e30', borderRadius: '2px', overflow: 'hidden' }}>
-        <div style={{ height: '100%', width: `${bot.portfolio?.win_rate || 0}%`, background: '#22c55e', transition: 'width 1s ease' }} />
-      </div>
-
-      {/* Gombok */}
-      <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
-        {bot.status === 'running' ? (
-          <button onClick={onStop} disabled={isLoading} style={{ flex: 3, padding: '10px', background: '#fbbf2415', color: '#fbbf24', border: '1px solid #fbbf2430', borderRadius: '10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800 }}>
-            {isLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'LEÁLLÍT'}
-          </button>
-        ) : (
-          <button onClick={onStart} disabled={isLoading} style={{ flex: 3, padding: '10px', background: '#22c55e15', color: '#22c55e', border: '1px solid #22c55e30', borderRadius: '10px', cursor: 'pointer', fontSize: '11px', fontWeight: 800 }}>
-            {isLoading ? <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} /> : 'INDÍTÁS'}
-          </button>
         )}
-        <button onClick={onReset} disabled={isLoading} title="Reset Stat" style={{ flex: 1, padding: '10px', background: '#3b3bff15', color: '#818cf8', border: '1px solid #3b3bff30', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <RotateCcw size={16} />
-        </button>
-        <button onClick={onDelete} style={{ flex: 1, padding: '10px', background: '#ef444415', color: '#ef4444', border: '1px solid #ef444430', borderRadius: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Trash2 size={16} />
-        </button>
+
+        {/* Activity Log */}
+        <div className="rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 text-indigo-400">
+              <ScrollText className="h-4 w-4" />
+              <h3 className="text-sm font-semibold uppercase tracking-wider">Eseménynapló</h3>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-zinc-500">
+              {serverOnline ? (
+                <span className="flex items-center gap-1.5 text-green-500">
+                  <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                  ONLINE
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 text-red-500">
+                  <WifiOff className="h-3 w-3" />
+                  OFFLINE
+                </span>
+              )}
+              <span>Frissítve: {lastSync.toLocaleTimeString()}</span>
+              {isSyncing && <Loader2 className="h-3 w-3 animate-spin" />}
+            </div>
+          </div>
+
+          <div className="max-h-40 space-y-2 overflow-y-auto">
+            {logs.map((log) => (
+              <div
+                key={log.id}
+                className="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2 text-xs"
+              >
+                <span
+                  className={
+                    log.type === "success"
+                      ? "text-green-400"
+                      : log.type === "warn"
+                        ? "text-amber-400"
+                        : log.type === "error"
+                          ? "text-red-400"
+                          : "text-zinc-400"
+                  }
+                >
+                  {log.msg}
+                </span>
+                <span className="text-zinc-600">{log.time}</span>
+              </div>
+            ))}
+            {logs.length === 0 && (
+              <p className="py-4 text-center text-xs text-zinc-600">Még nincs esemény...</p>
+            )}
+          </div>
+        </div>
       </div>
+    </AppShell>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  icon,
+  color,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ReactNode;
+  color: "green" | "red" | "blue" | "indigo" | "amber" | "violet";
+}) {
+  const colors = {
+    green: "text-green-400 bg-green-500/10 border-green-500/20",
+    red: "text-red-400 bg-red-500/10 border-red-500/20",
+    blue: "text-blue-400 bg-blue-500/10 border-blue-500/20",
+    indigo: "text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+    amber: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    violet: "text-violet-400 bg-violet-500/10 border-violet-500/20",
+  };
+
+  return (
+    <div className={`rounded-xl border p-4 ${colors[color]}`}>
+      <div className="mb-2 flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/20">{icon}</div>
+        <span className="text-xs font-medium uppercase tracking-wider text-current/60">{label}</span>
+      </div>
+      <p className="text-2xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function BotCard({
+  bot,
+  isExpanded,
+  isLoading,
+  onToggle,
+  onStart,
+  onStop,
+  onReset,
+  onDelete,
+}: {
+  bot: Bot;
+  isExpanded: boolean;
+  isLoading: boolean;
+  onToggle: () => void;
+  onStart: () => void;
+  onStop: () => void;
+  onReset: () => void;
+  onDelete: () => void;
+}) {
+  const pnl = bot.portfolio?.total_pnl || 0;
+  const balance = bot.portfolio?.balance || 0;
+  const wins = bot.portfolio?.winning_trades || 0;
+  const losses = bot.portfolio?.losing_trades || 0;
+  const winRate = bot.portfolio?.win_rate || 0;
+  const strategyColor = STRATEGY_COLORS[bot.strategy_type] || "#818cf8";
+  const isRunning = bot.status === "running";
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`rounded-xl border transition-all ${
+        isRunning ? "border-green-500/20 bg-green-500/5" : "border-white/5 bg-zinc-900/50"
+      }`}
+    >
+      {/* Card Header */}
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between p-4 text-left"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={`h-3 w-3 rounded-full flex-shrink-0 ${STATUS_COLORS[bot.status]} ${
+              isRunning ? "animate-pulse shadow-lg shadow-green-500/50" : ""
+            }`}
+          />
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-white">{bot.name}</h3>
+            <span
+              className="inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase"
+              style={{ color: strategyColor, backgroundColor: `${strategyColor}15` }}
+            >
+              {bot.strategy_type}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="text-right">
+            <p className={`text-lg font-bold ${pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}
+            </p>
+            <p className="text-xs text-zinc-500">${balance.toFixed(2)}</p>
+          </div>
+          <ChevronDown
+            className={`h-4 w-4 text-zinc-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+          />
+        </div>
+      </button>
+
+      {/* Expanded Content */}
+      <AnimatePresence>
+        {isExpanded && (
+          <motion.div
+            initial={{ height: 0 }}
+            animate={{ height: "auto" }}
+            exit={{ height: 0 }}
+            className="overflow-hidden border-t border-white/5"
+          >
+            <div className="space-y-4 p-4">
+              {/* Stats Grid */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                  <p className="text-[10px] uppercase text-zinc-500 mb-1">Tét</p>
+                  <p className="text-sm font-bold text-white">${bot.bet_size}</p>
+                </div>
+                <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                  <p className="text-[10px] uppercase text-red-500/70 mb-1">Stop Loss</p>
+                  <p className="text-sm font-bold text-red-400">-{(bot.stop_loss * 100).toFixed(0)}%</p>
+                </div>
+                <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                  <p className="text-[10px] uppercase text-green-500/70 mb-1">Take Profit</p>
+                  <p className="text-sm font-bold text-green-400">+{(bot.take_profit * 100).toFixed(0)}%</p>
+                </div>
+              </div>
+
+              {/* Win Rate Bar */}
+              <div>
+                <div className="mb-1 flex items-center justify-between text-xs">
+                  <span className="text-zinc-500">Win Rate</span>
+                  <span className="font-medium text-white">{winRate.toFixed(1)}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${winRate}%` }}
+                    className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-500"
+                  />
+                </div>
+                <p className="mt-1 text-xs text-zinc-600">
+                  {wins} nyert / {losses} vesztett
+                </p>
+              </div>
+
+              {/* Recent Trades */}
+              <div>
+                <p className="mb-2 text-xs font-medium text-zinc-500">Legutóbbi kötések</p>
+                <div className="max-h-24 space-y-1.5 overflow-y-auto rounded-lg bg-black/20 p-2">
+                  {bot.history && bot.history.length > 0 ? (
+                    bot.history.slice(0, 5).map((t) => (
+                      <div
+                        key={t.id}
+                        className="flex items-center justify-between rounded bg-zinc-800/50 px-2 py-1 text-xs"
+                      >
+                        <span className={t.win ? "text-green-400" : "text-red-400"}>
+                          {t.win ? "✅ NYERT" : "❌ VESZTETT"}
+                        </span>
+                        <span className="font-mono font-medium text-white">${t.amount.toFixed(2)}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="py-2 text-center text-[10px] text-zinc-600">Még nincs kötés...</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-2">
+                {isRunning ? (
+                  <button
+                    onClick={onStop}
+                    disabled={isLoading}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-amber-500/10 py-2.5 text-sm font-semibold text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                    Leállít
+                  </button>
+                ) : (
+                  <button
+                    onClick={onStart}
+                    disabled={isLoading}
+                    className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-green-500/10 py-2.5 text-sm font-semibold text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors disabled:opacity-50"
+                  >
+                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    Indít
+                  </button>
+                )}
+                <button
+                  onClick={onReset}
+                  disabled={isLoading}
+                  className="flex items-center justify-center rounded-lg bg-indigo-500/10 p-2.5 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+                  title="Statisztikák nullázása"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={onDelete}
+                  className="flex items-center justify-center rounded-lg bg-red-500/10 p-2.5 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                  title="Bot törlése"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
-  )
+  );
 }

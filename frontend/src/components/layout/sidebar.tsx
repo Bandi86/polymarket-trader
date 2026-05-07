@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { useAppStore } from "@/store";
 
 const navItems = [
@@ -33,11 +34,23 @@ interface SidebarProps {
 export function Sidebar({ collapsed }: SidebarProps) {
   const pathname = usePathname();
   const { toggleSidebar } = useAppStore();
+  const [isNarrow, setIsNarrow] = useState(false);
+  const isCompact = collapsed || isNarrow;
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 1023px)");
+    const syncNarrowState = () => setIsNarrow(media.matches);
+
+    syncNarrowState();
+    media.addEventListener("change", syncNarrowState);
+
+    return () => media.removeEventListener("change", syncNarrowState);
+  }, []);
 
   return (
     <motion.aside
       initial={false}
-      animate={{ width: collapsed ? 64 : 220 }}
+      animate={{ width: isCompact ? 64 : 220 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
       className="flex flex-col h-full bg-zinc-950/95 border-r border-white/8 backdrop-blur-xl relative"
     >
@@ -46,7 +59,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500/15 flex-shrink-0">
           <LayoutDashboard className="h-5 w-5 text-indigo-500" />
         </div>
-        {!collapsed && (
+        {!isCompact && (
           <motion.span
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -68,7 +81,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
               key={item.href}
               href={item.href}
               className={`flex items-center gap-3 rounded-xl px-3 py-2.5 mb-1 cursor-pointer transition-all
-              ${collapsed ? "justify-center" : "justify-start"}
+              ${isCompact ? "justify-center" : "justify-start"}
               ${
                 isActive
                   ? "bg-indigo-500/15 border border-indigo-500/30 text-indigo-400"
@@ -76,7 +89,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
               }`}
             >
               <Icon className="h-5 w-5 flex-shrink-0" />
-              {!collapsed && (
+              {!isCompact && (
                 <motion.span
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
@@ -91,7 +104,7 @@ export function Sidebar({ collapsed }: SidebarProps) {
       </nav>
 
       {/* Emergency Stop */}
-      {!collapsed && (
+      {!isCompact && (
         <div className="border-t border-white/8 p-3 pb-4">
           <button type="button" className="btn-emergency w-full">
             Emergency Stop
@@ -100,13 +113,15 @@ export function Sidebar({ collapsed }: SidebarProps) {
       )}
 
       {/* Collapse toggle */}
-      <button
-        type="button"
-        onClick={toggleSidebar}
-        className="absolute -right-3 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-zinc-900/60 border border-white/8 text-zinc-400 hover:text-zinc-200 cursor-pointer z-10 transition-colors"
-      >
-        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-      </button>
+      {!isNarrow && (
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="absolute -right-3 top-4 z-10 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-white/8 bg-zinc-900/60 text-zinc-400 transition-colors hover:text-zinc-200"
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
+      )}
     </motion.aside>
   );
 }
