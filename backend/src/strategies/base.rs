@@ -111,6 +111,19 @@ pub fn calculate_fair_prob(delta_pct: f64) -> f64 {
     0.5 + (delta_pct / 0.05).tanh() * 0.45
 }
 
+/// Calculate edge: positive means we have advantage over market
+/// edge = our_prob - market_prob
+/// e.g., if our_prob=0.55 and market_prob=0.52, edge=0.03 (3% advantage)
+pub fn calculate_edge(our_prob: f64, market_prob: f64) -> f64 {
+    our_prob - market_prob
+}
+
+/// Check if edge is sufficient for trading
+/// min_edge default 0.07 (7%) - only trade if we have 7%+ advantage
+pub fn has_sufficient_edge(our_prob: f64, market_prob: f64, min_edge: f64) -> bool {
+    calculate_edge(our_prob, market_prob).abs() > min_edge
+}
+
 /// Helper: Check if price is within acceptable range
 pub fn check_price_limits(price: f64, params: &StrategyParams) -> bool {
     price >= params.min_price && price <= params.max_price
@@ -233,5 +246,27 @@ mod tests {
         assert_eq!(params.min_price, 0.30);
         assert_eq!(params.max_price, 0.70);
         assert!(params.min_odds.is_none());
+    }
+
+    #[test]
+    fn test_calculate_edge_positive() {
+        let edge = calculate_edge(0.55, 0.52);
+        assert!((edge - 0.03).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_calculate_edge_negative() {
+        let edge = calculate_edge(0.48, 0.52);
+        assert!((edge - (-0.04)).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_has_sufficient_edge_true() {
+        assert!(has_sufficient_edge(0.57, 0.50, 0.07));
+    }
+
+    #[test]
+    fn test_has_sufficient_edge_false() {
+        assert!(!has_sufficient_edge(0.55, 0.52, 0.07)); // 3% < 7% threshold
     }
 }
