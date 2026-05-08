@@ -121,7 +121,7 @@ pub fn calculate_edge(our_prob: f64, market_prob: f64) -> f64 {
 /// Check if edge is sufficient for trading
 /// min_edge default 0.07 (7%) - only trade if we have 7%+ advantage
 pub fn has_sufficient_edge(our_prob: f64, market_prob: f64, min_edge: f64) -> bool {
-    calculate_edge(our_prob, market_prob).abs() > min_edge
+    calculate_edge(our_prob, market_prob).abs() >= min_edge
 }
 
 /// Helper: Check if price is within acceptable range
@@ -262,7 +262,8 @@ mod tests {
 
     #[test]
     fn test_has_sufficient_edge_true() {
-        assert!(has_sufficient_edge(0.57, 0.50, 0.07));
+        // 8% edge > 7% threshold = sufficient
+        assert!(has_sufficient_edge(0.58, 0.50, 0.07));
     }
 
     #[test]

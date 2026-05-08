@@ -199,14 +199,16 @@ mod tests {
     #[test]
     fn test_confidence_scaling() {
         let strat = SignalMomentumV2Strategy::default();
-       // Small delta but above threshold -> lower confidence
+        // Small delta but above threshold -> lower confidence
         let c1 = ctx(80100.0, 80000.0, 0.52, 120000); // 0.125% delta
         let d1 = strat.evaluate(&c1);
-        if let Signal::Yes(c1_conf) = d1.signal {
-           // Strong delta -> higher confidence
+        if let Signal::Yes = d1.signal {
+            let c1_conf = d1.confidence;
+            // Strong delta -> higher confidence
             let c2 = ctx(80300.0, 80000.0, 0.52, 120000); // 0.375% delta
             let d2 = strat.evaluate(&c2);
-            if let Signal::Yes(c2_conf) = d2.signal {
+            if let Signal::Yes = d2.signal {
+                let c2_conf = d2.confidence;
                 assert!(
                     c2_conf > c1_conf,
                     "Stronger delta should have higher confidence"
