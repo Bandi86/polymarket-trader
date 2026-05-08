@@ -89,6 +89,103 @@ impl BotInstance {
     }
 }
 
+pub struct CompetitionManager {
+    bots: Vec<BotInstance>,
+    state: CompetitionState,
+}
+
+impl CompetitionManager {
+    pub fn new() -> Self {
+        Self {
+            bots: Vec::new(),
+            state: CompetitionState::default(),
+        }
+    }
+
+    pub fn start(&mut self, configs: Vec<(&str, &str)>) -> &CompetitionState {
+        // configs: Vec of (bot_id, strategy_type)
+        self.bots.clear();
+        for (id, strategy) in configs {
+            let name = format!("Bot-{}", &id[..8]);
+            self.bots.push(BotInstance::new(id, &name, strategy));
+        }
+
+        self.state.active = true;
+        self.state.start_time = chrono::Utc::now().timestamp_millis();
+        self.state.entries.clear();
+
+        &self.state
+    }
+
+    pub fn get_bot(&mut self, bot_id: &str) -> Option<&mut BotInstance> {
+        self.bots.iter_mut().find(|b| b.id == bot_id)
+    }
+
+    pub fn apply_trade(&mut self, bot_id: &str, won: bool, pnl: f64) -> bool {
+        if let Some(bot) = self.get_bot(bot_id) {
+            bot.apply_trade(won, pnl);
+            return true;
+        }
+        false
+    }
+
+    pub fn update_leaderboard(&mut self) -> &Vec<LeaderboardEntry> {
+        let min_trades = self.state.min_trades;
+
+        // Sort bots by: qualified (min_trades) → P&L → win rate
+        let mut sorted: Vec<&mut BotInstance> = self.bots.iter_mut().collect();
+        sorted.sort_by(|a, b| {
+            let a_qualified = a.stats.trades >= min_trades;
+            let b_qualified = b.stats.trades >= min_trades;
+
+            if a_qualified != b_qualified {
+                return if a_qualified { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater };
+            }
+
+            let pnl_cmp = b.stats.pnl.partial_cmp(&a.stats.pnl).unwrap_or(std::cmp::Ordering::Equal);
+            if pnl_cmp != std::cmp::Ordering::Equal {
+                return pnl_cmp;
+            }
+
+            b.stats.win_rate.partial_cmp(&a.stats.win_rate).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Build leaderboard
+        self.state.entries.clear();
+        for (i, bot) in sorted.iter().enumerate() {
+            let roi = ((bot.balance - self.state.start_balance) / self.state.start_balance) * 100.0;
+            self.state.entries.push(LeaderboardEntry {
+                bot_id: bot.id.clone(),
+                bot_name: bot.name.clone(),
+                strategy: bot.strategy_type.clone(),
+                rank: (i + 1) as u32,
+                trades: bot.stats.trades,
+                win_rate: bot.stats.win_rate,
+                pnl: bot.stats.pnl,
+                roi,
+                balance: bot.balance,
+            });
+        }
+
+        &self.state.entries
+    }
+
+    pub fn get_state(&self) -> &CompetitionState {
+        &self.state
+    }
+
+    pub fn stop(&mut self) -> &CompetitionState {
+        self.state.active = false;
+        &self.state
+    }
+}
+
+impl Default for CompetitionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LeaderboardEntry {
     pub bot_id: String,
