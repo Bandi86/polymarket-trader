@@ -1223,3 +1223,92 @@ pub async fn set_all_bots_mode(
         }
     }
 }
+
+// ==================== Competition Endpoints ====================
+
+/// POST /api/competition/start - Start competition with 15 bots
+pub async fn start_competition(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Response {
+    // 15 bot configurations with different strategies
+    let bot_configs = vec![
+        ("bot_001", "window_delta"),
+        ("bot_002", "momentum"),
+        ("bot_003", "edge_hunter"),
+        ("bot_004", "strict_momentum"),
+        ("bot_005", "window_delta"),
+        ("bot_006", "momentum"),
+        ("bot_007", "edge_hunter"),
+        ("bot_008", "strict_momentum"),
+        ("bot_009", "window_delta"),
+        ("bot_010", "momentum"),
+        ("bot_011", "edge_hunter"),
+        ("bot_012", "strict_momentum"),
+        ("bot_013", "window_delta"),
+        ("bot_014", "momentum"),
+        ("bot_015", "edge_hunter"),
+    ];
+
+    let configs: Vec<(&str, &str)> = bot_configs;
+
+    let mut cm = state.orchestrator.competition_manager.write().await;
+    let state_ref = cm.start(configs);
+
+    tracing::info!("Competition started with 15 bots");
+
+    Json(serde_json::json!({
+        "success": true,
+        "active": state_ref.active,
+        "start_time": state_ref.start_time,
+        "bot_count": 15,
+        "start_balance": state_ref.start_balance
+    })).into_response()
+}
+
+/// GET /api/competition/leaderboard - Get current leaderboard
+pub async fn get_leaderboard(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Response {
+    let mut cm = state.orchestrator.competition_manager.write().await;
+    let comp_state = cm.get_state().clone();
+    let leaderboard = cm.update_leaderboard();
+
+    Json(serde_json::json!({
+        "active": comp_state.active,
+        "start_time": comp_state.start_time,
+        "min_trades": comp_state.min_trades,
+        "start_balance": comp_state.start_balance,
+        "leaderboard": leaderboard
+    })).into_response()
+}
+
+/// POST /api/competition/stop - Stop competition
+pub async fn stop_competition(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Response {
+    let mut cm = state.orchestrator.competition_manager.write().await;
+    let state_ref = cm.stop();
+
+    Json(serde_json::json!({
+        "success": true,
+        "active": state_ref.active,
+        "final_entries": state_ref.entries.len()
+    })).into_response()
+}
+
+/// POST /api/competition/reset - Reset competition state
+pub async fn reset_competition(
+    State(state): State<AppState>,
+    Extension(_claims): Extension<Claims>,
+) -> Response {
+    let mut cm = state.orchestrator.competition_manager.write().await;
+    cm.start(vec![]);
+
+    Json(serde_json::json!({
+        "success": true,
+        "message": "Competition reset"
+    })).into_response()
+}

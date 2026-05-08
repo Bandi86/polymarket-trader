@@ -89,6 +89,7 @@ impl BotInstance {
     }
 }
 
+#[derive(Clone)]
 pub struct CompetitionManager {
     bots: Vec<BotInstance>,
     state: CompetitionState,

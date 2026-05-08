@@ -14,6 +14,7 @@ use crate::db::BotRecord;
 use crate::trading::bot_executor::strategies::{Signal, StrategyExecutor, StrategyContext};
 use crate::trading::risk_manager::RiskManager;
 use crate::trading::bot_loss_tracker::BotLossTrackerManager;
+use crate::trading::competition::CompetitionManager;
 use crate::trading::strategy_coordinator::StrategyCoordinator;
 use crate::api::market::fetch_active_markets;
 use crate::api::CachedCredentials;
@@ -66,6 +67,7 @@ pub struct BotOrchestrator {
     pub risk_manager: Arc<RwLock<RiskManager>>,
     pub loss_tracker: Arc<RwLock<BotLossTrackerManager>>,
     pub coordinator: Arc<RwLock<StrategyCoordinator>>,
+    pub competition_manager: Arc<RwLock<CompetitionManager>>,
 }
 
 /// Restore running bots from database on startup
@@ -157,6 +159,7 @@ impl BotOrchestrator {
             risk_manager: Arc::new(RwLock::new(RiskManager::new_paper())),
             loss_tracker: Arc::new(RwLock::new(BotLossTrackerManager::new())),
             coordinator: Arc::new(RwLock::new(StrategyCoordinator::default_with_config())),
+            competition_manager: Arc::new(RwLock::new(CompetitionManager::new())),
         }
     }
 
