@@ -25,7 +25,7 @@ impl Default for StrictMomentumStrategy {
     fn default() -> Self {
         Self {
             params: StrategyParams {
-                min_delta: 0.15,     // MUCH higher threshold - only strong moves
+                min_delta: 0.08,     // Lowered from 0.15 to capture more moves
                 min_price: 0.35,     // Don't trade extreme odds (safer)
                 max_price: 0.65,
                 min_time_remaining: 20000,  // Don't trade in last 20 seconds
