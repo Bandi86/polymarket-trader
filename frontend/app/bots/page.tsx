@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BotLeaderboard } from "@/components/bot-leaderboard";
 import { CreateBotModal } from "@/components/bot-creation-modal";
 import { AppShell } from "@/components/layout/app-shell";
 import { apiFetch } from "@/lib/utils";
@@ -370,6 +371,9 @@ export default function BotsPage() {
             color="violet"
           />
         </div>
+
+        {/* Competition Leaderboard */}
+        <BotLeaderboard />
 
         {/* Filters */}
         <div className="space-y-4 rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
