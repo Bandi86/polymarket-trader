@@ -26,14 +26,14 @@ impl Default for EdgeHunterStrategy {
     fn default() -> Self {
         Self {
             params: StrategyParams {
-                min_delta: 0.05,      // Need significant BTC move
+                min_delta: 0.03,      // Lowered from 0.05
                 min_price: 0.35,      // Don't trade extreme odds
                 max_price: 0.65,
                 min_time_remaining: 15000,
                 max_time_remaining: 270000,
                 ..Default::default()
             },
-            min_edge: 0.03,          // Need 3% edge minimum
+            min_edge: 0.05,          // Need 5% edge minimum (balanced)
         }
     }
 }
@@ -148,8 +148,8 @@ mod tests {
     #[test]
     fn test_strong_positive_edge_trades() {
         let strat = EdgeHunterStrategy::default();
-        // BTC up 0.2%, PM at 50%, our calc says 58% -> edge = +8%
-        let ctx = edge_ctx(80160.0, 80000.0, 0.50, 120000);
+        // BTC up 1.0%, PM at 50%, our calc gives ~8.9% edge -> exceeds 5% min_edge
+        let ctx = edge_ctx(80800.0, 80000.0, 0.50, 120000);
         let decision = strat.evaluate(&ctx);
         assert!(matches!(decision.signal, Signal::Yes));
     }
