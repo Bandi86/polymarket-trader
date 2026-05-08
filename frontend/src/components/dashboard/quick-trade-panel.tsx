@@ -12,7 +12,17 @@ type TradeSide = "UP" | "DOWN";
 export function QuickTradePanel() {
   const [selectedSide, setSelectedSide] = useState<TradeSide | null>(null);
   const [amount, setAmount] = useState(10);
-  const { priceDelta, yesPrice, noPrice, addLog, positions } = useAppStore();
+  const {
+    priceDelta,
+    yesPrice,
+    noPrice,
+    addLog,
+    positions,
+    currentMarket,
+    timeRemaining,
+    volume,
+    btcPrice,
+  } = useAppStore();
   const quickTrade = useQuickTrade();
   const { data: orders = [] } = useOrders();
 
@@ -86,6 +96,27 @@ export function QuickTradePanel() {
           <Zap className="h-5 w-5 text-indigo-500" />
           <span className="text-base font-bold text-zinc-100">Quick Trade</span>
         </div>
+
+        {/* Current Market Badge */}
+        {currentMarket ? (
+          <div className="flex items-center gap-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1.5">
+            <span className="text-[10px] font-semibold text-indigo-400">
+              {currentMarket.id.length > 16
+                ? currentMarket.id.slice(0, 12) + "..."
+                : currentMarket.id}
+            </span>
+            <span className="text-[10px] text-zinc-500">|</span>
+            <span className="text-[10px] text-zinc-400">{btcPrice.toFixed(0)} BTC</span>
+            <span className="text-[10px] text-zinc-500">|</span>
+            <span className="text-[10px] text-zinc-400">
+              {timeRemaining > 60
+                ? `${Math.floor(timeRemaining / 60)}m ${timeRemaining % 60}s`
+                : `${timeRemaining}s`}
+            </span>
+          </div>
+        ) : (
+          <div className="h-[30px] w-[120px] rounded-lg bg-zinc-800/40 animate-pulse" />
+        )}
 
         {/* Status Badge - Color-coded */}
         <div

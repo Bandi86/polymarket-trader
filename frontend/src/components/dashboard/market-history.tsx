@@ -38,8 +38,24 @@ function timeAgo(timestamp: number): string {
 export function MarketHistory() {
   const { marketHistory } = useAppStore();
   const [isExpanded, setIsExpanded] = useState(true);
+  const [filter, setFilter] = useState<"all" | "exceeded" | "below">("all");
+  const [timeFilter, setTimeFilter] = useState<"all" | "1h" | "24h" | "7d">("all");
 
-  const reversed = [...marketHistory].reverse().slice(0, 5);
+  const now = Date.now();
+  const filtered = marketHistory
+    .filter((r) => {
+      if (timeFilter === "1h" && now - r.endTime > 3600000) return false;
+      if (timeFilter === "24h" && now - r.endTime > 86400000) return false;
+      if (timeFilter === "7d" && now - r.endTime > 604800000) return false;
+      return true;
+    })
+    .filter((r) => {
+      if (filter === "exceeded") return r.delta >= 0;
+      if (filter === "below") return r.delta < 0;
+      return true;
+    });
+
+  const reversed = [...filtered].reverse().slice(0, 5);
   const winRate =
     reversed.length > 0 ? (reversed.filter((r) => r.delta >= 0).length / reversed.length) * 100 : 0;
 
@@ -72,6 +88,45 @@ export function MarketHistory() {
           />
         </span>
       </button>
+
+      {/* Filters */}
+      {isExpanded && (
+        <div className="flex gap-1.5 px-4 pt-3 pb-2 border-b border-white/5">
+          <div className="flex gap-1">
+            {(["all", "exceeded", "below"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${
+                  filter === f
+                    ? "bg-indigo-500/20 text-indigo-400"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {f === "all" ? "Mind" : f === "exceeded" ? "NYERT" : "VESZTETT"}
+              </button>
+            ))}
+          </div>
+          <div className="w-px h-4 bg-white/10" />
+          <div className="flex gap-1">
+            {(["all", "1h", "24h", "7d"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setTimeFilter(f)}
+                className={`rounded px-2 py-1 text-[10px] font-medium transition-colors ${
+                  timeFilter === f
+                    ? "bg-cyan-500/20 text-cyan-400"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {f === "all" ? "Összes" : f}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Content */}
       <AnimatePresence initial={false}>

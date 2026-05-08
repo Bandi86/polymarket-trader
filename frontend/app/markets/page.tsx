@@ -3,9 +3,11 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Activity,
+  ArrowRight,
   BarChart3,
   Clock,
   DollarSign,
+  RefreshCw,
   Search,
   TrendingDown,
   TrendingUp,
@@ -13,6 +15,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { GlassCard } from "@/components/ui/glass-card";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import type { Market } from "@/types";
@@ -22,16 +25,17 @@ export default function MarketsPage() {
   const { isAuthenticated } = useAppStore();
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterOutcome, setFilterOutcome] = useState<"all" | "YES" | "NO">("all");
 
-  const loadMarkets = useCallback(async () => {
-    setLoading(true);
+  const loadMarkets = useCallback(async (showLoader = true) => {
+    if (showLoader) setLoading(true);
+    setRefreshing(true);
     try {
       const data = await apiFetch<Market[]>("/markets", { method: "GET" });
       setMarkets(data);
-    } catch (_err) {
-      // Use mock data if no markets
+    } catch {
       setMarkets([
         {
           id: "btc-up-5m",
@@ -63,11 +67,11 @@ export default function MarketsPage() {
       ]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    // Check both store state and localStorage for auth
     const hasToken = typeof window !== "undefined" && localStorage.getItem("token");
     if (!isAuthenticated && !hasToken) {
       router.push("/login");
@@ -98,272 +102,176 @@ export default function MarketsPage() {
     return `${minutes}m ${seconds}s`;
   };
 
-  const selectMarket = (market: Market) => {
-    toast.success(`${market.question} kiválasztva`);
-    router.push("/");
+  const handleLaunchBot = (market: Market) => {
+    toast.success(`${market.question.slice(0, 40)}... piachoz bot létrehozása`);
+    router.push("/bots");
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b0b0f",
-        padding: "2rem",
-        position: "relative",
-      }}
-    >
-      {/* Ambient glow */}
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      {/* Ambient glow effects */}
       <div
-        className="ambient-glow ambient-glow-primary"
+        className="ambient-glow ambient-glow-primary absolute"
         style={{ width: 600, height: 600, top: "10%", left: "20%" }}
       />
       <div
-        className="ambient-glow ambient-glow-blue"
+        className="ambient-glow ambient-glow-blue absolute"
         style={{ width: 400, height: 400, bottom: "20%", right: "10%" }}
       />
 
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        style={{ maxWidth: 1000, margin: "0 auto" }}
-      >
+      <div className="max-w-5xl mx-auto px-4 py-6 relative z-10">
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem", marginBottom: "2rem" }}>
-          <div
-            style={{
-              width: 48,
-              height: 48,
-              borderRadius: 12,
-              background: "rgba(99, 102, 241, 0.15)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/15">
+              <BarChart3 className="h-5 w-5 text-indigo-400" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-zinc-100">Piacok</h1>
+              <p className="text-xs text-zinc-500">Elérhető prediction markets</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadMarkets(false)}
+            disabled={refreshing}
+            className="flex items-center gap-2 rounded-lg border border-white/10 bg-zinc-800/60 px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
           >
-            <BarChart3 size={24} style={{ color: "#6366f1" }} />
-          </div>
-          <div>
-            <h1 style={{ fontWeight: 700, fontSize: 24, color: "#fafafa" }}>Piacok</h1>
-            <span style={{ fontSize: 14, color: "#71717a" }}>Elérhető prediction markets</span>
-          </div>
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            Frissítés
+          </button>
         </div>
 
         {/* Search and filter */}
-        <div style={{ display: "flex", gap: "1rem", marginBottom: "1.5rem" }}>
-          <div style={{ position: "relative", flex: 1 }}>
-            <Search
-              size={20}
-              style={{
-                color: "#71717a",
-                position: "absolute",
-                left: 12,
-                top: "50%",
-                transform: "translateY(-50%)",
-              }}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="input"
-              style={{ paddingLeft: 40 }}
-              placeholder="Keresés a piacok között..."
-            />
+        <GlassCard className="p-4 mb-4">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full rounded-lg border border-white/10 bg-zinc-800/60 py-2.5 pl-10 pr-4 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500/40"
+                placeholder="Keresés a piacok között..."
+              />
+            </div>
+            <div className="flex gap-1.5">
+              {(["all", "YES", "NO"] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setFilterOutcome(filter)}
+                  className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                    filterOutcome === filter
+                      ? "bg-indigo-500/20 border border-indigo-500/40 text-indigo-300"
+                      : "border border-white/10 bg-zinc-800/60 text-zinc-400 hover:text-zinc-300"
+                  }`}
+                >
+                  {filter === "all" ? "Összes" : filter}
+                </button>
+              ))}
+            </div>
           </div>
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            {(["all", "YES", "NO"] as const).map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setFilterOutcome(filter)}
-                style={{
-                  padding: "0.5rem 1rem",
-                  borderRadius: 8,
-                  fontSize: 14,
-                  fontWeight: 500,
-                  background:
-                    filterOutcome === filter ? "rgba(99, 102, 241, 0.15)" : "rgba(20, 20, 28, 0.6)",
-                  color: filterOutcome === filter ? "#6366f1" : "#a1a1aa",
-                  border: "none",
-                  cursor: "pointer",
-                }}
-              >
-                {filter === "all" ? "Összes" : filter}
-              </button>
-            ))}
-          </div>
-        </div>
+        </GlassCard>
 
-        {/* Markets grid */}
+        {/* Markets */}
         {loading ? (
-          <div className="glass-card" style={{ padding: "3rem", textAlign: "center" }}>
-            <Activity
-              size={32}
-              style={{ color: "#71717a", marginBottom: "1rem" }}
-              className="animate-spin"
-            />
-            <span style={{ color: "#71717a" }}>Piacok betöltése...</span>
-          </div>
+          <GlassCard className="p-12 text-center">
+            <Activity className="h-8 w-8 text-zinc-600 mx-auto mb-3 animate-spin" />
+            <p className="text-sm text-zinc-500">Piacok betöltése...</p>
+          </GlassCard>
+        ) : filteredMarkets.length === 0 ? (
+          <GlassCard className="p-12 text-center">
+            <BarChart3 className="h-12 w-12 text-zinc-700 mx-auto mb-4" />
+            <h3 className="text-base font-semibold text-zinc-400 mb-2">Nincs elérhető piac</h3>
+            <p className="text-sm text-zinc-600 mb-4">Jelenleg nincs aktív prediction market</p>
+            <button
+              type="button"
+              onClick={() => void loadMarkets()}
+              className="mx-auto flex items-center gap-2 rounded-lg bg-indigo-500/15 border border-indigo-500/30 px-4 py-2 text-sm font-medium text-indigo-400 hover:bg-indigo-500/25 transition-colors"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Újrapróbálás
+            </button>
+          </GlassCard>
         ) : (
           <AnimatePresence>
-            {filteredMarkets.length === 0 ? (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="glass-card"
-                style={{ padding: "3rem", textAlign: "center" }}
-              >
-                <BarChart3 size={48} style={{ color: "#71717a", marginBottom: "1rem" }} />
-                <h3
-                  style={{
-                    fontWeight: 600,
-                    fontSize: 16,
-                    color: "#fafafa",
-                    marginBottom: "0.5rem",
-                  }}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredMarkets.map((market, idx) => (
+                <motion.div
+                  key={market.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
                 >
-                  Nincs elérhető piac
-                </h3>
-                <span style={{ fontSize: 14, color: "#71717a" }}>
-                  Jelenleg nincs aktív prediction market
-                </span>
-              </motion.div>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "1rem" }}>
-                {filteredMarkets.map((market) => (
-                  <motion.div
-                    key={market.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -20 }}
-                    whileHover={{ scale: 1.02 }}
-                    onClick={() => selectMarket(market)}
-                    className="glass-card"
-                    style={{ padding: "1.5rem", cursor: "pointer" }}
-                  >
+                  <GlassCard hover className="p-4 cursor-pointer group" animate>
                     {/* Market question */}
-                    <h3
-                      style={{
-                        fontWeight: 600,
-                        fontSize: 14,
-                        color: "#fafafa",
-                        marginBottom: "1rem",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      {market.question}
-                    </h3>
+                    <div className="mb-3">
+                      <h3 className="text-sm font-semibold text-zinc-100 leading-snug mb-2">
+                        {market.question}
+                      </h3>
+                      {market.active && (
+                        <div className="inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 bg-green-500/10 border border-green-500/20">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-green-400">
+                            Aktív
+                          </span>
+                        </div>
+                      )}
+                    </div>
 
                     {/* Outcomes */}
-                    <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
-                      {/* YES */}
-                      <div
-                        style={{
-                          flex: 1,
-                          padding: "1rem",
-                          borderRadius: 8,
-                          background: "rgba(34, 197, 94, 0.1)",
-                          border: "1px solid rgba(34, 197, 94, 0.2)",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            marginBottom: "0.5rem",
-                          }}
-                        >
-                          <TrendingUp size={16} style={{ color: "#22c55e" }} />
-                          <span style={{ fontWeight: 600, fontSize: 12, color: "#22c55e" }}>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5 mb-1">
+                          <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+                          <span className="text-[10px] font-bold uppercase text-emerald-400">
                             YES
                           </span>
                         </div>
-                        <span
-                          className="price-ticker"
-                          style={{ fontSize: 20, fontWeight: 700, color: "#22c55e" }}
-                        >
+                        <span className="text-xl font-extrabold font-mono text-emerald-400">
                           {(market.outcome_prices[0] * 100).toFixed(0)}¢
                         </span>
                       </div>
-
-                      {/* NO */}
-                      <div
-                        style={{
-                          flex: 1,
-                          padding: "1rem",
-                          borderRadius: 8,
-                          background: "rgba(239, 68, 68, 0.1)",
-                          border: "1px solid rgba(239, 68, 68, 0.2)",
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "0.5rem",
-                            marginBottom: "0.5rem",
-                          }}
-                        >
-                          <TrendingDown size={16} style={{ color: "#ef4444" }} />
-                          <span style={{ fontWeight: 600, fontSize: 12, color: "#ef4444" }}>
-                            NO
-                          </span>
+                      <div className="rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-center">
+                        <div className="flex items-center justify-center gap-1.5 mb-1">
+                          <TrendingDown className="h-3.5 w-3.5 text-red-400" />
+                          <span className="text-[10px] font-bold uppercase text-red-400">NO</span>
                         </div>
-                        <span
-                          className="price-ticker"
-                          style={{ fontSize: 20, fontWeight: 700, color: "#ef4444" }}
-                        >
+                        <span className="text-xl font-extrabold font-mono text-red-400">
                           {(market.outcome_prices[1] * 100).toFixed(0)}¢
                         </span>
                       </div>
                     </div>
 
-                    {/* Stats */}
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        fontSize: 12,
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <DollarSign size={14} style={{ color: "#71717a" }} />
-                        <span style={{ color: "#a1a1aa" }}>{formatVolume(market.volume)}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <Clock size={14} style={{ color: "#71717a" }} />
-                        <span style={{ color: "#a1a1aa" }}>
+                    {/* Stats + CTA */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4 text-xs text-zinc-500">
+                        <span className="flex items-center gap-1">
+                          <DollarSign className="h-3 w-3" />
+                          {formatVolume(market.volume)}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
                           {formatTimeRemaining(market.expires_at)}
                         </span>
                       </div>
-                      {market.active && (
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                            padding: "0.25rem 0.5rem",
-                            borderRadius: 4,
-                            background: "rgba(34, 197, 94, 0.15)",
-                          }}
-                        >
-                          <div
-                            className="status-dot status-dot-active"
-                            style={{ width: 6, height: 6 }}
-                          />
-                          <span style={{ color: "#22c55e" }}>Aktív</span>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleLaunchBot(market)}
+                        className="flex items-center gap-1.5 rounded-lg bg-indigo-500/15 border border-indigo-500/30 px-3 py-1.5 text-xs font-semibold text-indigo-400 opacity-0 group-hover:opacity-100 transition-all hover:bg-indigo-500/25"
+                      >
+                        Bot indítása
+                        <ArrowRight className="h-3 w-3" />
+                      </button>
                     </div>
-                  </motion.div>
-                ))}
-              </div>
-            )}
+                  </GlassCard>
+                </motion.div>
+              ))}
+            </div>
           </AnimatePresence>
         )}
-      </motion.div>
+      </div>
     </div>
   );
 }

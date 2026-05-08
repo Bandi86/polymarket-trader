@@ -301,6 +301,8 @@ export interface CreateBotRequest {
   interval_seconds?: number;
   volatility_threshold?: number;
   btc_confirmation?: boolean;
+  stop_loss?: number;
+  take_profit?: number;
 }
 
 export interface PlaceOrderRequest {

@@ -1,15 +1,34 @@
 "use client";
 
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
-  Activity, Bot as BotIcon, Loader2, Play, Plus, Square, Trash2, RotateCcw,
-  Shield, Wallet, Search, ArrowUpDown, WifiOff, Trophy, AlertTriangle,
-  TrendingUp, ScrollText, Filter, ChevronDown, BarChart3
+  Activity,
+  AlertTriangle,
+  ArrowUpDown,
+  BarChart3,
+  Bot as BotIcon,
+  ChevronDown,
+  Filter,
+  Loader2,
+  Play,
+  Plus,
+  RotateCcw,
+  ScrollText,
+  Search,
+  Shield,
+  Square,
+  Trash2,
+  TrendingUp,
+  Trophy,
+  Wallet,
+  WifiOff,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { apiFetch } from "@/lib/utils";
+import { CreateBotModal } from "@/components/bot-creation-modal";
 import { AppShell } from "@/components/layout/app-shell";
+import { apiFetch } from "@/lib/utils";
+import type { PortfolioResponse } from "@/types";
 
 // ---- Típusok ----
 type BotStatus = "running" | "paused" | "error" | "stopped";
@@ -81,6 +100,7 @@ export default function BotsPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [serverOnline, setServerOnline] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   // UI State
   const [search, setSearch] = useState("");
@@ -94,7 +114,12 @@ export default function BotsPage() {
   const prevBotsRef = useRef<Bot[]>([]);
 
   const addLog = useCallback((msg: string, type: LogEntry["type"] = "info") => {
-    const newEntry = { id: Math.random().toString(), time: new Date().toLocaleTimeString(), msg, type };
+    const newEntry = {
+      id: Math.random().toString(),
+      time: new Date().toLocaleTimeString(),
+      msg,
+      type,
+    };
     setLogs((prev) => [newEntry, ...prev].slice(0, 50));
   }, []);
 
@@ -105,7 +130,7 @@ export default function BotsPage() {
       const withPortfolio = await Promise.all(
         data.map(async (bot) => {
           try {
-            const p = await apiFetch<any>(`/bots/${bot.id}/portfolio`);
+            const p = await apiFetch<PortfolioResponse>(`/bots/${bot.id}/portfolio`);
             return { ...bot, portfolio: p };
           } catch {
             return bot;
@@ -142,7 +167,7 @@ export default function BotsPage() {
       setBots(withPortfolio);
       setLastSync(new Date());
       setServerOnline(true);
-    } catch (err) {
+    } catch (_err) {
       setServerOnline(false);
     } finally {
       setIsSyncing(false);
@@ -163,8 +188,9 @@ export default function BotsPage() {
       toast.success(`${name} elindítva`);
       addLog(`${name}: Elindítva.`, "success");
       await loadBots();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Hiba történt";
+      toast.error(msg);
     } finally {
       setActionLoading(null);
     }
@@ -177,8 +203,9 @@ export default function BotsPage() {
       toast.success(`${name} leállítva`);
       addLog(`${name}: Leállítva.`, "warn");
       await loadBots();
-    } catch (err: any) {
-      toast.error(err.message);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Hiba történt";
+      toast.error(msg);
     } finally {
       setActionLoading(null);
     }
@@ -214,13 +241,18 @@ export default function BotsPage() {
   };
 
   const handleBulkAction = async (action: "start" | "stop") => {
-    const targets = bots.filter((b) => (action === "start" ? b.status !== "running" : b.status === "running"));
+    const targets = bots.filter((b) =>
+      action === "start" ? b.status !== "running" : b.status === "running"
+    );
     if (targets.length === 0) return;
-    toast.promise(Promise.all(targets.map((b) => apiFetch(`/bots/${b.id}/${action}`, { method: "POST" }))), {
-      loading: "Művelet folyamatban...",
-      success: "Kész!",
-      error: "Hiba történt",
-    });
+    toast.promise(
+      Promise.all(targets.map((b) => apiFetch(`/bots/${b.id}/${action}`, { method: "POST" }))),
+      {
+        loading: "Művelet folyamatban...",
+        success: "Kész!",
+        error: "Hiba történt",
+      }
+    );
     addLog(`Minden bot ${action === "start" ? "indítása" : "leállítása"}.`, "info");
     setTimeout(loadBots, 2000);
   };
@@ -231,8 +263,8 @@ export default function BotsPage() {
     if (statusFilter !== "all") list = list.filter((b) => b.status === statusFilter);
 
     list.sort((a, b) => {
-      let valA: any = 0;
-      let valB: any = 0;
+      let valA: number = 0;
+      let valB: number = 0;
       if (sortKey === "pnl") {
         valA = a.portfolio?.total_pnl || 0;
         valB = b.portfolio?.total_pnl || 0;
@@ -251,9 +283,13 @@ export default function BotsPage() {
     });
 
     if (quickFilter === "best3")
-      return [...list].sort((a, b) => (b.portfolio?.total_pnl || 0) - (a.portfolio?.total_pnl || 0)).slice(0, 3);
+      return [...list]
+        .sort((a, b) => (b.portfolio?.total_pnl || 0) - (a.portfolio?.total_pnl || 0))
+        .slice(0, 3);
     if (quickFilter === "worst3")
-      return [...list].sort((a, b) => (a.portfolio?.total_pnl || 0) - (b.portfolio?.total_pnl || 0)).slice(0, 3);
+      return [...list]
+        .sort((a, b) => (a.portfolio?.total_pnl || 0) - (b.portfolio?.total_pnl || 0))
+        .slice(0, 3);
     return list;
   }, [bots, search, statusFilter, sortKey, sortDir, quickFilter]);
 
@@ -285,7 +321,11 @@ export default function BotsPage() {
             </div>
           </div>
 
-          <button className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600">
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
+          >
             <Plus className="h-4 w-4" />
             Új bot
           </button>
@@ -319,7 +359,7 @@ export default function BotsPage() {
           />
           <StatCard
             label="Win Rate"
-            value={`${bots.length > 0 ? (((totalStats.wins / (totalStats.wins + totalStats.losses)) * 100) || 0).toFixed(1) : 0}%`}
+            value={`${bots.length > 0 ? ((totalStats.wins / (totalStats.wins + totalStats.losses)) * 100 || 0).toFixed(1) : 0}%`}
             icon={<Trophy className="h-4 w-4" />}
             color="amber"
           />
@@ -350,6 +390,7 @@ export default function BotsPage() {
             <div className="flex rounded-lg border border-white/10 bg-zinc-800/30 p-1">
               {(["all", "running", "stopped", "error"] as const).map((f) => (
                 <button
+                  type="button"
                   key={f}
                   onClick={() => setStatusFilter(f)}
                   className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
@@ -383,14 +424,18 @@ export default function BotsPage() {
             </select>
 
             <button
+              type="button"
               onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
               className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-zinc-800/50 text-zinc-400 transition-colors hover:text-white hover:border-white/20"
             >
-              <ArrowUpDown className={`h-4 w-4 transition-transform ${sortDir === "asc" ? "rotate-180" : ""}`} />
+              <ArrowUpDown
+                className={`h-4 w-4 transition-transform ${sortDir === "asc" ? "rotate-180" : ""}`}
+              />
             </button>
 
             {/* Quick filters toggle */}
             <button
+              type="button"
               onClick={() => setShowFilters(!showFilters)}
               className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-all ${
                 showFilters || quickFilter !== "none"
@@ -400,7 +445,9 @@ export default function BotsPage() {
             >
               <Filter className="h-4 w-4" />
               Gyorsszűrők
-              <ChevronDown className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`} />
+              <ChevronDown
+                className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`}
+              />
             </button>
           </div>
 
@@ -415,6 +462,7 @@ export default function BotsPage() {
               >
                 <span className="text-xs text-zinc-500">Gyors nézet:</span>
                 <button
+                  type="button"
                   onClick={() => setQuickFilter(quickFilter === "best3" ? "none" : "best3")}
                   className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
                     quickFilter === "best3"
@@ -426,6 +474,7 @@ export default function BotsPage() {
                   Top 3 Legjobb
                 </button>
                 <button
+                  type="button"
                   onClick={() => setQuickFilter(quickFilter === "worst3" ? "none" : "worst3")}
                   className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
                     quickFilter === "worst3"
@@ -440,6 +489,7 @@ export default function BotsPage() {
                 <div className="h-4 w-px bg-white/10 mx-2" />
 
                 <button
+                  type="button"
                   onClick={handleBulkAction.bind(null, "start")}
                   className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
                 >
@@ -447,6 +497,7 @@ export default function BotsPage() {
                   Indít mind
                 </button>
                 <button
+                  type="button"
                   onClick={handleBulkAction.bind(null, "stop")}
                   className="flex items-center gap-1.5 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
                 >
@@ -454,6 +505,7 @@ export default function BotsPage() {
                   Megállít mind
                 </button>
                 <button
+                  type="button"
                   onClick={handleResetAll}
                   className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
                 >
@@ -478,7 +530,8 @@ export default function BotsPage() {
               onStop={() => handleStop(bot.id, bot.name)}
               onReset={() => handleReset(bot.id, bot.name)}
               onDelete={() => {
-                if (confirm("Végleges törlés?")) apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots);
+                if (confirm("Végleges törlés?"))
+                  apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots);
               }}
             />
           ))}
@@ -544,6 +597,18 @@ export default function BotsPage() {
           </div>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showCreateModal && (
+          <CreateBotModal
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={() => {
+              setShowCreateModal(false);
+              void loadBots();
+            }}
+          />
+        )}
+      </AnimatePresence>
     </AppShell>
   );
 }
@@ -571,8 +636,12 @@ function StatCard({
   return (
     <div className={`rounded-xl border p-4 ${colors[color]}`}>
       <div className="mb-2 flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/20">{icon}</div>
-        <span className="text-xs font-medium uppercase tracking-wider text-current/60">{label}</span>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/20">
+          {icon}
+        </div>
+        <span className="text-xs font-medium uppercase tracking-wider text-current/60">
+          {label}
+        </span>
       </div>
       <p className="text-2xl font-bold">{value}</p>
     </div>
@@ -618,6 +687,7 @@ function BotCard({
       {/* Card Header */}
       <button
         onClick={onToggle}
+        type="button"
         className="flex w-full items-center justify-between p-4 text-left"
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -633,6 +703,15 @@ function BotCard({
               style={{ color: strategyColor, backgroundColor: `${strategyColor}15` }}
             >
               {bot.strategy_type}
+            </span>
+            <span
+              className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                bot.trading_mode === "live"
+                  ? "bg-red-500/15 text-red-400 border border-red-500/20"
+                  : "bg-amber-500/15 text-amber-400 border border-amber-500/20"
+              }`}
+            >
+              {bot.trading_mode === "live" ? "LIVE" : "DEMO"}
             </span>
           </div>
         </div>
@@ -668,11 +747,15 @@ function BotCard({
                 </div>
                 <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
                   <p className="text-[10px] uppercase text-red-500/70 mb-1">Stop Loss</p>
-                  <p className="text-sm font-bold text-red-400">-{(bot.stop_loss * 100).toFixed(0)}%</p>
+                  <p className="text-sm font-bold text-red-400">
+                    -{(bot.stop_loss * 100).toFixed(0)}%
+                  </p>
                 </div>
                 <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
                   <p className="text-[10px] uppercase text-green-500/70 mb-1">Take Profit</p>
-                  <p className="text-sm font-bold text-green-400">+{(bot.take_profit * 100).toFixed(0)}%</p>
+                  <p className="text-sm font-bold text-green-400">
+                    +{(bot.take_profit * 100).toFixed(0)}%
+                  </p>
                 </div>
               </div>
 
@@ -707,7 +790,9 @@ function BotCard({
                         <span className={t.win ? "text-green-400" : "text-red-400"}>
                           {t.win ? "✅ NYERT" : "❌ VESZTETT"}
                         </span>
-                        <span className="font-mono font-medium text-white">${t.amount.toFixed(2)}</span>
+                        <span className="font-mono font-medium text-white">
+                          ${t.amount.toFixed(2)}
+                        </span>
                       </div>
                     ))
                   ) : (
@@ -720,24 +805,35 @@ function BotCard({
               <div className="flex gap-2">
                 {isRunning ? (
                   <button
+                    type="button"
                     onClick={onStop}
                     disabled={isLoading}
                     className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-amber-500/10 py-2.5 text-sm font-semibold text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-50"
                   >
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Square className="h-4 w-4" />
+                    )}
                     Leállít
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={onStart}
                     disabled={isLoading}
                     className="flex-1 flex items-center justify-center gap-1.5 rounded-lg bg-green-500/10 py-2.5 text-sm font-semibold text-green-400 border border-green-500/20 hover:bg-green-500/20 transition-colors disabled:opacity-50"
                   >
-                    {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4" />
+                    )}
                     Indít
                   </button>
                 )}
                 <button
+                  type="button"
                   onClick={onReset}
                   disabled={isLoading}
                   className="flex items-center justify-center rounded-lg bg-indigo-500/10 p-2.5 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
@@ -746,6 +842,7 @@ function BotCard({
                   <RotateCcw className="h-4 w-4" />
                 </button>
                 <button
+                  type="button"
                   onClick={onDelete}
                   className="flex items-center justify-center rounded-lg bg-red-500/10 p-2.5 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
                   title="Bot törlése"
