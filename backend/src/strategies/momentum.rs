@@ -3,8 +3,8 @@
 //! Based on short-term BTC price changes to predict market direction
 
 use super::base::{
-    check_delta, check_time_remaining, calculate_delta, Signal, Strategy, StrategyContext,
-    StrategyDecision, StrategyParams,
+    calculate_edge, calculate_fair_prob, calculate_delta, check_delta, check_time_remaining, Signal,
+    Strategy, StrategyContext, StrategyDecision, StrategyParams,
 };
 
 pub struct MomentumStrategy {
@@ -21,7 +21,7 @@ impl Default for MomentumStrategy {
     fn default() -> Self {
         Self {
             params: StrategyParams {
-                min_delta: 0.02,
+                min_delta: 0.05,  // Lowered from 0.15 for more trades
                 ..Default::default()
             },
         }
@@ -41,6 +41,22 @@ impl Strategy for MomentumStrategy {
         // Check time remaining
         if !check_time_remaining(ctx.time_remaining, &self.params) {
             return StrategyDecision::hold("Too close to market close");
+        }
+
+        // Check edge - only trade if we have sufficient advantage
+        if let Some(pm_price) = ctx.polymarket_price {
+            if let Some(btc_change) = ctx.btc_price_change {
+                let our_prob = calculate_fair_prob(btc_change);
+                let edge = calculate_edge(our_prob, pm_price);
+                let min_edge = 0.07; // 7% minimum edge
+
+                if edge.abs() < min_edge {
+                    return StrategyDecision::hold(&format!(
+                        "Edge {:.1}% < {:.0}% threshold",
+                        edge * 100.0, min_edge * 100.0
+                    ));
+                }
+            }
         }
 
         // Check BTC price change from context
@@ -126,7 +142,7 @@ mod tests {
     fn test_momentum_yes_signal() {
         let strat = MomentumStrategy::default();
         let mut ctx = default_ctx();
-        ctx.btc_price_change = Some(0.003); // 0.3% increase
+        ctx.btc_price_change = Some(0.008); // 0.8% increase - passes 7% edge check
         let decision = strat.evaluate(&ctx);
         assert!(matches!(decision.signal, Signal::Yes));
         assert!(decision.confidence > 0.5);
