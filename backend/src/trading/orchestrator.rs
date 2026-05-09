@@ -163,6 +163,13 @@ impl BotOrchestrator {
         }
     }
 
+    /// Initialize and start background loops
+    pub fn start_background_loops(&self) {
+        let orch = Arc::new(self.clone());
+        start_competition_loop(orch);
+        tracing::info!("Orchestrator background loops started");
+    }
+
     pub async fn resume_bot(&self, bot: &BotRecord, current_balance: f64) -> Result<i64, String> {
         let mut running = self.running_bots.write().await;
         if running.contains_key(&bot.id) { return Ok(0); }
@@ -358,6 +365,10 @@ impl BotOrchestrator {
         data.price.parse::<f64>().map_err(|e| e.to_string())
     }
 
+    pub async fn fetch_btc_price_public(&self) -> Result<f64, String> {
+        self.fetch_btc_price().await
+    }
+
     async fn place_order(market: &crate::api::market::ActiveMarket, outcome: &str, _bet_size: f64, _creds: &CachedCredentials) -> Result<String, String> {
         let _order_price = if outcome == "YES" { (market.yes_price * 1.0001).min(0.99) } else { ((1.0 - market.yes_price) * 1.0001).min(0.99) };
         Ok("order_id_simulated".to_string())
@@ -379,6 +390,65 @@ pub async fn start_orchestrator_loop(orchestrator: Arc<BotOrchestrator>, bot_id:
 
 pub async fn start_auto_save_loop(orchestrator: Arc<BotOrchestrator>) {
     let mut timer = interval(Duration::from_secs(30));
-    loop { timer.tick().await; let _ = orchestrator.auto_save_sessions().await; }
+    loop {
+        timer.tick().await;
+        if let Err(e) = orchestrator.auto_save_sessions().await {
+            tracing::error!("[AUTOSAVE] Failed: {}", e);
+        }
+    }
 }
-impl BotOrchestrator { pub async fn auto_save_sessions(&self) -> Result<(), String> { Ok(()) } }
+impl BotOrchestrator {
+    pub async fn auto_save_sessions(&self) -> Result<(), String> {
+        let running = self.running_bots.read().await;
+        for (bot_id, bot) in running.iter() {
+            if let Err(e) = queries::update_portfolio_balance(&self.db, *bot_id, bot.current_balance).await {
+                tracing::warn!("[AUTOSAVE] Failed to save balance for bot {}: {}", bot_id, e);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Run competition cycle - called periodically to update competition bots
+pub async fn run_competition_cycle(orchestrator: Arc<BotOrchestrator>) {
+    let all_markets = fetch_active_markets("5").await;
+    let market = if let Some(m) = all_markets.first() { m.clone() } else {
+        tracing::warn!("[COMPETITION] No active BTC markets found");
+        return;
+    };
+    let btc_price = match orchestrator.fetch_btc_price().await {
+        Ok(p) => p,
+        Err(e) => { tracing::warn!("[COMPETITION] Failed to fetch BTC price: {}", e); return; }
+    };
+
+    let market_slug = format!("btc-updown-5m-{}", market.end_time);
+    tracing::info!("[COMPETITION] Cycle: btc={}, market={}, yes={}, time_rem={}", btc_price, market_slug, market.yes_price, market.time_remaining);
+
+    let mut cm = orchestrator.competition_manager.write().await;
+    if !cm.is_active() {
+        tracing::debug!("[COMPETITION] Not active, skipping");
+        return;
+    }
+
+    cm.run_cycle(btc_price, &market_slug, market.yes_price, market.no_price, market.time_remaining);
+    drop(cm);
+
+    // Update leaderboard after cycle
+    let mut cm = orchestrator.competition_manager.write().await;
+    cm.update_leaderboard();
+}
+
+/// Start background task for competition cycles
+pub fn start_competition_loop(orchestrator: Arc<BotOrchestrator>) {
+    let orch = orchestrator.clone();
+    tokio::spawn(async move {
+        let mut timer = interval(Duration::from_secs(5));
+        tracing::info!("[COMPETITION] Loop started, is_active={}", orch.competition_manager.read().await.is_active());
+        loop {
+            timer.tick().await;
+            tracing::debug!("[COMPETITION] Tick");
+            run_competition_cycle(orch.clone()).await;
+        }
+    });
+    tracing::info!("Competition loop started");
+}

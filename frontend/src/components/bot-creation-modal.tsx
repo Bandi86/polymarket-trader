@@ -105,11 +105,13 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
 
     createBot.mutate(
       {
-        name: name.trim(),
+        name: name.trim() || generatedName,
         strategy,
+        strategy_type: strategy,
         bet_size: betSize,
         stop_loss: stopLoss,
         take_profit: takeProfit,
+        trading_mode: "demo",
       },
       {
         onSuccess: (bot) => {

@@ -101,6 +101,8 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   if (!response.ok) {
     const error = await response.json().catch(() => ({ message: "Unknown error" }));
     const msg = error.message || error.error || "Unknown error";
+    const err: Error & { status?: number } = new Error(msg);
+    err.status = response.status;
     if (response.status === 401) {
       throw new Error("Nincs jogosultsága a művelethez. Kérjük, jelentkezzen be újra.");
     } else if (response.status === 403) {
@@ -110,7 +112,7 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     } else if (response.status === 502 || response.status === 503) {
       throw new Error("A szerver nem érhető el. Kérjük, ellenőrizze a backend futását.");
     } else {
-      throw new Error(msg);
+      throw err;
     }
   }
 

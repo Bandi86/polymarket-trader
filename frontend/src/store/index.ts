@@ -120,6 +120,7 @@ interface AppState {
     strategyPerformance: boolean;
     tradeFeed: boolean;
     systemHealth: boolean;
+    equityCurve: boolean;
   };
   togglePanel: (panel: keyof AppState["panels"]) => void;
 }
@@ -276,6 +277,7 @@ export const useAppStore = create<AppState>()(
         strategyPerformance: true,
         tradeFeed: true,
         systemHealth: false,
+        equityCurve: true,
       },
       togglePanel: (panel) =>
         set((state) => ({

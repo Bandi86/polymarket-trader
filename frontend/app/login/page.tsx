@@ -11,8 +11,8 @@ import { useAppStore } from "@/store";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("bandi");
+  const [password, setPassword] = useState("techno");
   const [isLoading, setIsLoading] = useState(false);
   const { setAuth } = useAppStore();
 
@@ -209,40 +209,22 @@ export default function LoginPage() {
           </p>
           <button
             type="button"
-            onClick={() => {
-              // Create a demo user in the backend first
-              apiFetch<{ token: string; user_id: number; username: string }>("/auth/register", {
-                method: "POST",
-                body: JSON.stringify({ username: "demo_user", password: "demo123" }),
-              })
-                .then((result) => {
-                  setAuth(result.token, {
-                    id: result.user_id,
-                    email: "",
-                    username: result.username,
-                  });
-                  toast.success("Demo fiók létrehozva!");
-                  router.push("/");
-                })
-                .catch(() => {
-                  // If user exists, try to login
-                  apiFetch<{ token: string; user_id: number; username: string }>("/auth/login", {
-                    method: "POST",
-                    body: JSON.stringify({ username: "demo_user", password: "demo123" }),
-                  })
-                    .then((result) => {
-                      setAuth(result.token, {
-                        id: result.user_id,
-                        email: "",
-                        username: result.username,
-                      });
-                      toast.success("Demo bejelentkezés sikeres!");
-                      router.push("/");
-                    })
-                    .catch(() => {
-                      toast.error("Demo bejelentkezés sikertelen");
-                    });
+            onClick={async () => {
+              try {
+                const result = await apiFetch<{ token: string; user_id: number; username: string }>("/auth/demo", {
+                  method: "POST",
                 });
+                setAuth(result.token, {
+                  id: result.user_id,
+                  email: "",
+                  username: result.username,
+                });
+                toast.success("Demo bejelentkezés sikeres!");
+                router.push("/");
+              } catch (err) {
+                console.error("[DEMO] Login failed:", err);
+                toast.error("Demo bejelentkezés sikertelen");
+              }
             }}
             style={{
               fontSize: 14,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { TradingModeToggle } from "@/components/ui/trading-mode-toggle";
+import { NotificationCenter } from "@/components/ui/notification-center";
 import { useSettings } from "@/hooks";
 import { useAppStore } from "@/store";
 
@@ -76,6 +77,8 @@ export function Header() {
           <div className="hidden sm:block">
             <TradingModeToggle />
           </div>
+
+          <NotificationCenter />
 
           <button
             type="button"

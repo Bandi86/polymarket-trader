@@ -22,7 +22,9 @@ import { useEffect, useState } from "react";
 import { ActivityTabs } from "@/components/dashboard/activity-tabs";
 import { BotSelector } from "@/components/dashboard/bot-selector";
 import { ChartPanel } from "@/components/dashboard/chart-panel";
+import { EquityCurve } from "@/components/dashboard/equity-curve";
 import { MarketHistory } from "@/components/dashboard/market-history";
+import { QuickStart } from "@/components/dashboard/quick-start";
 import { QuickTradePanel } from "@/components/dashboard/quick-trade-panel";
 import { StrategyPerformance } from "@/components/dashboard/strategy-performance";
 import { SystemHealth } from "@/components/dashboard/system-health";
@@ -379,7 +381,7 @@ function MarketBar() {
 
 export function CommandCenter() {
   const [chartExpanded, setChartExpanded] = useState(false);
-  const { hasCredentials, panels, togglePanel } = useAppStore();
+  const { hasCredentials, panels, togglePanel, emergencyStopActive, setEmergencyStop } = useAppStore();
   const { data: settings } = useSettings();
 
   const [isMounted, setIsMounted] = useState(false);
@@ -435,10 +437,28 @@ export function CommandCenter() {
           </motion.div>
         )}
 
-        <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }}>
-          <AccountInfoBar />
+        <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="flex gap-4">
+          <div className="flex-1 min-w-0">
+            <AccountInfoBar />
+          </div>
+          <button
+            type="button"
+            onClick={() => setEmergencyStop(!emergencyStopActive)}
+            className={`flex flex-col items-center justify-center px-4 rounded-xl border transition-all shrink-0 ${
+              emergencyStopActive 
+                ? "bg-red-500 text-white border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse" 
+                : "bg-zinc-900/50 text-red-500 border-red-500/30 hover:bg-red-500/10"
+            }`}
+          >
+            <AlertTriangle className="h-6 w-6 mb-1" />
+            <span className="text-[10px] font-bold uppercase tracking-wider">
+              {emergencyStopActive ? "Állítva" : "Kill Switch"}
+            </span>
+          </button>
         </motion.div>
       </div>
+
+      <QuickStart />
 
       {/* 2. Market Data */}
       <CollapsiblePanel
@@ -499,6 +519,19 @@ export function CommandCenter() {
       >
         <div className="p-4">
           <MarketHistory />
+        </div>
+      </CollapsiblePanel>
+
+      {/* 5.5 Cumulative P&L */}
+      <CollapsiblePanel
+        title="Cumulative P&L (Equity Curve)"
+        icon={<TrendingUp className="h-4 w-4" />}
+        isOpen={panels.equityCurve}
+        onToggle={() => togglePanel("equityCurve")}
+        bodyClassName="p-0"
+      >
+        <div className="p-4">
+          <EquityCurve />
         </div>
       </CollapsiblePanel>
 

@@ -1,3 +1,4 @@
+export { EquityCurve } from "./equity-curve";
 export { ActivityTabs } from "./activity-tabs";
 export { AuthLanding } from "./auth-landing";
 export { BotSelector } from "./bot-selector";

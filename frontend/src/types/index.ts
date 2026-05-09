@@ -293,16 +293,21 @@ export interface LoginResponse {
 
 export interface CreateBotRequest {
   name: string;
+  market_id?: string;  // Optional, backend will use active market if not provided
   strategy: StrategyType;
+  strategy_type?: string;
   bet_size: number;
   max_bet?: number;
   use_kelly?: boolean;
   kelly_fraction?: number;
   interval_seconds?: number;
+  interval?: number;
   volatility_threshold?: number;
   btc_confirmation?: boolean;
   stop_loss?: number;
   take_profit?: number;
+  trading_mode?: string;
+  params?: string;
 }
 
 export interface PlaceOrderRequest {

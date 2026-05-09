@@ -21,9 +21,11 @@ export function BotLeaderboard() {
   useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
-        const res = await fetch('/api/competition/leaderboard');
+        const isDev = window.location.port === "3000";
+        const baseUrl = isDev ? "http://localhost:3001" : window.location.origin;
+        const res = await fetch(`${baseUrl}/api/competition/leaderboard`);
         const data = await res.json();
-        setEntries(data.entries || []);
+        setEntries(data.leaderboard || []);
         setLoading(false);
       } catch (e) {
         console.error('Failed to fetch leaderboard:', e);

@@ -991,6 +991,52 @@ pub async fn stop_all_bots(
     })).into_response()
 }
 
+// ==================== Start All & Reset All ====================
+
+/// Alias for run_all_bots — /bots/start-all same as /bots/run-all
+pub async fn start_all_bots(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    run_all_bots(State(state), Extension(claims)).await
+}
+
+/// Reset all bots for the user — stop them and reset their portfolios to $100
+pub async fn reset_all_bots(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let db = state.db();
+    let user_id = claims.user_id;
+
+    // First stop all running bots
+    let running = state.orchestrator.get_running_bots(user_id).await;
+    let mut stopped = 0;
+    for bot_id in running {
+        if state.orchestrator.stop_bot(bot_id, user_id).await.is_ok() {
+            stopped += 1;
+        }
+    }
+
+    // Reset all portfolios to $100
+    match sqlx::query("UPDATE bot_portfolios SET balance = 100.0, total_pnl = 0, winning_trades = 0, losing_trades = 0, updated_at = datetime('now') WHERE user_id = ?")
+        .bind(user_id)
+        .execute(db.as_ref())
+        .await {
+        Ok(_) => Json(serde_json::json!({
+            "success": true,
+            "stopped": stopped,
+            "message": "All bots stopped and reset to $100"
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to reset all portfolios: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to reset bots".to_string(),
+            })).into_response()
+        }
+    }
+}
+
 // ==================== Reset Endpoints ====================
 
 /// ÚJ: /bots/:id/reset — Statisztikák nullázása + egyenleg visszaállítása $100-ra
@@ -1229,7 +1275,6 @@ pub async fn set_all_bots_mode(
 /// POST /api/competition/start - Start competition with 15 bots
 pub async fn start_competition(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
 ) -> Response {
     // 15 bot configurations with different strategies
     let bot_configs = vec![
@@ -1250,12 +1295,15 @@ pub async fn start_competition(
         ("bot_015", "edge_hunter"),
     ];
 
+    // Fetch BTC price to initialize btc_window_open for all bots
+    let btc_price = state.orchestrator.fetch_btc_price_public().await.ok();
+
     let configs: Vec<(&str, &str)> = bot_configs;
 
     let mut cm = state.orchestrator.competition_manager.write().await;
-    let state_ref = cm.start(configs);
+    let state_ref = cm.start(configs, btc_price);
 
-    tracing::info!("Competition started with 15 bots");
+    tracing::info!("Competition started with 15 bots, btc_window_open={:?}", btc_price);
 
     Json(serde_json::json!({
         "success": true,
@@ -1269,7 +1317,6 @@ pub async fn start_competition(
 /// GET /api/competition/leaderboard - Get current leaderboard
 pub async fn get_leaderboard(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
 ) -> Response {
     let mut cm = state.orchestrator.competition_manager.write().await;
     let comp_state = cm.get_state().clone();
@@ -1287,7 +1334,6 @@ pub async fn get_leaderboard(
 /// POST /api/competition/stop - Stop competition
 pub async fn stop_competition(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
 ) -> Response {
     let mut cm = state.orchestrator.competition_manager.write().await;
     let state_ref = cm.stop();
@@ -1302,13 +1348,72 @@ pub async fn stop_competition(
 /// POST /api/competition/reset - Reset competition state
 pub async fn reset_competition(
     State(state): State<AppState>,
-    Extension(_claims): Extension<Claims>,
 ) -> Response {
     let mut cm = state.orchestrator.competition_manager.write().await;
-    cm.start(vec![]);
+    cm.start(vec![], None);
 
     Json(serde_json::json!({
         "success": true,
         "message": "Competition reset"
     })).into_response()
+}
+
+#[derive(Debug, Serialize)]
+pub struct PortfolioHistoryPoint {
+    pub timestamp: i64,
+    pub pnl: f64,
+}
+
+pub async fn get_portfolio_history(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let db = state.db();
+    let user_id = claims.user_id;
+
+    let records = sqlx::query!(
+        r#"
+        SELECT created_at, pnl
+        FROM trade_decisions
+        WHERE user_id = ? AND pnl IS NOT NULL
+        ORDER BY created_at ASC
+        "#,
+        user_id
+    )
+    .fetch_all(db.as_ref())
+    .await;
+
+    match records {
+        Ok(rows) => {
+            let mut history = Vec::new();
+            let mut cumulative_pnl = 0.0;
+
+            for row in rows {
+                if let Some(pnl) = row.pnl {
+                    cumulative_pnl += pnl;
+                    let ts = chrono::NaiveDateTime::parse_from_str(&row.created_at, "%Y-%m-%d %H:%M:%S")
+                        .map(|dt| dt.and_utc().timestamp_millis())
+                        .unwrap_or(0);
+                    
+                    if ts > 0 {
+                        history.push(PortfolioHistoryPoint {
+                            timestamp: ts,
+                            pnl: cumulative_pnl,
+                        });
+                    }
+                }
+            }
+
+            Json(serde_json::json!({
+                "success": true,
+                "history": history
+            })).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch portfolio history: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to fetch history".to_string(),
+            })).into_response()
+        }
+    }
 }

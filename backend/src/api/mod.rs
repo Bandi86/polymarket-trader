@@ -63,10 +63,13 @@ impl AppState {
         // Create broadcast channel for SSE subscribers (many-to-many)
         let (broadcaster, _) = broadcast::channel(100);
 
+        let orchestrator = Arc::new(BotOrchestrator::new(db.clone(), event_sender));
+        orchestrator.start_background_loops();
+
         Self {
             db: db.clone(),
             binance_client: Arc::new(RwLock::new(None)),
-            orchestrator: Arc::new(BotOrchestrator::new(db.clone(), event_sender)),
+            orchestrator,
             event_receiver: Arc::new(RwLock::new(event_receiver)),
             bot_event_broadcaster: Arc::new(broadcaster),
             credential_cache: Arc::new(RwLock::new(HashMap::new())),
@@ -85,6 +88,7 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
     let public_routes = Router::new()
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
+        .route("/auth/demo", post(auth::demo))
         .route("/market/btc-price", get(market::get_btc_price))
         .route("/market/price", get(market::get_market_price))
         .route("/market/list", get(market::list_markets))
@@ -93,7 +97,12 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         // Strategy Lab - public (list strategies only)
         .route("/strategies", get(strategy_tests::list_strategies))
         // Live trading - public (readiness check)
-        .route("/live-readiness", get(live_readiness::get_live_readiness));
+        .route("/live-readiness", get(live_readiness::get_live_readiness))
+        // Competition routes - public for testing
+        .route("/competition/start", post(bots::start_competition))
+        .route("/competition/stop", post(bots::stop_competition))
+        .route("/competition/reset", post(bots::reset_competition))
+        .route("/competition/leaderboard", get(bots::get_leaderboard));
 
     // Protected routes - require JWT auth
     let protected_routes = Router::new()
@@ -114,8 +123,11 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/bots/:id/reset-demo", post(bots::reset_demo_balance))
         .route("/bots/stop-all", post(bots::stop_all_bots))
         .route("/bots/run-all", post(bots::run_all_bots))
+        .route("/bots/start-all", post(bots::start_all_bots))
+        .route("/bots/reset-all", post(bots::reset_all_bots))
         .route("/bots/set-mode", post(bots::set_all_bots_mode))
         .route("/portfolio", get(bots::get_aggregate_portfolio))
+        .route("/portfolio/history", get(bots::get_portfolio_history))
         .route("/bots/:id/status", get(monitoring::get_bot_status))
         .route("/orders", get(orders::list_orders))
         .route("/orders", post(orders::place_order))

@@ -48,6 +48,7 @@ export function useBots() {
     queryFn: () => apiFetch<Bot[]>("/bots"),
     refetchInterval: 5000,
     placeholderData: keepPreviousData,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -169,6 +170,23 @@ export function useAggregatePortfolio() {
       }>("/portfolio"),
     refetchInterval: 5000,
     retry: false,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
+  });
+}
+
+export function usePortfolioHistory() {
+  return useQuery({
+    queryKey: ["portfolio-history"],
+    queryFn: () =>
+      apiFetch<{
+        success: boolean;
+        history: Array<{
+          timestamp: number;
+          pnl: number;
+        }>;
+      }>("/portfolio/history"),
+    refetchInterval: 10000,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -182,6 +200,7 @@ export function useUserBalance() {
       ),
     refetchInterval: 15000,
     retry: false,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -191,6 +210,7 @@ export function usePositions() {
     queryKey: ["positions"],
     queryFn: () => apiFetch<Position[]>("/positions"),
     refetchInterval: 3000,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -199,6 +219,7 @@ export function useLivePositions() {
     queryKey: ["positions", "live"],
     queryFn: () => apiFetch<Position[]>("/positions/live"),
     refetchInterval: 5000,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -207,6 +228,7 @@ export function useOrders() {
   return useQuery({
     queryKey: ["orders"],
     queryFn: () => apiFetch<Order[]>("/orders"),
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -294,6 +316,7 @@ export function useSettings() {
   return useQuery({
     queryKey: ["settings"],
     queryFn: () => apiFetch<Settings>("/settings"),
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -339,6 +362,7 @@ export function useSystemStatus() {
         has_polymarket_credentials: boolean;
       }>("/system/status"),
     refetchInterval: 5000,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -346,6 +370,7 @@ export function useLogs() {
   return useQuery({
     queryKey: ["logs"],
     queryFn: () => apiFetch<{ logs: unknown[] }>("/system/logs"),
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 
@@ -364,6 +389,7 @@ export function useRiskWarnings() {
     queryKey: ["risk-warnings"],
     queryFn: () => apiFetch<RiskWarning[]>("/risk/warnings"),
     refetchInterval: 10000,
+    enabled: typeof window !== "undefined" && !!localStorage.getItem("token"),
   });
 }
 

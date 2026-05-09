@@ -1,6 +1,7 @@
 //! Competition Mode - 15 bots compete with $10 starting balance
 
 use serde::{Deserialize, Serialize};
+use crate::trading::bot_executor::strategies::{Signal, StrategyExecutor, StrategyContext};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BotStats {
@@ -9,6 +10,14 @@ pub struct BotStats {
     pub losses: u32,
     pub pnl: f64,
     pub win_rate: f64,
+}
+
+#[derive(Debug, Clone)]
+pub struct PendingBet {
+    pub side: String,
+    pub bet_size: f64,
+    pub start_price: f64,
+    pub entry_price: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -25,6 +34,12 @@ pub struct BotInstance {
     pub consecutive_losses: u8,
     pub stats: BotStats,
     pub enabled: bool,
+    #[serde(skip)]
+    pub pending_bet: Option<PendingBet>,
+    #[serde(skip)]
+    pub last_market_slug: Option<String>,
+    #[serde(skip)]
+    pub btc_window_open: Option<f64>,
 }
 
 impl BotInstance {
@@ -48,6 +63,9 @@ impl BotInstance {
                 win_rate: 0.0,
             },
             enabled: true,
+            pending_bet: None,
+            last_market_slug: None,
+            btc_window_open: None,
         }
     }
 
@@ -87,6 +105,59 @@ impl BotInstance {
 
         self.update_bet(won);
     }
+
+    /// Evaluate strategy and return (side, confidence) or None if no trade
+    pub fn evaluate_cycle(&mut self, btc_price: f64, btc_change: Option<f64>, yes_price: f64, no_price: f64, time_remaining: i64, btc_window_open: Option<f64>) -> Option<(String, f64)> {
+        if !self.enabled || self.balance < self.base_bet {
+            return None;
+        }
+
+        let ctx = StrategyContext {
+            btc_price,
+            btc_change,
+            btc_window_open,
+            yes_price,
+            no_price,
+            time_remaining,
+            btc_velocity: None,
+            btc_acceleration: None,
+            btc_volatility: None,
+        };
+
+        let executor = StrategyExecutor::new(&self.strategy_type, "{}");
+        let signal = executor.evaluate_with_context(ctx);
+
+        match signal {
+            Signal::Yes(conf) => Some(("YES".to_string(), conf)),
+            Signal::No(conf) => Some(("NO".to_string(), conf)),
+            Signal::Hold(_) => None,
+        }
+    }
+
+    /// Execute a trade based on signal
+    pub fn execute_trade(&mut self, side: &str, price: f64, btc_start: f64, btc_end: f64) -> bool {
+        let bet_size = self.current_bet.min(self.balance);
+        if bet_size < 0.50 {
+            return false;
+        }
+
+        let diff = (btc_end - btc_start) / btc_start;
+        let won = if side == "YES" { diff > 0.0 } else { diff < 0.0 };
+        let profit = if won { bet_size * (1.0 - price) } else { -bet_size };
+
+        self.balance += profit;
+        self.stats.trades += 1;
+        if won { self.stats.wins += 1; } else { self.stats.losses += 1; }
+        self.stats.pnl += profit;
+        self.stats.win_rate = self.stats.wins as f64 / self.stats.trades as f64;
+        self.update_bet(won);
+
+        if self.balance < 2.0 {
+            self.enabled = false;
+        }
+
+        true
+    }
 }
 
 #[derive(Clone)]
@@ -103,12 +174,19 @@ impl CompetitionManager {
         }
     }
 
-    pub fn start(&mut self, configs: Vec<(&str, &str)>) -> &CompetitionState {
+    pub fn start(&mut self, configs: Vec<(&str, &str)>, initial_btc_price: Option<f64>) -> &CompetitionState {
         // configs: Vec of (bot_id, strategy_type)
         self.bots.clear();
         for (id, strategy) in configs {
-            let name = format!("Bot-{}", &id[..8]);
-            self.bots.push(BotInstance::new(id, &name, strategy));
+            let name = if id.len() >= 8 {
+                format!("Bot-{}", &id[..8])
+            } else {
+                format!("Bot-{}", id)
+            };
+            let mut bot = BotInstance::new(id, &name, strategy);
+            // Initialize btc_window_open so strategies can trade immediately
+            bot.btc_window_open = initial_btc_price;
+            self.bots.push(bot);
         }
 
         self.state.active = true;
@@ -178,6 +256,66 @@ impl CompetitionManager {
     pub fn stop(&mut self) -> &CompetitionState {
         self.state.active = false;
         &self.state
+    }
+
+    /// Run one competition cycle - called by orchestrator's periodic task
+    pub fn run_cycle(&mut self, btc_price: f64, market_slug: &str, yes_price: f64, no_price: f64, time_remaining: i64) {
+        if !self.state.active {
+            return;
+        }
+
+        tracing::debug!("[COMPETITION] run_cycle for {} bots, btc={}, market={}", self.bots.len(), btc_price, market_slug);
+
+        for bot in &mut self.bots {
+            // Check market transition - settle pending bet
+            let market_changed = bot.last_market_slug.as_ref() != Some(&market_slug.to_string());
+            let market_ended = time_remaining <= 5;
+
+            if market_changed || market_ended {
+                if let Some(bet) = bot.pending_bet.take() {
+                    let diff = (btc_price - bet.start_price) / bet.start_price;
+                    let won = if bet.side == "YES" { diff > 0.0 } else { diff < 0.0 };
+                    let profit = if won { bet.bet_size * (1.0 - bet.entry_price) } else { -bet.bet_size };
+                    bot.balance = (bot.balance + profit).max(0.0);
+                    bot.stats.trades += 1;
+                    if won { bot.stats.wins += 1; } else { bot.stats.losses += 1; }
+                    bot.stats.pnl += profit;
+                    bot.stats.win_rate = bot.stats.wins as f64 / bot.stats.trades as f64;
+                    bot.update_bet(won);
+                    tracing::info!("[COMPETITION] {} {} won={} profit={:.4} balance={:.2}", bot.id, bet.side, won, profit, bot.balance);
+                }
+
+                if market_changed {
+                    bot.btc_window_open = Some(btc_price);
+                    bot.last_market_slug = Some(market_slug.to_string());
+                    tracing::info!("[COMPETITION] {} new market window, btc_window_open={}", bot.id, btc_price);
+                }
+            }
+
+            // Evaluate strategy if no pending bet
+            if bot.pending_bet.is_none() && bot.enabled && bot.balance >= bot.base_bet {
+                let btc_change = bot.btc_window_open.map(|w| (btc_price - w) / w);
+
+                if let Some((side, confidence)) = bot.evaluate_cycle(btc_price, btc_change, yes_price, no_price, time_remaining, bot.btc_window_open) {
+                    let bet_size = bot.current_bet.min(bot.balance).max(0.50);
+                    if bet_size >= 0.50 {
+                        let entry_price = if side == "YES" { yes_price } else { no_price };
+                        bot.pending_bet = Some(PendingBet {
+                            side: side.clone(),
+                            bet_size,
+                            start_price: btc_price,
+                            entry_price,
+                        });
+                        tracing::info!("[COMPETITION] {} signal: {} (conf={:.2}) bet=${:.2}", bot.id, side, confidence, bet_size);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if competition is active
+    pub fn is_active(&self) -> bool {
+        self.state.active
     }
 }
 

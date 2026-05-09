@@ -184,6 +184,68 @@ pub async fn me(
     }
 }
 
+/// Demo login endpoint - creates or logs in the demo user
+/// Returns a valid JWT token for the demo user
+pub async fn demo(State(state): State<AppState>) -> Response {
+    let db = state.db();
+    let demo_username = "demo_user";
+    let demo_password = "demo123";
+
+    // Check if demo user exists
+    match queries::find_user_by_username(&db, demo_username).await {
+        Ok(Some((user_id, _, _))) => {
+            // User exists, try to login
+            tracing::info!("Demo user exists, logging in as {}", demo_username);
+            match generate_token(user_id, demo_username) {
+                Ok(token) => Json(AuthResponse {
+                    token,
+                    user_id,
+                    username: demo_username.to_string(),
+                }).into_response(),
+                Err(e) => {
+                    tracing::error!("Token generation error: {}", e);
+                    Json(ErrorResponse { error: "Internal server error".to_string() }).into_response()
+                }
+            }
+        }
+        Ok(None) => {
+            // User doesn't exist, register them
+            tracing::info!("Demo user doesn't exist, creating: {}", demo_username);
+            let password_hash = match bcrypt::hash(demo_password, 12) {
+                Ok(hash) => hash,
+                Err(e) => {
+                    tracing::error!("Password hashing error: {}", e);
+                    return Json(ErrorResponse { error: "Internal server error".to_string() }).into_response();
+                }
+            };
+
+            match queries::create_user(&db, demo_username, &password_hash).await {
+                Ok(user_id) => {
+                    match generate_token(user_id, demo_username) {
+                        Ok(token) => Json(AuthResponse {
+                            token,
+                            user_id,
+                            username: demo_username.to_string(),
+                        }).into_response(),
+                        Err(e) => {
+                            tracing::error!("Token generation error: {}", e);
+                            Json(ErrorResponse { error: "Internal server error".to_string() }).into_response()
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create demo user: {}", e);
+                    Json(ErrorResponse { error: "Internal server error".to_string() }).into_response()
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Database error: {}", e);
+            Json(ErrorResponse { error: "Internal server error".to_string() }).into_response()
+        }
+    }
+}
+
 fn generate_token(user_id: i64, username: &str) -> Result<String, jsonwebtoken::errors::Error> {
     use jsonwebtoken::{encode, EncodingKey, Header};
     use serde::Serialize;

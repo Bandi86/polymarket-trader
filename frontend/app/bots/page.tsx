@@ -25,9 +25,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { BotLeaderboard } from "@/components/bot-leaderboard";
 import { CreateBotModal } from "@/components/bot-creation-modal";
-import { AppShell } from "@/components/layout/app-shell";
 import { apiFetch } from "@/lib/utils";
 import type { PortfolioResponse } from "@/types";
 
@@ -306,8 +304,7 @@ export default function BotsPage() {
   if (!mounted) return null;
 
   return (
-    <AppShell>
-      <div className="space-y-6">
+    <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -371,9 +368,6 @@ export default function BotsPage() {
             color="violet"
           />
         </div>
-
-        {/* Competition Leaderboard */}
-        <BotLeaderboard />
 
         {/* Filters */}
         <div className="space-y-4 rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
@@ -600,20 +594,19 @@ export default function BotsPage() {
             )}
           </div>
         </div>
-      </div>
 
-      <AnimatePresence>
-        {showCreateModal && (
-          <CreateBotModal
-            onClose={() => setShowCreateModal(false)}
-            onSuccess={() => {
-              setShowCreateModal(false);
-              void loadBots();
-            }}
-          />
-        )}
-      </AnimatePresence>
-    </AppShell>
+        <AnimatePresence>
+          {showCreateModal && (
+            <CreateBotModal
+              onClose={() => setShowCreateModal(false)}
+              onSuccess={() => {
+                setShowCreateModal(false);
+                void loadBots();
+              }}
+            />
+          )}
+        </AnimatePresence>
+      </div>
   );
 }
 
@@ -671,6 +664,7 @@ function BotCard({
   onReset: () => void;
   onDelete: () => void;
 }) {
+  const [expandedSection, setExpandedSection] = useState<"stats" | "trades" | null>(null);
   const pnl = bot.portfolio?.total_pnl || 0;
   const balance = bot.portfolio?.balance || 0;
   const wins = bot.portfolio?.winning_trades || 0;
@@ -733,6 +727,17 @@ function BotCard({
         </div>
       </button>
 
+      {/* Collapsed view: Quick stats */}
+      {!isExpanded && (
+        <div className="px-4 pb-3 flex items-center justify-between text-xs">
+          <span className="text-zinc-500">{bot.strategy_type}</span>
+          <div className="flex items-center gap-3">
+            <span className="text-zinc-600">{winRate.toFixed(0)}% WR</span>
+            <span className="text-zinc-600">{bot.portfolio?.total_trades || 0} trades</span>
+          </div>
+        </div>
+      )}
+
       {/* Expanded Content */}
       <AnimatePresence>
         {isExpanded && (
@@ -742,54 +747,63 @@ function BotCard({
             exit={{ height: 0 }}
             className="overflow-hidden border-t border-white/5"
           >
-            <div className="space-y-4 p-4">
-              {/* Stats Grid */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
-                  <p className="text-[10px] uppercase text-zinc-500 mb-1">Tét</p>
-                  <p className="text-sm font-bold text-white">${bot.bet_size}</p>
+            <div className="p-4 space-y-3">
+              {/* Collapsible Stats Section */}
+              <CollapsibleSection
+                title="Statisztikák"
+                expanded={expandedSection === "stats"}
+                onToggle={() => setExpandedSection(expandedSection === "stats" ? null : "stats")}
+              >
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                    <p className="text-[10px] uppercase text-zinc-500 mb-1">Tét</p>
+                    <p className="text-sm font-bold text-white">${bot.bet_size}</p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                    <p className="text-[10px] uppercase text-red-500/70 mb-1">Stop Loss</p>
+                    <p className="text-sm font-bold text-red-400">
+                      -{(bot.stop_loss * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
+                    <p className="text-[10px] uppercase text-green-500/70 mb-1">Take Profit</p>
+                    <p className="text-sm font-bold text-green-400">
+                      +{(bot.take_profit * 100).toFixed(0)}%
+                    </p>
+                  </div>
                 </div>
-                <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
-                  <p className="text-[10px] uppercase text-red-500/70 mb-1">Stop Loss</p>
-                  <p className="text-sm font-bold text-red-400">
-                    -{(bot.stop_loss * 100).toFixed(0)}%
+
+                {/* Win Rate Bar */}
+                <div>
+                  <div className="mb-1 flex items-center justify-between text-xs">
+                    <span className="text-zinc-500">Win Rate</span>
+                    <span className="font-medium text-white">{winRate.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${winRate}%` }}
+                      className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-500"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-zinc-600">
+                    {wins} nyert / {losses} vesztett
                   </p>
                 </div>
-                <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
-                  <p className="text-[10px] uppercase text-green-500/70 mb-1">Take Profit</p>
-                  <p className="text-sm font-bold text-green-400">
-                    +{(bot.take_profit * 100).toFixed(0)}%
-                  </p>
-                </div>
-              </div>
+              </CollapsibleSection>
 
-              {/* Win Rate Bar */}
-              <div>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="text-zinc-500">Win Rate</span>
-                  <span className="font-medium text-white">{winRate.toFixed(1)}%</span>
-                </div>
-                <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${winRate}%` }}
-                    className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-500"
-                  />
-                </div>
-                <p className="mt-1 text-xs text-zinc-600">
-                  {wins} nyert / {losses} vesztett
-                </p>
-              </div>
-
-              {/* Recent Trades */}
-              <div>
-                <p className="mb-2 text-xs font-medium text-zinc-500">Legutóbbi kötések</p>
-                <div className="max-h-24 space-y-1.5 overflow-y-auto rounded-lg bg-black/20 p-2">
+              {/* Collapsible Trades Section */}
+              <CollapsibleSection
+                title="Legutóbbi kötések"
+                expanded={expandedSection === "trades"}
+                onToggle={() => setExpandedSection(expandedSection === "trades" ? null : "trades")}
+              >
+                <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-lg bg-black/20 p-2">
                   {bot.history && bot.history.length > 0 ? (
-                    bot.history.slice(0, 5).map((t) => (
+                    bot.history.slice(0, 8).map((t) => (
                       <div
                         key={t.id}
-                        className="flex items-center justify-between rounded bg-zinc-800/50 px-2 py-1 text-xs"
+                        className="flex items-center justify-between rounded bg-zinc-800/50 px-2 py-1.5 text-xs"
                       >
                         <span className={t.win ? "text-green-400" : "text-red-400"}>
                           {t.win ? "✅ NYERT" : "❌ VESZTETT"}
@@ -797,16 +811,17 @@ function BotCard({
                         <span className="font-mono font-medium text-white">
                           ${t.amount.toFixed(2)}
                         </span>
+                        <span className="text-zinc-600">{t.time}</span>
                       </div>
                     ))
                   ) : (
-                    <p className="py-2 text-center text-[10px] text-zinc-600">Még nincs kötés...</p>
+                    <p className="py-3 text-center text-xs text-zinc-600">Még nincs kötés...</p>
                   )}
                 </div>
-              </div>
+              </CollapsibleSection>
 
               {/* Action Buttons */}
-              <div className="flex gap-2">
+              <div className="flex gap-2 pt-2">
                 {isRunning ? (
                   <button
                     type="button"
@@ -859,5 +874,45 @@ function BotCard({
         )}
       </AnimatePresence>
     </motion.div>
+  );
+}
+
+// Collapsible section component
+function CollapsibleSection({
+  title,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg border border-white/5 bg-zinc-800/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-zinc-400 hover:text-zinc-300 transition-colors"
+      >
+        <span>{title}</span>
+        <ChevronDown
+          className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`}
+        />
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0 }}
+            animate={{ height: "auto" }}
+            exit={{ height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 pb-3">{children}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

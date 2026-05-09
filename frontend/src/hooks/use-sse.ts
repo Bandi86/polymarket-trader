@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { createSSEConnection, useAppStore } from "@/store";
+import { dispatchNotification } from "@/hooks/use-notifications";
 
 // Module-level singleton to prevent multiple SSE connections
 let sharedEventSource: EventSource | null = null;
@@ -167,6 +168,14 @@ export function useSSE() {
               level: "success",
             });
             updateBot(data.bot_id, { status: "running" });
+            dispatchNotification(
+              "info",
+              `${data.bot_name || `Bot ${data.bot_id}`} started`,
+              `Session ${data.session_id} began`,
+              { sessionId: data.session_id },
+              data.bot_id,
+              data.bot_name
+            );
             break;
           }
 
@@ -179,6 +188,14 @@ export function useSSE() {
               level: "info",
             });
             updateBot(data.bot_id, { status: "stopped" });
+            dispatchNotification(
+              "session_complete",
+              `${data.bot_name || `Bot ${data.bot_id}`} session ended`,
+              `Final balance: $${typeof data.final_balance === "number" ? data.final_balance.toFixed(2) : "—"}`,
+              { totalPnl: data.total_pnl, finalBalance: data.final_balance },
+              data.bot_id,
+              data.bot_name
+            );
             break;
           }
 
@@ -203,6 +220,20 @@ export function useSSE() {
                 reason: data.reason,
               },
             });
+            dispatchNotification(
+              "trade",
+              `${data.bot_name || `Bot ${data.bot_id}`} → ${data.outcome}`,
+              `$${data.bet_size.toFixed(2)} @ ${confidencePct}% confidence`,
+              {
+                outcome: data.outcome,
+                betSize: data.bet_size,
+                confidence: data.confidence,
+                reason: data.reason,
+                strategy: data.strategy,
+              },
+              data.bot_id,
+              data.bot_name
+            );
             break;
           }
 
@@ -220,6 +251,14 @@ export function useSSE() {
               timestamp: Date.now(),
               data: { orderId: data.order_id },
             });
+            dispatchNotification(
+              "trade",
+              `${data.bot_name || `Bot ${data.bot_id}`} order filled`,
+              `Order ${data.order_id?.slice(0, 12) || "—"} placed`,
+              { orderId: data.order_id },
+              data.bot_id,
+              data.bot_name
+            );
             break;
           }
 
@@ -242,6 +281,14 @@ export function useSSE() {
               timestamp: Date.now(),
               data: { message: data.message },
             });
+            dispatchNotification(
+              "error",
+              `${data.bot_name || `Bot ${data.bot_id}`} error`,
+              data.message,
+              { error: data.message },
+              data.bot_id,
+              data.bot_name
+            );
             break;
           }
 
@@ -298,6 +345,14 @@ export function useSSE() {
               timestamp: Date.now(),
               data: { won: data.won, pnl: data.pnl },
             });
+            dispatchNotification(
+              "settlement",
+              `${data.bot_name || `Bot ${data.bot_id}`} ${data.won ? "won" : "lost"} $${data.pnl >= 0 ? "+" : ""}${data.pnl.toFixed(2)}`,
+              data.won ? "Trade settled as WIN" : "Trade settled as LOSS",
+              { won: data.won, pnl: data.pnl },
+              data.bot_id,
+              data.bot_name
+            );
             break;
           }
         }

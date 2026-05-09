@@ -13,6 +13,7 @@ export {
   useOrders,
   usePlaceOrder,
   usePortfolio,
+  usePortfolioHistory,
   usePositions,
   useRunAllBots,
   useSettings,
