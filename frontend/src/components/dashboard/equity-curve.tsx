@@ -159,7 +159,7 @@ export function EquityCurve() {
                 }}
                 itemStyle={{ color: isPositive ? "#34d399" : "#f87171", fontWeight: "bold" }}
                 labelStyle={{ color: "#a1a1aa", marginBottom: "4px" }}
-                formatter={(value: number) => [`$${value.toFixed(2)}`, "P&L"]}
+                formatter={(value) => [`$${Number(value).toFixed(2)}`, "P&L"]}
               />
               <Area
                 type="monotone"

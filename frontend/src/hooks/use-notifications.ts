@@ -41,6 +41,7 @@ export function useNotifications() {
     setPreferences: store.setPreferences,
     getBotStreak: store.getBotStreak,
     getFilteredNotifications,
+    markAsRead,
   };
 }
 

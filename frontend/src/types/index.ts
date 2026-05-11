@@ -24,8 +24,23 @@ export interface Bot {
   btc_confirmation?: boolean;
   entry_bounds?: number[];
   status: BotStatus;
-  run_time?: number;
+  enabled?: boolean;
+  runTime?: number;
   created_at: string;
+  portfolio: {
+    balance: number;
+    initialBalance?: number;
+    closedPositions?: Position[];
+    totalTrades?: number;
+    winRate?: number;
+  };
+  stats: {
+    trades: number;
+    pnl: number;
+    wins: number;
+    losses: number;
+    winRate?: number;
+  };
   pnl?: number;
   trades_count?: number;
   win_rate?: number;
@@ -205,6 +220,7 @@ export interface Position {
   status: "open" | "closed" | "settled";
   pnl?: number;
   bot_id?: number;
+  botId?: number; // camelCase alias for frontend hooks
 }
 
 export interface Order {

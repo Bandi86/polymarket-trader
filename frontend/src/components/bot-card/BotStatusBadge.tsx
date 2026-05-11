@@ -1,7 +1,5 @@
 // BotStatusBadge - Shows ACTIVE/PASSIVE/PAUSED/ERROR/STOPPED status
 
-import React from "react";
-
 type BotStatus = "ACTIVE" | "PASSIVE" | "PAUSED" | "ERROR" | "STOPPED";
 
 interface BotStatusBadgeProps {

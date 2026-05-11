@@ -1,7 +1,5 @@
 // BotLastAction - Shows last decision action, reason, confidence
 
-import React from "react";
-
 interface BotLastActionProps {
   action: "YES" | "NO" | "SKIP" | null;
   reason?: string;
@@ -82,7 +80,7 @@ function formatTimeAgo(timestamp: number): string {
 
 function truncateReason(reason: string, maxLength = 40): string {
   if (reason.length <= maxLength) return reason;
-  return reason.slice(0, maxLength - 3) + "...";
+  return `${reason.slice(0, maxLength - 3)}...`;
 }
 
 export default BotLastAction;

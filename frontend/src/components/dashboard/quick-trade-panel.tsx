@@ -21,7 +21,7 @@ export function QuickTradePanel() {
     currentMarket,
     timeRemaining,
     volume: _volume,
-    btcPrice: _btcPrice,
+    btcPrice,
   } = useAppStore();
   const quickTrade = useQuickTrade();
   const { data: orders = [] } = useOrders();
@@ -102,7 +102,7 @@ export function QuickTradePanel() {
           <div className="flex items-center gap-2 rounded-lg bg-indigo-500/10 border border-indigo-500/20 px-2.5 py-1.5">
             <span className="text-[10px] font-semibold text-indigo-400">
               {currentMarket.id.length > 16
-                ? currentMarket.id.slice(0, 12) + "..."
+                ? `${currentMarket.id.slice(0, 12)}...`
                 : currentMarket.id}
             </span>
             <span className="text-[10px] text-zinc-500">|</span>

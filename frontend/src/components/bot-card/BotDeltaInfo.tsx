@@ -1,7 +1,5 @@
 // BotDeltaInfo - Shows BTC delta %, signal direction, BTC price
 
-import React from "react";
-
 interface BotDeltaInfoProps {
   btcDelta?: number; // Percentage (e.g., 0.08 = 0.08%)
   btcPrice?: number;
