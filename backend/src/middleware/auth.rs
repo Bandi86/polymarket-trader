@@ -85,7 +85,11 @@ pub async fn auth_middleware(
         || path.starts_with("/binance/")
         || path == "/binance/price"
         || path == "/auth/register"
-        || path == "/auth/login" {
+        || path == "/auth/login"
+        || path.starts_with("/system/status")
+        || path == "/strategies"
+        || path == "/live-readiness"
+    {
         return Ok(next.run(request).await);
     }
 

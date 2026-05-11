@@ -20,13 +20,20 @@ pub struct ErrorResponse {
 }
 
 /// Get system status (binance, balance, etc.)
+/// Public endpoint - no auth required. Returns system-wide status only.
 pub async fn get_system_status(
     State(state): State<AppState>,
-    Extension(claims): Extension<Claims>,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     let db = state.db();
 
-    let user_id = claims.user_id;
+    // Try to extract user_id from token if present
+    let user_id = crate::middleware::auth::get_token_from_request(&headers)
+        .and_then(|token| {
+            let config = crate::middleware::auth::AuthConfig::default();
+            crate::middleware::auth::validate_token(&token, &config).ok()
+        })
+        .map(|claims| claims.user_id);
 
     // Check Binance connection
     let binance_client = state.binance_client.read().await;
@@ -36,25 +43,31 @@ pub async fn get_system_status(
         None => None,
     };
 
-    // Check credentials: settings.encrypted_blob OR api_keys table
-    let settings = queries::get_settings(&db, user_id).await.ok().flatten();
-    let has_blob_creds = match &settings {
-        Some((_key, blob)) => !blob.is_empty(),
-        None => false,
+    // Check credentials only if authenticated
+    let has_creds = if let Some(uid) = user_id {
+        let settings = queries::get_settings(&db, uid).await.ok().flatten();
+        let has_blob_creds = match &settings {
+            Some((_key, blob)) => !blob.is_empty(),
+            None => false,
+        };
+        let has_api_keys = match queries::get_api_keys(&db, uid).await {
+            Ok(keys) => keys.iter().any(|k| k.is_valid),
+            Err(_) => false,
+        };
+        has_blob_creds || has_api_keys
+    } else {
+        false
     };
 
-    // Also check api_keys table for individual key entries
-    let has_api_keys = match queries::get_api_keys(&db, user_id).await {
-        Ok(keys) => keys.iter().any(|k| k.is_valid),
-        Err(_) => false,
+    // Get bot count only if authenticated
+    let (total_bots, running_bots) = if let Some(uid) = user_id {
+        let bots = queries::get_bots_by_user(&db, uid).await.unwrap_or_default();
+        (bots.len(), bots.iter().filter(|b| b.status == "running").count())
+    } else {
+        // Unauthenticated: return aggregate count from orchestrator
+        let count = state.orchestrator.running_count().await;
+        (count, count)
     };
-
-    let has_creds = has_blob_creds || has_api_keys;
-
-    // Get bot count
-    let bots = queries::get_bots_by_user(&db, user_id).await.unwrap_or_default();
-    let running_bots = bots.iter().filter(|b| b.status == "running").count();
-    let total_bots = bots.len();
 
     #[derive(Serialize)]
     struct SystemStatus {

@@ -44,6 +44,19 @@ pub struct BotResponse {
     pub losing_trades: i64,
     pub win_rate: f64,
     pub trading_mode: String,
+    // Portfolio data (populated by list_bots enricher)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub portfolio: Option<PortfolioSummary>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PortfolioSummary {
+    pub balance: f64,
+    pub initial_balance: f64,
+    pub total_pnl: f64,
+    pub open_positions: i64,
+    pub roi_percent: f64,
+    pub drawdown_percent: f64,
 }
 
 impl From<BotRecord> for BotResponse {
@@ -68,6 +81,7 @@ impl From<BotRecord> for BotResponse {
             losing_trades: r.losing_trades,
             win_rate: r.win_rate,
             trading_mode: r.trading_mode,
+            portfolio: None,
         }
     }
 }
@@ -345,7 +359,37 @@ pub async fn list_bots(
     let user_id = claims.user_id;
 
     match queries::get_bots_by_user(&db, user_id).await {
-        Ok(bots) => Json(bots.into_iter().map(BotResponse::from).collect::<Vec<_>>()).into_response(),
+        Ok(bots) => {
+            // Fetch all portfolios for this user in one query
+            let portfolios = queries::get_portfolios_by_user(&db, user_id).await
+                .unwrap_or_else(|_| vec![]);
+            let portfolio_map: std::collections::HashMap<i64, _> = portfolios
+                .into_iter()
+                .map(|p| (p.bot_id, p))
+                .collect();
+
+            let bots_with_portfolio: Vec<BotResponse> = bots.into_iter().map(|b| {
+                let mut resp = BotResponse::from(b);
+                if let Some(p) = portfolio_map.get(&resp.id) {
+                    let roi = if p.initial_balance > 0.0 {
+                        (p.balance - p.initial_balance) / p.initial_balance * 100.0
+                    } else { 0.0 };
+                    let drawdown = if p.peak_balance > 0.0 {
+                        (p.peak_balance - p.balance) / p.peak_balance * 100.0
+                    } else { 0.0 };
+                    resp.portfolio = Some(PortfolioSummary {
+                        balance: p.balance,
+                        initial_balance: p.initial_balance,
+                        total_pnl: p.total_pnl,
+                        open_positions: p.open_positions,
+                        roi_percent: roi,
+                        drawdown_percent: drawdown,
+                    });
+                }
+                resp
+            }).collect();
+            Json(bots_with_portfolio).into_response()
+        }
         Err(e) => {
             tracing::error!("Failed to list bots: {}", e);
             (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {

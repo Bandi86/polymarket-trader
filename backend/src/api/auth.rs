@@ -194,7 +194,8 @@ pub async fn demo(State(state): State<AppState>) -> Response {
     // Check if demo user exists
     match queries::find_user_by_username(&db, demo_username).await {
         Ok(Some((user_id, _, _))) => {
-            // User exists, try to login
+            // User exists, ensure bots are seeded (idempotent)
+            let _ = db::seed_default_bots(db.as_ref(), user_id).await;
             tracing::info!("Demo user exists, logging in as {}", demo_username);
             match generate_token(user_id, demo_username) {
                 Ok(token) => Json(AuthResponse {
@@ -221,6 +222,8 @@ pub async fn demo(State(state): State<AppState>) -> Response {
 
             match queries::create_user(&db, demo_username, &password_hash).await {
                 Ok(user_id) => {
+                    // Seed demo bots for the new demo user
+                    let _ = db::seed_default_bots(db.as_ref(), user_id).await;
                     match generate_token(user_id, demo_username) {
                         Ok(token) => Json(AuthResponse {
                             token,

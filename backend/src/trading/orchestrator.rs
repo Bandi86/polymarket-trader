@@ -18,6 +18,7 @@ use crate::trading::competition::CompetitionManager;
 use crate::trading::strategy_coordinator::StrategyCoordinator;
 use crate::api::market::fetch_active_markets;
 use crate::api::CachedCredentials;
+use crate::trading::polymarket::{PolymarketClient, ApiKeyCreds, OrderRequest};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum BotEvent {
@@ -38,7 +39,8 @@ pub enum BotEvent {
 pub struct PendingBet {
     pub side: String,
     pub bet_size: f64,
-    pub start_price: f64,
+    pub start_price: f64,  // BTC price when bet was placed
+    pub end_price: Option<f64>,  // BTC closing price when market ended (used for settlement)
     pub entry_price: f64,
     pub decision_id: i64,
 }
@@ -90,7 +92,15 @@ pub async fn restore_running_bots(orchestrator: Arc<BotOrchestrator>) {
 
     tracing::info!("Found {} running sessions to restore", running_sessions.len());
 
+    let mut restored_bot_ids = std::collections::HashSet::new();
     for session in &running_sessions {
+        // Skip if we already restored this bot (bot has multiple running sessions in DB)
+        if restored_bot_ids.contains(&session.bot_id) {
+            tracing::warn!("Bot {} has multiple running sessions, skipping duplicate session {}", session.bot_id, session.id);
+            continue;
+        }
+        restored_bot_ids.insert(session.bot_id);
+
         // Get bot config for this session
         let bot = match queries::get_bot_by_id(&orchestrator.db, session.bot_id, session.user_id).await {
             Ok(Some(b)) => b,
@@ -170,18 +180,24 @@ impl BotOrchestrator {
         tracing::info!("Orchestrator background loops started");
     }
 
+    /// Get count of currently running bots (public for monitoring)
+    pub async fn running_count(&self) -> usize {
+        let running = self.running_bots.read().await;
+        running.len()
+    }
+
     pub async fn resume_bot(&self, bot: &BotRecord, current_balance: f64) -> Result<i64, String> {
         let mut running = self.running_bots.write().await;
         if running.contains_key(&bot.id) { return Ok(0); }
-        let strategy = StrategyExecutor::new(&bot.strategy_type, &bot.params);
-        let session_id = queries::create_session(&self.db, bot.id, bot.user_id, current_balance, Some(bot.params.as_str()), &bot.trading_mode).await.unwrap_or(0);
+        // NOTE: We deliberately do NOT create a new session here.
+        // Sessions are managed by restore_running_bots which uses existing DB sessions.
+        // resume_bot only populates the in-memory running_bots map.
         running.insert(bot.id, RunningBot {
-            bot_id: bot.id, session_id, user_id: bot.user_id, strategy, last_market_slug: None,
-            consecutive_errors: 0, last_btc_price: None, btc_window_open: None, current_balance,
+            bot_id: bot.id, session_id: 0, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
+            last_market_slug: None, consecutive_errors: 0, last_btc_price: None, btc_window_open: None, current_balance,
             pending_bet: None, btc_price_history: Vec::new(),
         });
-        self.event_sender.send(BotEvent::SessionStarted { bot_id: bot.id, session_id, bot_name: bot.name.clone() }).ok();
-        Ok(session_id)
+        Ok(0)
     }
 
     pub async fn start_bot(&self, bot: &BotRecord, initial_balance: f64) -> Result<i64, String> {
@@ -205,6 +221,7 @@ impl BotOrchestrator {
         let mut running = self.running_bots.write().await;
         if let Some(rb) = running.remove(&bot_id) {
             queries::update_bot_status(&self.db, bot_id, user_id, "stopped").await.ok();
+            queries::end_session_by_bot(&self.db, bot_id).await.ok();
             self.event_sender.send(BotEvent::SessionEnded { bot_id, session_id: rb.session_id, final_balance: 0.0, total_pnl: 0.0 }).ok();
         }
         Ok(())
@@ -274,33 +291,58 @@ impl BotOrchestrator {
         
         self.event_sender.send(BotEvent::Scanning { bot_id, market_slug: market_slug.clone() }).ok();
 
-        // Settlement: check if market transitioned OR if time is up
+        // Settlement: ONLY on market END (time up) - not on market_changed (which is just a new market starting)
+        // The diff is calculated against the CLOSING price (btc_price at settlement time = when market ended)
+        // We track end_price in pending_bet so we use the actual closing price, not a mid-market price
         let market_ended = market.time_remaining <= 5;
-        let market_changed = rb.last_market_slug.as_ref() != Some(&market_slug);
         
-        if market_changed || market_ended {
-            // Settlement paper trade
+        if market_ended {
+            // Market ended - settle the pending bet using CURRENT btc_price as closing price
             if let Some(ref bet) = rb.pending_bet {
-                let diff = (btc_price - bet.start_price) / bet.start_price;
-                // FIXED: won logic - YES bet wins if BTC goes UP, NO bet wins if BTC goes DOWN
-                let won = if bet.side == "YES" { diff > 0.0 } else { diff < 0.0 };
+                // Use current btc_price as the closing/settlement price
+                let settle_price = btc_price;
+                let diff = (settle_price - bet.start_price) / bet.start_price;
+                
+                // Threshold: if diff is very close to 0, treat as loss (no edge case)
+                let diff_threshold = 0.0001; // 0.01% threshold
+                let won = if diff.abs() < diff_threshold {
+                    false // Near-zero diff = loss (house edge)
+                } else if bet.side == "YES" {
+                    diff > 0.0
+                } else {
+                    diff < 0.0
+                };
+                
                 // PnL: if won, you get back your bet_size + profit; if lost, you lose your bet_size
-                // profit = bet_size * (1.0 - entry_price) / entry_price (for YES) or (entry_price) for NO?
-                // Actually: YES pays (1/yes_price - 1) * bet_size, NO pays (1/no_price - 1) * bet_size
-                // For simplicity: WIN = +bet_size * (1 - entry_price), LOSE = -bet_size
-                let profit = if won { bet.bet_size * (1.0 - bet.entry_price) } else { -bet.bet_size };
-                queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, profit).await.ok();
+                // profit = bet_size * (1.0 - entry_price) for YES, or bet_size * entry_price for NO
+                let profit = if won { 
+                    if bet.side == "YES" {
+                        bet.bet_size * (1.0 - bet.entry_price)
+                    } else {
+                        bet.bet_size * bet.entry_price
+                    }
+                } else { 
+                    -bet.bet_size 
+                };
+                queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, profit, bet.bet_size).await.ok();
                 self.event_sender.send(BotEvent::TradeResult { bot_id, won, pnl: profit }).ok();
-                eprintln!("[SETTLE] Bot {}: {} won={} profit={:.4} price_diff={:.6}", bot_id, bet.side, won, profit, diff);
+                eprintln!("[SETTLE] Bot {}: {} won={} profit={:.4} diff={:.6} close={:.2}", bot_id, bet.side, won, profit, diff, settle_price);
                 rb.pending_bet = None;
             }
-            
-            // Reset window on market change
-            if market_changed {
-                rb.btc_window_open = Some(btc_price);
-                rb.last_market_slug = Some(market_slug.clone());
-                tracing::info!("[MARKET] Bot {} new market: {} (time_remaining={}s)", bot_id, market_slug, market.time_remaining);
+        }
+        
+        // Track market slug changes - save closing price when market transitions
+        let market_changed = rb.last_market_slug.as_ref() != Some(&market_slug);
+        if market_changed {
+            // Market transitioned to new one - this means previous market just closed
+            // Save the BTC price at transition time as the end_price for any pending bet
+            if let Some(ref mut bet) = rb.pending_bet {
+                bet.end_price = Some(btc_price);
+                eprintln!("[MARKET_TRANSITION] Bot {} save end_price={:.2} for pending bet", bot_id, btc_price);
             }
+            rb.btc_window_open = Some(btc_price);
+            rb.last_market_slug = Some(market_slug.clone());
+            tracing::info!("[MARKET] Bot {} new market: {} (time_remaining={}s)", bot_id, market_slug, market.time_remaining);
         }
 
         let ctx = StrategyContext {
@@ -340,13 +382,37 @@ impl BotOrchestrator {
                     if let Some(ref cache) = credential_cache {
                         let c = cache.read().await;
                         if let Some(creds) = c.get(&user_id) {
-                            let _ = Self::place_order(&market, outcome, bot.bet_size, creds).await;
+                            match Self::place_order(&market, outcome, bot.bet_size, creds).await {
+                                Ok(order_id) => {
+                                    tracing::info!("[LIVE] Bot {} order executed: {} ({} @ {})", bot_id, order_id, outcome, price);
+                                    // Log trade decision to DB
+                                    let d_id = queries::log_trade_decision(
+                                        &self.db, bot_id, rb.session_id, user_id, &market_slug,
+                                        &market.condition_id, outcome, &bot.strategy_type, conf,
+                                        Some(btc_price), btc_change, Some(market.yes_price),
+                                        Some(market.no_price), Some(market.time_remaining), "live"
+                                    ).await.unwrap_or(0);
+                                    // Update portfolio balance
+                                    queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - bot.bet_size).await.ok();
+                                    // Send order executed event
+                                    self.event_sender.send(BotEvent::OrderExecuted { bot_id, order_id: order_id.clone() }).ok();
+                                    // Send position update
+                                    self.event_sender.send(BotEvent::PositionUpdate { bot_id, side: outcome.to_string(), size: bot.bet_size, price, unrealized_pnl: 0.0 }).ok();
+                                    // Store pending bet for tracking
+                                    rb.pending_bet = Some(PendingBet { side: outcome.to_string(), bet_size: bot.bet_size, start_price: btc_price, end_price: None, entry_price: price, decision_id: d_id });
+                                }
+                                Err(e) => {
+                                    tracing::error!("[LIVE] Bot {} order failed: {}", bot_id, e);
+                                }
+                            }
+                        } else {
+                            tracing::warn!("[LIVE] Bot {} no credentials found for user_id {}", bot_id, user_id);
                         }
                     }
                 } else {
                     let d_id = queries::log_trade_decision(&self.db, bot_id, rb.session_id, user_id, &market_slug, &market.condition_id, outcome, &bot.strategy_type, conf, Some(btc_price), btc_change, Some(market.yes_price), Some(market.no_price), Some(market.time_remaining), "paper trade").await.unwrap_or(0);
                     queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - bot.bet_size).await.ok();
-                    rb.pending_bet = Some(PendingBet { side: outcome.to_string(), bet_size: bot.bet_size, start_price: btc_price, entry_price: price, decision_id: d_id });
+                    rb.pending_bet = Some(PendingBet { side: outcome.to_string(), bet_size: bot.bet_size, start_price: btc_price, end_price: None, entry_price: price, decision_id: d_id });
                     self.event_sender.send(BotEvent::PositionUpdate { bot_id, side: outcome.to_string(), size: bot.bet_size, price, unrealized_pnl: 0.0 }).ok();
                 }
             }
@@ -369,9 +435,54 @@ impl BotOrchestrator {
         self.fetch_btc_price().await
     }
 
-    async fn place_order(market: &crate::api::market::ActiveMarket, outcome: &str, _bet_size: f64, _creds: &CachedCredentials) -> Result<String, String> {
-        let _order_price = if outcome == "YES" { (market.yes_price * 1.0001).min(0.99) } else { ((1.0 - market.yes_price) * 1.0001).min(0.99) };
-        Ok("order_id_simulated".to_string())
+    async fn place_order(market: &crate::api::market::ActiveMarket, outcome: &str, bet_size: f64, creds: &CachedCredentials) -> Result<String, String> {
+        // Create PolymarketClient from credentials
+        let api_key_creds = ApiKeyCreds {
+            key: creds.api_key.clone(),
+            secret: creds.api_secret.clone(),
+            passphrase: creds.api_passphrase.clone(),
+        };
+
+        let client = PolymarketClient::from_api_credentials(
+            &creds.private_key,
+            creds.signature_type,
+            Some(api_key_creds),
+            creds.funder.as_deref(),
+        ).map_err(|e| format!("Failed to create Polymarket client: {}", e))?;
+
+        // Determine token_id and price based on outcome
+        let token_id = if outcome == "YES" {
+            market.yes_token_id.clone()
+        } else {
+            market.no_token_id.clone()
+        };
+
+        let price = if outcome == "YES" {
+            market.yes_price
+        } else {
+            market.no_price
+        };
+
+        // Build order request - always BUY
+        let order_request = OrderRequest {
+            token_id,
+            price,
+            size: bet_size,
+            side: "BUY".to_string(),
+        };
+
+        // Create and sign the order
+        let signed_order = client.create_order_v2(&order_request, false)
+            .await
+            .map_err(|e| format!("Failed to sign order: {}", e))?;
+
+        // Post the order to the CLOB
+        let response = client.post_order(&signed_order)
+            .await
+            .map_err(|e| format!("Failed to post order: {}", e))?;
+
+        // Return the order_id from the response
+        response.order_id.ok_or_else(|| "No order_id in response".to_string())
     }
 
     pub async fn is_running(&self, bot_id: i64) -> bool { self.running_bots.read().await.contains_key(&bot_id) }

@@ -490,7 +490,7 @@ pub async fn seed_default_bots(pool: &sqlx::SqlitePool, user_id: i64) -> Result<
                 bet_size, use_kelly, kelly_fraction, max_bet, interval,
                 stop_loss, take_profit, trading_mode
             ) VALUES (?, ?, 'auto', ?, '{}',
-                1.0, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
+                10.0, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
             "#,
         )
         .bind(user_id)
@@ -1040,7 +1040,7 @@ pub mod queries {
 
     /// Create a new bot session
     /// mode: "demo" or "live"
-    pub async fn create_session(
+pub async fn create_session(
         db: &Db,
         bot_id: i64,
         user_id: i64,
@@ -1048,19 +1048,25 @@ pub mod queries {
         strategy_config: Option<&str>,
         mode: &str,
     ) -> Result<i64, sqlx::Error> {
+        // Stop any existing running sessions for this bot first (prevents duplicate sessions)
+        sqlx::query("UPDATE bot_sessions SET status = 'stopped' WHERE bot_id = ? AND status = 'running'")
+            .bind(bot_id)
+            .execute(db.as_ref())
+            .await?;
+
         let result = sqlx::query(
             r#"
             INSERT INTO bot_sessions (bot_id, user_id, start_time, start_balance, strategy_config, status, mode)
             VALUES (?, ?, datetime('now'), ?, ?, 'running', ?)
             "#
         )
-        .bind(bot_id)
-        .bind(user_id)
-        .bind(start_balance)
-        .bind(strategy_config)
-        .bind(mode)
-        .execute(db.as_ref())
-        .await?;
+            .bind(bot_id)
+            .bind(user_id)
+            .bind(start_balance)
+            .bind(strategy_config)
+            .bind(mode)
+            .execute(db.as_ref())
+            .await?;
 
         Ok(result.last_insert_rowid())
     }
@@ -1142,6 +1148,27 @@ pub mod queries {
         .bind(total_pnl)
         .bind(max_drawdown)
         .bind(session_id)
+        .execute(db.as_ref())
+        .await?;
+
+        Ok(())
+    }
+
+    /// End session by bot_id (mark the running session as stopped)
+    pub async fn end_session_by_bot(
+        db: &Db,
+        bot_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE bot_sessions SET
+                end_time = datetime('now'),
+                status = 'stopped',
+                updated_at = datetime('now')
+            WHERE bot_id = ? AND status = 'running'
+            "#
+        )
+        .bind(bot_id)
         .execute(db.as_ref())
         .await?;
 
@@ -1534,9 +1561,9 @@ pub mod queries {
         decision_id: i64,
         won: bool,
         pnl: f64,
+        bet_size: f64,
     ) -> Result<(), sqlx::Error> {
         let pool = db.as_ref();
-        let _sign = if won { 1 } else { -1 };
 
         // Update trade_decision PnL
         sqlx::query("UPDATE trade_decisions SET pnl = ? WHERE id = ?")
@@ -1546,7 +1573,14 @@ pub mod queries {
             .await?;
 
         // Update portfolio stats
+        // WIN case: balance += bet_size (returned) + pnl (profit). So total += bet_size + pnl
+        // LOSE case: balance -= bet_size (the stake is already deducted at entry, so just record the loss)
+        // PNL here is ALREADY the net profit (won: +bet_size*(1-entry), lost: -bet_size)
+        // For won: balance was already deducted at entry (-bet_size), now we add back stake+profit = bet_size + pnl
+        // For lost: balance was already deducted at entry (-bet_size), pnl is already -bet_size, so net change is 0
         if won {
+            // Balance change = stake returned + profit = bet_size + pnl (pnl is already the profit part)
+            let win_amount = bet_size + pnl;
             sqlx::query(
                 r#"
                 UPDATE bot_portfolios SET
@@ -1560,18 +1594,19 @@ pub mod queries {
                 WHERE bot_id = ?
                 "#,
             )
+            .bind(win_amount)
             .bind(pnl)
-            .bind(pnl)
-            .bind(pnl)
+            .bind(win_amount)
             .bind(bot_id)
             .execute(pool)
             .await?;
         } else {
-            let loss = pnl.abs();
+            // For loss: pnl is already negative (e.g. -bet_size), entry deducted bet_size already
+            // total_pnl decreases by |pnl| (which equals bet_size for loss)
             sqlx::query(
                 r#"
                 UPDATE bot_portfolios SET
-                    balance = balance - ?,
+                    balance = balance - ?, -- deduct the lost stake (already deducted at entry, this records it properly)
                     losing_trades = losing_trades + 1,
                     total_trades = total_trades + 1,
                     total_pnl = total_pnl - ?,
@@ -1580,8 +1615,8 @@ pub mod queries {
                 WHERE bot_id = ?
                 "#,
             )
-            .bind(loss)
-            .bind(loss)
+            .bind(bet_size.abs())
+            .bind(bet_size.abs())
             .bind(bot_id)
             .execute(pool)
             .await?;

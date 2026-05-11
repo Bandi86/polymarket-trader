@@ -855,17 +855,20 @@ impl StrategyExecutor {
     /// Target: buy at 30-35c, sell at 50c = 43-67% gain per trade
     /// Even 1-in-3 accuracy would be profitable
     fn evaluate_extreme_edge(&self, ctx: StrategyContext) -> Signal {
-        // Time check: trade between 30s and 250s (avoid first 30s open and last 30s close)
-        if ctx.time_remaining < 30 {
+        // Time check: trade between 20s and 270s (avoid first 20s open and last 20s close)
+        if ctx.time_remaining < 20 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 250 {
+        if ctx.time_remaining > 270 {
             return Signal::Hold("Window just opened".to_string());
         }
 
-        // EXTREME OVERPRICED: YES > 68c → market thinks BTC will go up too much
-        // This is a gift to bet against (BTC rarely moves that much in 5 min)
-        if ctx.yes_price > 0.68 {
+        // Require some BTC movement context (filter random noise in calm markets)
+        let btc_move = ctx.btc_change.map(|c| c.abs()).unwrap_or(0.0);
+
+        // EXTREME OVERPRICED: YES > 65c → market thinks BTC will go up too much
+        // This is a gift to bet against (BTC rarely moves enough in 5 min)
+        if ctx.yes_price > 0.65 {
             let edge = ctx.yes_price - 0.50;
             // Confidence based on how extreme the mispricing is
             let confidence = (0.60_f64 + edge * 3.0).min(0.88_f64);
@@ -873,9 +876,9 @@ impl StrategyExecutor {
             return Signal::No(confidence);
         }
 
-        // EXTREME UNDERPRICED: YES < 32c → market thinks BTC will go down too much
+        // EXTREME UNDERPRICED: YES < 35c → market thinks BTC will go down too much
         // BTC rarely drops enough to make NO win
-        if ctx.yes_price < 0.32 {
+        if ctx.yes_price < 0.35 {
             let edge = 0.50 - ctx.yes_price;
             let confidence = (0.60_f64 + edge * 3.0).min(0.88_f64);
             tracing::info!("Extreme Edge: YES underpriced at {:.0}c, betting YES conf={:.2}", ctx.yes_price * 100.0, confidence);
@@ -883,31 +886,38 @@ impl StrategyExecutor {
         }
 
         // Also check NO extremes
-        if ctx.no_price > 0.68 {
+        if ctx.no_price > 0.65 {
             let edge = ctx.no_price - 0.50;
             let confidence = (0.60_f64 + edge * 3.0).min(0.88_f64);
             tracing::info!("Extreme Edge: NO overpriced at {:.0}c, betting YES conf={:.2}", ctx.no_price * 100.0, confidence);
             return Signal::Yes(confidence);
         }
 
-        if ctx.no_price < 0.32 {
+        if ctx.no_price < 0.35 {
             let edge = 0.50 - ctx.no_price;
             let confidence = (0.60_f64 + edge * 3.0).min(0.88_f64);
             tracing::info!("Extreme Edge: NO underpriced at {:.0}c, betting NO conf={:.2}", ctx.no_price * 100.0, confidence);
             return Signal::No(confidence);
         }
 
-        // Slightly extreme: >62c or <38c - lower confidence
-        if ctx.yes_price > 0.62 {
+        // Slightly extreme: >58c or <42c - lower confidence, require BTC movement
+        if ctx.yes_price > 0.58 {
             let edge = ctx.yes_price - 0.50;
             let confidence = (0.52_f64 + edge * 2.0).min(0.70_f64);
-            return Signal::No(confidence);
+            // Only trade if BTC is moving (filter flat market noise)
+            if btc_move > 0.0002 {
+                return Signal::No(confidence);
+            }
+            return Signal::Hold(format!("Slight edge but BTC flat: {:.4}%", btc_move * 100.0));
         }
 
-        if ctx.yes_price < 0.38 {
+        if ctx.yes_price < 0.42 {
             let edge = 0.50 - ctx.yes_price;
             let confidence = (0.52_f64 + edge * 2.0).min(0.70_f64);
-            return Signal::Yes(confidence);
+            if btc_move > 0.0002 {
+                return Signal::Yes(confidence);
+            }
+            return Signal::Hold(format!("Slight edge but BTC flat: {:.4}%", btc_move * 100.0));
         }
 
         Signal::Hold(format!(
