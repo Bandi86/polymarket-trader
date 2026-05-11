@@ -1,5 +1,5 @@
 # Polymarket Trader — Projekt Állapot
-**Frissítve:** 2026-05-11 12:30
+**Frissítve:** 2026-05-11 16:45
 
 ---
 
@@ -9,13 +9,20 @@
 
 | Task | Állapot | Megjegyzés |
 |------|---------|------------|
-| Frontend build fix | ✅ | TypeScript errorok javítva, build green |
-| `place_order` implementáció | ✅ | CLOB API integráció kész (414-462 sor), eddig timeout |
-| Frontend lint javítás | ✅ | `lint:fix` lefutott |
-| Rust backend build | ✅ | 0 error, 3 warning |
-| Rust tesztek | ✅ | 50/50 passed |
+| Live trading branch javítás (`orchestrator.rs:381-387`) | ✅ | Real CLOB API hívás, credential cache, logging, DB write, BotEvent |
+| Credential cache population ellenőrzés | ✅ | `bots.rs` + `settings.rs` — ApiKeyCreds betöltés OK |
+| Frontend lint javítás (Biome v1.3) | ✅ | 55 → 4 error (legit code issues maradtak) |
+| design-tokens.ts létrehozás | ✅ | getStrategyName + getStrategyColor export |
 
-**Session summary:** Delegate task készült meg a `place_order` implementálásával. A timeout előtt a kód beíródott az orchestrator.rs-be. Build és tesztek zöldek.
+### Stack állapot
+
+- **Backend:** build OK, 50/50 teszt passed ✅
+- **Frontend:** build OK ✅, lint: 4 nem-kritikus hiba (Tailwind directive, unused param)
+
+### Commit történet (mai)
+
+- `f7b500e` — feat: live trading branch + credential cache + monitoring fixes
+- `7607a70` — fix: design-tokens.ts hozzáadva (getStrategyName, getStrategyColor)
 
 ---
 
@@ -75,7 +82,10 @@ polymarket-trader/
 
 ## 🔴 AMI FONTOS — Javítani Való
 
-### 1. place_order hívás aktiválása (`orchestrator.rs:385`)
+### ~~1. place_order hívás aktiválása (`orchestrator.rs:385`)~~ ✅ JAVÍTVA
+- `let _ =` helyett valós `create_order_v2()` + `post_order()` hívás
+- Credential cache check, logging, DB write, BotEvent emission hozzáadva
+- Commit: `f7b500e`
 ```
 if bot.trading_mode == "live" {
     let _ = Self::place_order(...);  // <-- Ezt nem figyelik, nem log-olja!
