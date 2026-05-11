@@ -305,308 +305,308 @@ export default function BotsPage() {
 
   return (
     <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10">
-              <BotIcon className="h-6 w-6 text-indigo-400" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-white">Bot Fleet Manager</h1>
-              <p className="text-sm text-zinc-500">
-                {bots.length} bot · {totalStats.active} aktív
-              </p>
-            </div>
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10">
+            <BotIcon className="h-6 w-6 text-indigo-400" />
           </div>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Bot Fleet Manager</h1>
+            <p className="text-sm text-zinc-500">
+              {bots.length} bot · {totalStats.active} aktív
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowCreateModal(true)}
+          className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
+        >
+          <Plus className="h-4 w-4" />
+          Új bot
+        </button>
+      </div>
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+        <StatCard
+          label="Aktív Botok"
+          value={totalStats.active}
+          icon={<Activity className="h-4 w-4" />}
+          color="green"
+        />
+        <StatCard
+          label="Összes PnL"
+          value={`$${totalStats.pnl.toFixed(2)}`}
+          icon={<TrendingUp className="h-4 w-4" />}
+          color={totalStats.pnl >= 0 ? "green" : "red"}
+        />
+        <StatCard
+          label="Összes Trade"
+          value={totalStats.trades}
+          icon={<BarChart3 className="h-4 w-4" />}
+          color="blue"
+        />
+        <StatCard
+          label="Egyenleg"
+          value={`$${totalStats.balance.toFixed(2)}`}
+          icon={<Wallet className="h-4 w-4" />}
+          color="indigo"
+        />
+        <StatCard
+          label="Win Rate"
+          value={`${bots.length > 0 ? ((totalStats.wins / (totalStats.wins + totalStats.losses)) * 100 || 0).toFixed(1) : 0}%`}
+          icon={<Trophy className="h-4 w-4" />}
+          color="amber"
+        />
+        <StatCard
+          label="W / L"
+          value={`${totalStats.wins} / ${totalStats.losses}`}
+          icon={<Shield className="h-4 w-4" />}
+          color="violet"
+        />
+      </div>
+
+      {/* Filters */}
+      <div className="space-y-4 rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              placeholder="Bot keresése..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-zinc-800/50 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-500 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
+            />
+          </div>
+
+          {/* Status Filters */}
+          <div className="flex rounded-lg border border-white/10 bg-zinc-800/30 p-1">
+            {(["all", "running", "stopped", "error"] as const).map((f) => (
+              <button
+                type="button"
+                key={f}
+                onClick={() => setStatusFilter(f)}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  statusFilter === f
+                    ? "bg-indigo-500/20 text-indigo-400"
+                    : "text-zinc-500 hover:text-zinc-300"
+                }`}
+              >
+                {f === "all"
+                  ? "Összes"
+                  : f === "running"
+                    ? `● Aktív (${bots.filter((b) => b.status === "running").length})`
+                    : f === "stopped"
+                      ? `■ Leállítva`
+                      : `✕ Hiba`}
+              </button>
+            ))}
+          </div>
+
+          {/* Sort */}
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="rounded-lg border border-white/10 bg-zinc-800/50 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
+          >
+            <option value="pnl">Profit</option>
+            <option value="winRate">Win Rate</option>
+            <option value="balance">Egyenleg</option>
+            <option value="trades">Trade-ek</option>
+            <option value="name">Név</option>
+          </select>
 
           <button
             type="button"
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
+            onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
+            className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-zinc-800/50 text-zinc-400 transition-colors hover:text-white hover:border-white/20"
           >
-            <Plus className="h-4 w-4" />
-            Új bot
+            <ArrowUpDown
+              className={`h-4 w-4 transition-transform ${sortDir === "asc" ? "rotate-180" : ""}`}
+            />
+          </button>
+
+          {/* Quick filters toggle */}
+          <button
+            type="button"
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-all ${
+              showFilters || quickFilter !== "none"
+                ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
+                : "border-white/10 bg-zinc-800/50 text-zinc-400 hover:text-white"
+            }`}
+          >
+            <Filter className="h-4 w-4" />
+            Gyorsszűrők
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`}
+            />
           </button>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
-          <StatCard
-            label="Aktív Botok"
-            value={totalStats.active}
-            icon={<Activity className="h-4 w-4" />}
-            color="green"
-          />
-          <StatCard
-            label="Összes PnL"
-            value={`$${totalStats.pnl.toFixed(2)}`}
-            icon={<TrendingUp className="h-4 w-4" />}
-            color={totalStats.pnl >= 0 ? "green" : "red"}
-          />
-          <StatCard
-            label="Összes Trade"
-            value={totalStats.trades}
-            icon={<BarChart3 className="h-4 w-4" />}
-            color="blue"
-          />
-          <StatCard
-            label="Egyenleg"
-            value={`$${totalStats.balance.toFixed(2)}`}
-            icon={<Wallet className="h-4 w-4" />}
-            color="indigo"
-          />
-          <StatCard
-            label="Win Rate"
-            value={`${bots.length > 0 ? ((totalStats.wins / (totalStats.wins + totalStats.losses)) * 100 || 0).toFixed(1) : 0}%`}
-            icon={<Trophy className="h-4 w-4" />}
-            color="amber"
-          />
-          <StatCard
-            label="W / L"
-            value={`${totalStats.wins} / ${totalStats.losses}`}
-            icon={<Shield className="h-4 w-4" />}
-            color="violet"
-          />
-        </div>
-
-        {/* Filters */}
-        <div className="space-y-4 rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Search */}
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-              <input
-                type="text"
-                placeholder="Bot keresése..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-white/10 bg-zinc-800/50 py-2.5 pl-10 pr-4 text-sm text-white placeholder-zinc-500 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/20"
-              />
-            </div>
-
-            {/* Status Filters */}
-            <div className="flex rounded-lg border border-white/10 bg-zinc-800/30 p-1">
-              {(["all", "running", "stopped", "error"] as const).map((f) => (
-                <button
-                  type="button"
-                  key={f}
-                  onClick={() => setStatusFilter(f)}
-                  className={`rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-                    statusFilter === f
-                      ? "bg-indigo-500/20 text-indigo-400"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  }`}
-                >
-                  {f === "all"
-                    ? "Összes"
-                    : f === "running"
-                      ? `● Aktív (${bots.filter((b) => b.status === "running").length})`
-                      : f === "stopped"
-                        ? `■ Leállítva`
-                        : `✕ Hiba`}
-                </button>
-              ))}
-            </div>
-
-            {/* Sort */}
-            <select
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as SortKey)}
-              className="rounded-lg border border-white/10 bg-zinc-800/50 px-3 py-2.5 text-sm text-white outline-none focus:border-indigo-500/50"
-            >
-              <option value="pnl">Profit</option>
-              <option value="winRate">Win Rate</option>
-              <option value="balance">Egyenleg</option>
-              <option value="trades">Trade-ek</option>
-              <option value="name">Név</option>
-            </select>
-
-            <button
-              type="button"
-              onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
-              className="flex h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-zinc-800/50 text-zinc-400 transition-colors hover:text-white hover:border-white/20"
-            >
-              <ArrowUpDown
-                className={`h-4 w-4 transition-transform ${sortDir === "asc" ? "rotate-180" : ""}`}
-              />
-            </button>
-
-            {/* Quick filters toggle */}
-            <button
-              type="button"
-              onClick={() => setShowFilters(!showFilters)}
-              className={`flex h-10 items-center gap-2 rounded-lg border px-3 text-sm transition-all ${
-                showFilters || quickFilter !== "none"
-                  ? "border-indigo-500/30 bg-indigo-500/10 text-indigo-400"
-                  : "border-white/10 bg-zinc-800/50 text-zinc-400 hover:text-white"
-              }`}
-            >
-              <Filter className="h-4 w-4" />
-              Gyorsszűrők
-              <ChevronDown
-                className={`h-3 w-3 transition-transform ${showFilters ? "rotate-180" : ""}`}
-              />
-            </button>
-          </div>
-
-          {/* Quick filters panel */}
-          <AnimatePresence>
-            {showFilters && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/5"
-              >
-                <span className="text-xs text-zinc-500">Gyors nézet:</span>
-                <button
-                  type="button"
-                  onClick={() => setQuickFilter(quickFilter === "best3" ? "none" : "best3")}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-                    quickFilter === "best3"
-                      ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                      : "bg-zinc-800/50 text-zinc-400 border border-white/5 hover:text-white"
-                  }`}
-                >
-                  <Trophy className="h-3 w-3" />
-                  Top 3 Legjobb
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQuickFilter(quickFilter === "worst3" ? "none" : "worst3")}
-                  className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
-                    quickFilter === "worst3"
-                      ? "bg-red-500/20 text-red-400 border border-red-500/30"
-                      : "bg-zinc-800/50 text-zinc-400 border border-white/5 hover:text-white"
-                  }`}
-                >
-                  <AlertTriangle className="h-3 w-3" />
-                  Top 3 Legrosszabb
-                </button>
-
-                <div className="h-4 w-px bg-white/10 mx-2" />
-
-                <button
-                  type="button"
-                  onClick={handleBulkAction.bind(null, "start")}
-                  className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
-                >
-                  <Play className="h-3 w-3" />
-                  Indít mind
-                </button>
-                <button
-                  type="button"
-                  onClick={handleBulkAction.bind(null, "stop")}
-                  className="flex items-center gap-1.5 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
-                >
-                  <Square className="h-3 w-3" />
-                  Megállít mind
-                </button>
-                <button
-                  type="button"
-                  onClick={handleResetAll}
-                  className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
-                >
-                  <RotateCcw className="h-3 w-3" />
-                  Összes nullázása
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-
-        {/* Bot Grid */}
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {filteredBots.map((bot) => (
-            <BotCard
-              key={bot.id}
-              bot={bot}
-              isExpanded={expandedBot === bot.id}
-              isLoading={actionLoading === bot.id}
-              onToggle={() => setExpandedBot(expandedBot === bot.id ? null : bot.id)}
-              onStart={() => handleStart(bot.id, bot.name)}
-              onStop={() => handleStop(bot.id, bot.name)}
-              onReset={() => handleReset(bot.id, bot.name)}
-              onDelete={() => {
-                if (confirm("Végleges törlés?"))
-                  apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots);
-              }}
-            />
-          ))}
-        </div>
-
-        {filteredBots.length === 0 && (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-white/5 bg-zinc-900/30 py-16">
-            <BotIcon className="h-12 w-12 text-zinc-700 mb-4" />
-            <p className="text-lg font-medium text-zinc-400">Nincs találat</p>
-            <p className="text-sm text-zinc-600">Próbáld módosítani a szűrőket</p>
-          </div>
-        )}
-
-        {/* Activity Log */}
-        <div className="rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-indigo-400">
-              <ScrollText className="h-4 w-4" />
-              <h3 className="text-sm font-semibold uppercase tracking-wider">Eseménynapló</h3>
-            </div>
-            <div className="flex items-center gap-3 text-xs text-zinc-500">
-              {serverOnline ? (
-                <span className="flex items-center gap-1.5 text-green-500">
-                  <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                  ONLINE
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-red-500">
-                  <WifiOff className="h-3 w-3" />
-                  OFFLINE
-                </span>
-              )}
-              <span>Frissítve: {lastSync.toLocaleTimeString()}</span>
-              {isSyncing && <Loader2 className="h-3 w-3 animate-spin" />}
-            </div>
-          </div>
-
-          <div className="max-h-40 space-y-2 overflow-y-auto">
-            {logs.map((log) => (
-              <div
-                key={log.id}
-                className="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2 text-xs"
-              >
-                <span
-                  className={
-                    log.type === "success"
-                      ? "text-green-400"
-                      : log.type === "warn"
-                        ? "text-amber-400"
-                        : log.type === "error"
-                          ? "text-red-400"
-                          : "text-zinc-400"
-                  }
-                >
-                  {log.msg}
-                </span>
-                <span className="text-zinc-600">{log.time}</span>
-              </div>
-            ))}
-            {logs.length === 0 && (
-              <p className="py-4 text-center text-xs text-zinc-600">Még nincs esemény...</p>
-            )}
-          </div>
-        </div>
-
+        {/* Quick filters panel */}
         <AnimatePresence>
-          {showCreateModal && (
-            <CreateBotModal
-              onClose={() => setShowCreateModal(false)}
-              onSuccess={() => {
-                setShowCreateModal(false);
-                void loadBots();
-              }}
-            />
+          {showFilters && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="flex flex-wrap items-center gap-2 pt-3 border-t border-white/5"
+            >
+              <span className="text-xs text-zinc-500">Gyors nézet:</span>
+              <button
+                type="button"
+                onClick={() => setQuickFilter(quickFilter === "best3" ? "none" : "best3")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  quickFilter === "best3"
+                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                    : "bg-zinc-800/50 text-zinc-400 border border-white/5 hover:text-white"
+                }`}
+              >
+                <Trophy className="h-3 w-3" />
+                Top 3 Legjobb
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuickFilter(quickFilter === "worst3" ? "none" : "worst3")}
+                className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+                  quickFilter === "worst3"
+                    ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                    : "bg-zinc-800/50 text-zinc-400 border border-white/5 hover:text-white"
+                }`}
+              >
+                <AlertTriangle className="h-3 w-3" />
+                Top 3 Legrosszabb
+              </button>
+
+              <div className="h-4 w-px bg-white/10 mx-2" />
+
+              <button
+                type="button"
+                onClick={handleBulkAction.bind(null, "start")}
+                className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+              >
+                <Play className="h-3 w-3" />
+                Indít mind
+              </button>
+              <button
+                type="button"
+                onClick={handleBulkAction.bind(null, "stop")}
+                className="flex items-center gap-1.5 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+              >
+                <Square className="h-3 w-3" />
+                Megállít mind
+              </button>
+              <button
+                type="button"
+                onClick={handleResetAll}
+                className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Összes nullázása
+              </button>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
+
+      {/* Bot Grid */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {filteredBots.map((bot) => (
+          <BotCard
+            key={bot.id}
+            bot={bot}
+            isExpanded={expandedBot === bot.id}
+            isLoading={actionLoading === bot.id}
+            onToggle={() => setExpandedBot(expandedBot === bot.id ? null : bot.id)}
+            onStart={() => handleStart(bot.id, bot.name)}
+            onStop={() => handleStop(bot.id, bot.name)}
+            onReset={() => handleReset(bot.id, bot.name)}
+            onDelete={() => {
+              if (confirm("Végleges törlés?"))
+                apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots);
+            }}
+          />
+        ))}
+      </div>
+
+      {filteredBots.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-white/5 bg-zinc-900/30 py-16">
+          <BotIcon className="h-12 w-12 text-zinc-700 mb-4" />
+          <p className="text-lg font-medium text-zinc-400">Nincs találat</p>
+          <p className="text-sm text-zinc-600">Próbáld módosítani a szűrőket</p>
+        </div>
+      )}
+
+      {/* Activity Log */}
+      <div className="rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-indigo-400">
+            <ScrollText className="h-4 w-4" />
+            <h3 className="text-sm font-semibold uppercase tracking-wider">Eseménynapló</h3>
+          </div>
+          <div className="flex items-center gap-3 text-xs text-zinc-500">
+            {serverOnline ? (
+              <span className="flex items-center gap-1.5 text-green-500">
+                <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                ONLINE
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-red-500">
+                <WifiOff className="h-3 w-3" />
+                OFFLINE
+              </span>
+            )}
+            <span>Frissítve: {lastSync.toLocaleTimeString()}</span>
+            {isSyncing && <Loader2 className="h-3 w-3 animate-spin" />}
+          </div>
+        </div>
+
+        <div className="max-h-40 space-y-2 overflow-y-auto">
+          {logs.map((log) => (
+            <div
+              key={log.id}
+              className="flex items-center justify-between rounded-lg bg-zinc-800/50 px-3 py-2 text-xs"
+            >
+              <span
+                className={
+                  log.type === "success"
+                    ? "text-green-400"
+                    : log.type === "warn"
+                      ? "text-amber-400"
+                      : log.type === "error"
+                        ? "text-red-400"
+                        : "text-zinc-400"
+                }
+              >
+                {log.msg}
+              </span>
+              <span className="text-zinc-600">{log.time}</span>
+            </div>
+          ))}
+          {logs.length === 0 && (
+            <p className="py-4 text-center text-xs text-zinc-600">Még nincs esemény...</p>
+          )}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showCreateModal && (
+          <CreateBotModal
+            onClose={() => setShowCreateModal(false)}
+            onSuccess={() => {
+              setShowCreateModal(false);
+              void loadBots();
+            }}
+          />
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -897,9 +897,7 @@ function CollapsibleSection({
         className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-zinc-400 hover:text-zinc-300 transition-colors"
       >
         <span>{title}</span>
-        <ChevronDown
-          className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`}
-        />
+        <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
       </button>
       <AnimatePresence>
         {expanded && (

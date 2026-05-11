@@ -293,7 +293,7 @@ export interface LoginResponse {
 
 export interface CreateBotRequest {
   name: string;
-  market_id?: string;  // Optional, backend will use active market if not provided
+  market_id?: string; // Optional, backend will use active market if not provided
   strategy: StrategyType;
   strategy_type?: string;
   bet_size: number;

@@ -1,6 +1,14 @@
-'use client'
+"use client";
 
-export function MiniEquityCurve({ data, color, size = 60 }: { data: number[]; color: string; size?: number }) {
+export function MiniEquityCurve({
+  data,
+  color,
+  size = 60,
+}: {
+  data: number[];
+  color: string;
+  size?: number;
+}) {
   if (data.length < 2) return null;
 
   const min = Math.min(...data);
@@ -16,7 +24,13 @@ export function MiniEquityCurve({ data, color, size = 60 }: { data: number[]; co
   });
 
   return (
-    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ display: "block" }}>
+    // biome-ignore lint/a11y/noSvgWithoutTitle: decorative equity curve chart
+    <svg
+      width={width}
+      height={height}
+      viewBox={`0 0 ${width} ${height}`}
+      style={{ display: "block" }}
+    >
       <defs>
         <linearGradient id={`grad-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity={0.3} />

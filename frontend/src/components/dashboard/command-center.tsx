@@ -381,7 +381,8 @@ function MarketBar() {
 
 export function CommandCenter() {
   const [chartExpanded, setChartExpanded] = useState(false);
-  const { hasCredentials, panels, togglePanel, emergencyStopActive, setEmergencyStop } = useAppStore();
+  const { hasCredentials, panels, togglePanel, emergencyStopActive, setEmergencyStop } =
+    useAppStore();
   const { data: settings } = useSettings();
 
   const [isMounted, setIsMounted] = useState(false);
@@ -437,7 +438,11 @@ export function CommandCenter() {
           </motion.div>
         )}
 
-        <motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} className="flex gap-4">
+        <motion.div
+          initial={{ opacity: 0, y: -5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex gap-4"
+        >
           <div className="flex-1 min-w-0">
             <AccountInfoBar />
           </div>
@@ -445,8 +450,8 @@ export function CommandCenter() {
             type="button"
             onClick={() => setEmergencyStop(!emergencyStopActive)}
             className={`flex flex-col items-center justify-center px-4 rounded-xl border transition-all shrink-0 ${
-              emergencyStopActive 
-                ? "bg-red-500 text-white border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse" 
+              emergencyStopActive
+                ? "bg-red-500 text-white border-red-400 shadow-[0_0_15px_rgba(239,68,68,0.5)] animate-pulse"
                 : "bg-zinc-900/50 text-red-500 border-red-500/30 hover:bg-red-500/10"
             }`}
           >

@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { Providers } from "./providers";
 import { AppLayout } from "@/components/layout/app-layout";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "PolyTrade V2 - Trading Bot Dashboard",

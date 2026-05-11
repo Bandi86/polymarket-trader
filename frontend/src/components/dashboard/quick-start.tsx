@@ -25,7 +25,9 @@ export function QuickStart() {
             Üdvözlünk a CommandCenter-ben!
           </h2>
           <p className="text-zinc-400 text-sm mb-4">
-            A rendszer jelenleg üres. Hozz létre egy új kereskedő botot, hogy elkezdhesd a Polymarket kereskedést. Demo módban kockázat nélkül tesztelheted a stratégiákat virtuális egyenleggel.
+            A rendszer jelenleg üres. Hozz létre egy új kereskedő botot, hogy elkezdhesd a
+            Polymarket kereskedést. Demo módban kockázat nélkül tesztelheted a stratégiákat
+            virtuális egyenleggel.
           </p>
           <div className="flex gap-3">
             <Link
@@ -44,7 +46,7 @@ export function QuickStart() {
             </Link>
           </div>
         </div>
-        
+
         <div className="hidden md:flex flex-col items-center justify-center p-4 bg-black/20 rounded-xl border border-white/5">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 mb-3 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
             <Play className="h-8 w-8 text-emerald-400" />

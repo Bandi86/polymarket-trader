@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import { createSSEConnection, useAppStore } from "@/store";
 import { dispatchNotification } from "@/hooks/use-notifications";
+import { createSSEConnection, useAppStore } from "@/store";
 
 // Module-level singleton to prevent multiple SSE connections
 let sharedEventSource: EventSource | null = null;

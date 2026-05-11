@@ -11,9 +11,12 @@ export function useNotifications() {
   const unreadCount = store.getUnreadCount();
 
   // Mark as read helper
-  const markAsRead = useCallback((id: string) => {
-    store.markAsRead(id);
-  }, [store]);
+  const markAsRead = useCallback(
+    (id: string) => {
+      store.markAsRead(id);
+    },
+    [store]
+  );
 
   // Get notifications with their read state resolved against preferences
   const getFilteredNotifications = useCallback(() => {

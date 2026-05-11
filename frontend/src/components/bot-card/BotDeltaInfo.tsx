@@ -3,13 +3,13 @@
 import React from "react";
 
 interface BotDeltaInfoProps {
-  btcDelta?: number;        // Percentage (e.g., 0.08 = 0.08%)
+  btcDelta?: number; // Percentage (e.g., 0.08 = 0.08%)
   btcPrice?: number;
   windowOpen?: number;
   signalType?: "UP" | "DOWN" | "NEUTRAL" | null;
 }
 
-export function BotDeltaInfo({ btcDelta, btcPrice, windowOpen, signalType }: BotDeltaInfoProps) {
+export function BotDeltaInfo({ btcDelta, btcPrice, signalType }: BotDeltaInfoProps) {
   const delta = btcDelta ?? 0;
   const isUp = delta > 0;
   const isStrong = Math.abs(delta) > 0.08;
@@ -19,22 +19,31 @@ export function BotDeltaInfo({ btcDelta, btcPrice, windowOpen, signalType }: Bot
   const signalColor = signalType === "UP" ? "#22c55e" : signalType === "DOWN" ? "#ef4444" : "#888";
 
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: "0.75rem",
-      padding: "0.375rem 0.5rem",
-      borderRadius: 6,
-      background: isStrong ? (isUp ? "rgba(34, 197, 94, 0.1)" : "rgba(239, 68, 68, 0.1)") : "transparent",
-    }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "0.75rem",
+        padding: "0.375rem 0.5rem",
+        borderRadius: 6,
+        background: isStrong
+          ? isUp
+            ? "rgba(34, 197, 94, 0.1)"
+            : "rgba(239, 68, 68, 0.1)"
+          : "transparent",
+      }}
+    >
       <div style={{ display: "flex", alignItems: "center", gap: "0.25rem" }}>
         <span style={{ color: "#888", fontSize: "0.65rem" }}>Δ BTC:</span>
-        <span style={{
-          color: deltaColor,
-          fontWeight: 600,
-          fontSize: "0.75rem",
-        }}>
-          {delta > 0 ? "+" : ""}{delta.toFixed(3)}%
+        <span
+          style={{
+            color: deltaColor,
+            fontWeight: 600,
+            fontSize: "0.75rem",
+          }}
+        >
+          {delta > 0 ? "+" : ""}
+          {delta.toFixed(3)}%
         </span>
       </div>
 

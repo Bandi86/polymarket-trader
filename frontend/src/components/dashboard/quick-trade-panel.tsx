@@ -20,8 +20,8 @@ export function QuickTradePanel() {
     positions,
     currentMarket,
     timeRemaining,
-    volume,
-    btcPrice,
+    volume: _volume,
+    btcPrice: _btcPrice,
   } = useAppStore();
   const quickTrade = useQuickTrade();
   const { data: orders = [] } = useOrders();

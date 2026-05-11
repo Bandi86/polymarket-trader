@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CommandCenter } from "@/components/dashboard/command-center";
 import { AuthLanding } from "@/components/dashboard/auth-landing";
+import { CommandCenter } from "@/components/dashboard/command-center";
 import { useBtcPrice, useSSE, useUser } from "@/hooks";
 import { useAppStore } from "@/store";
 

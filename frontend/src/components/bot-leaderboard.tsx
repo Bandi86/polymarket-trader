@@ -1,6 +1,6 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from "react";
 
 interface LeaderboardEntry {
   bot_id: string;
@@ -28,7 +28,7 @@ export function BotLeaderboard() {
         setEntries(data.leaderboard || []);
         setLoading(false);
       } catch (e) {
-        console.error('Failed to fetch leaderboard:', e);
+        console.error("Failed to fetch leaderboard:", e);
         setLoading(false);
       }
     };
@@ -65,8 +65,11 @@ export function BotLeaderboard() {
               <td className="py-2">{entry.strategy}</td>
               <td className="py-2 text-center">{entry.trades}</td>
               <td className="py-2 text-center">{(entry.win_rate * 100).toFixed(1)}%</td>
-              <td className={`py-2 text-center ${entry.pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {entry.pnl >= 0 ? '+' : ''}{entry.pnl.toFixed(2)}
+              <td
+                className={`py-2 text-center ${entry.pnl >= 0 ? "text-green-400" : "text-red-400"}`}
+              >
+                {entry.pnl >= 0 ? "+" : ""}
+                {entry.pnl.toFixed(2)}
               </td>
               <td className="py-2 text-center font-bold">${entry.balance.toFixed(2)}</td>
             </tr>

@@ -211,9 +211,12 @@ export default function LoginPage() {
             type="button"
             onClick={async () => {
               try {
-                const result = await apiFetch<{ token: string; user_id: number; username: string }>("/auth/demo", {
-                  method: "POST",
-                });
+                const result = await apiFetch<{ token: string; user_id: number; username: string }>(
+                  "/auth/demo",
+                  {
+                    method: "POST",
+                  }
+                );
                 setAuth(result.token, {
                   id: result.user_id,
                   email: "",

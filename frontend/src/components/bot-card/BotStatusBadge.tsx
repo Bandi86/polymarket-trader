@@ -22,17 +22,19 @@ export function BotStatusBadge({ status, lastActionTime }: BotStatusBadgeProps) 
   const timeAgo = lastActionTime ? formatTimeAgo(lastActionTime) : null;
 
   return (
-    <div style={{
-      display: "inline-flex",
-      alignItems: "center",
-      gap: "0.25rem",
-      padding: "0.15rem 0.5rem",
-      borderRadius: 4,
-      background: style.bg,
-      color: style.color,
-      fontWeight: 600,
-      fontSize: "0.7rem",
-    }}>
+    <div
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: "0.25rem",
+        padding: "0.15rem 0.5rem",
+        borderRadius: 4,
+        background: style.bg,
+        color: style.color,
+        fontWeight: 600,
+        fontSize: "0.7rem",
+      }}
+    >
       <span>{style.icon}</span>
       <span>{status}</span>
       {timeAgo && <span style={{ fontSize: "0.65rem", opacity: 0.7 }}>{timeAgo}</span>}

@@ -1,5 +1,6 @@
 // BotStatusCard sub-components barrel file
-export { useBotStatusState } from "./useBotStatusState";
-export { BotCardHeader } from "./BotCardHeader";
+
 export { BotBalanceCard } from "./BotBalanceCard";
+export { BotCardHeader } from "./BotCardHeader";
 export { BotStatsGrid } from "./BotStatsGrid";
+export { useBotStatusState } from "./useBotStatusState";

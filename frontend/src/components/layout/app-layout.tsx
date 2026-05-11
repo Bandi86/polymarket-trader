@@ -1,8 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   Bot,
   History,
@@ -15,6 +12,9 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { NotificationCenter } from "@/components/ui/notification-center";
 import { TradingModeToggle } from "@/components/ui/trading-mode-toggle";
@@ -79,7 +79,8 @@ export function AppLayout({ children }: AppLayoutProps) {
           {/* Center: Navigation */}
           <nav className="hidden items-center gap-1 md:flex">
             {navItems.map((item) => {
-              const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+              const isActive =
+                pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
               const Icon = item.icon;
               return (
                 <Link
@@ -180,7 +181,8 @@ export function AppLayout({ children }: AppLayoutProps) {
         <div id="mobile-menu" className="hidden border-t border-white/8 px-4 py-3 md:hidden">
           <nav className="flex flex-col gap-1">
             {navItems.map((item) => {
-              const isActive = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
+              const isActive =
+                pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
               const Icon = item.icon;
               return (
                 <Link
@@ -202,9 +204,7 @@ export function AppLayout({ children }: AppLayoutProps) {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto p-4 lg:p-6">
-        {children}
-      </main>
+      <main className="max-w-7xl mx-auto p-4 lg:p-6">{children}</main>
     </div>
   );
 }
