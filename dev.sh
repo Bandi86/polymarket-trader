@@ -35,7 +35,7 @@ mkdir -p "$BACKEND_DIR/data"
 
 echo "Starting backend (port 3001)..."
 cd "$BACKEND_DIR"
-cargo run --release &
+cargo run --release --bin polymarket-v2 &
 BACKEND_PID=$!
 
 sleep 3
