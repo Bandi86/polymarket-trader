@@ -166,7 +166,7 @@ impl StrategyExecutor {
             "yes_no_arb" => self.evaluate_yes_no_arb(ctx),
             "oracle_lag_v2" => self.evaluate_oracle_lag_v2(ctx),
             "low_volatility_edge" => self.evaluate_low_volatility_edge(ctx),
-            "edge_hunter" => self.evaluate_edge_hunter(ctx),
+            "edge_hunter" | "edge_hunter_v2" => self.evaluate_edge_hunter(ctx),
             "strict_momentum" => self.evaluate_strict_momentum(ctx),
             "patient_waiter" => self.evaluate_patient_waiter(ctx),
             "signal_momentum_v2" => self.evaluate_signal_momentum_v2(ctx),
@@ -1163,69 +1163,109 @@ impl StrategyExecutor {
         ))
     }
 
-    /// EDGE_HUNTER - Only trades when our probability > market probability by margin
+    /// EDGE_HUNTER_V2 - Improved edge detection with momentum confirmation
     ///
-    /// Key insight: Trade when we have a mathematical edge
-    /// Calculates fair probability from BTC delta, compares to market price
+    /// Key improvements over v1:
+    /// 1. Uses btc_window_open (market start price) for delta calculation
+    /// 2. Requires momentum confirmation (velocity/acceleration aligned)
+    /// 3. Time decay reduces confidence as market approaches close
+    /// 4. Tighter confidence calibration based on edge magnitude
     fn evaluate_edge_hunter(&self, ctx: StrategyContext) -> Signal {
-        // Time window: 20s to 260s
+        // Time window: 20s to 250s (avoid first 20s open chaos and last 30s close risk)
         if ctx.time_remaining < 20 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 260 {
+        if ctx.time_remaining > 250 {
             return Signal::Hold("Window just opened".to_string());
         }
 
+        // Use btc_window_open (price at market start) for delta calculation
         let window_open = ctx.btc_window_open.unwrap_or(ctx.btc_price);
-        let delta_pct = if window_open > 0.0 {
-            ((ctx.btc_price - window_open) / window_open) * 100.0
-        } else {
-            0.0
-        };
+        if window_open <= 0.0 || ctx.btc_price <= 0.0 {
+            return Signal::Hold("No BTC window data".to_string());
+        }
 
-        // Need minimum BTC movement for calculation to be meaningful
-        let min_delta = 0.05_f64; // 0.05%
+        let delta_pct = ((ctx.btc_price - window_open) / window_open) * 100.0;
+
+        // Minimum BTC movement threshold (0.05% - very sensitive for 5-min windows)
+        let min_delta = 0.03_f64;
         if delta_pct.abs() < min_delta {
             return Signal::Hold(format!("Delta {:.3}% < {:.2}% threshold", delta_pct, min_delta));
         }
 
-        // Calculate fair probability from delta using tanh
+        // Calculate our fair probability from delta using tanh
         let our_prob = (0.5_f64 + (delta_pct / 0.05).tanh() * 0.45).clamp(0.05, 0.95);
         let market_prob = ctx.yes_price;
 
-        // Calculate edge
+        // Calculate edge: positive means we think it's more likely than market
         let edge = our_prob - market_prob;
         let min_edge = 0.03_f64; // Need 3% edge minimum
 
-        if edge > min_edge {
-            // Our probability > market - market is undervaluing YES
-            let confidence = (0.55_f64 + edge * 3.0).min(0.82_f64);
+        if edge.abs() < min_edge {
+            return Signal::Hold(format!(
+                "No edge: our {:.1}% vs market {:.1}% (need {:.1}%)",
+                our_prob * 100.0, market_prob * 100.0, min_edge * 100.0
+            ));
+        }
+
+        // Optional momentum confirmation from velocity/acceleration
+        let velocity = ctx.btc_velocity.unwrap_or(0.0);
+        let acceleration = ctx.btc_acceleration.unwrap_or(0.0);
+        let has_momentum_confirm = if edge > 0.0 {
+            velocity > 0.0 && (acceleration >= 0.0 || velocity.abs() > 0.0002)
+        } else {
+            velocity < 0.0 && (acceleration <= 0.0 || velocity.abs() > 0.0002)
+        };
+
+        // Calculate base confidence from edge magnitude
+        let mut base_confidence = 0.55_f64;
+        let edge_strength = edge.abs();
+
+        if edge_strength >= 0.08 {
+            base_confidence += 0.22_f64; // Strong edge
+        } else if edge_strength >= 0.05 {
+            base_confidence += 0.15_f64; // Good edge
+        } else {
+            base_confidence += 0.08_f64; // Minimum edge
+        }
+
+        // Momentum boost: if velocity and acceleration confirm direction
+        if has_momentum_confirm {
+            base_confidence += 0.08_f64;
+        }
+
+        // Time decay: reduce confidence as market approaches close
+        // More aggressive reduction in last 60 seconds
+        let time_decay = if ctx.time_remaining < 60 {
+            0.85_f64
+        } else if ctx.time_remaining < 120 {
+            0.92_f64
+        } else {
+            1.0_f64
+        };
+
+        let confidence = (base_confidence * time_decay).min(0.85_f64);
+
+        // Execute on direction
+        if edge > min_edge && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
             tracing::info!(
-                "EDGE_HUNTER: our {:.1}% > market {:.1}% → YES conf={:.2}",
-                our_prob * 100.0,
-                market_prob * 100.0,
-                confidence
+                "EDGE_HUNTER_V2: our {:.1}% > market {:.1}% → YES conf={:.2} (delta={:.3}%, vel={:.4})",
+                our_prob * 100.0, market_prob * 100.0, confidence, delta_pct, velocity
             );
             return Signal::Yes(confidence);
         }
 
-        if edge < -min_edge {
-            // Market thinks YES is MORE likely than we do - bet NO
-            let confidence = (0.55_f64 + (-edge) * 3.0).min(0.82_f64);
+        if -edge > min_edge && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
             tracing::info!(
-                "EDGE_HUNTER: our {:.1}% < market {:.1}% → NO conf={:.2}",
-                our_prob * 100.0,
-                market_prob * 100.0,
-                confidence
+                "EDGE_HUNTER_V2: our {:.1}% < market {:.1}% → NO conf={:.2} (delta={:.3}%, vel={:.4})",
+                our_prob * 100.0, market_prob * 100.0, confidence, delta_pct, velocity
             );
             return Signal::No(confidence);
         }
 
         Signal::Hold(format!(
-            "No edge: our {:.1}% vs market {:.1}% (need {:.1}%)",
-            our_prob * 100.0,
-            market_prob * 100.0,
-            min_edge * 100.0
+            "No edge: our {:.1}% vs market {:.1}%",
+            our_prob * 100.0, market_prob * 100.0
         ))
     }
 

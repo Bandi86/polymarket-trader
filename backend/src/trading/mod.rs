@@ -18,4 +18,5 @@ pub mod market_data;
 pub use binance::client::btc_price_stream;
 pub use binance::client::BinanceClient;
 pub use polymarket::{check_matic_balance, PolymarketClient};
-pub use competition::{BotInstance, BotStats, CompetitionState, LeaderboardEntry};
+// Types re-exported from competition module
+// Note: CompetitionState and LeaderboardEntry are used internally by orchestrator

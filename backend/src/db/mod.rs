@@ -1603,22 +1603,21 @@ pub async fn create_session(
             .execute(pool)
             .await?;
         } else {
-            // For loss: pnl is already negative (e.g. -bet_size), entry deducted bet_size already
-            // total_pnl decreases by |pnl| (which equals bet_size for loss)
+            // For loss: balance was ALREADY deducted at entry (update_portfolio_balance),
+            // so DON'T deduct again here. Only update stats.
+            // pnl is already negative (e.g. -bet_size), so add it to total_pnl.
             sqlx::query(
                 r#"
                 UPDATE bot_portfolios SET
-                    balance = balance - ?, -- deduct the lost stake (already deducted at entry, this records it properly)
                     losing_trades = losing_trades + 1,
                     total_trades = total_trades + 1,
-                    total_pnl = total_pnl - ?,
+                    total_pnl = total_pnl + ?,
                     last_trade_time = datetime('now'),
                     updated_at = datetime('now')
                 WHERE bot_id = ?
                 "#,
             )
-            .bind(bet_size.abs())
-            .bind(bet_size.abs())
+            .bind(pnl)
             .bind(bot_id)
             .execute(pool)
             .await?;

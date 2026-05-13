@@ -358,6 +358,17 @@ pub async fn list_bots(
     let db = state.db();
     let user_id = claims.user_id;
 
+    // Auto-seed if user has no bots — fixes user_id mismatch after DB reset
+    let bot_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM bot_configs WHERE user_id = ?")
+        .bind(user_id)
+        .fetch_one(db.as_ref())
+        .await
+        .unwrap_or(0);
+    if bot_count == 0 {
+        tracing::info!("User {} has no bots — auto-seeding 15 default bots", user_id);
+        let _ = crate::db::seed_default_bots(db.as_ref(), user_id).await;
+    }
+
     match queries::get_bots_by_user(&db, user_id).await {
         Ok(bots) => {
             // Fetch all portfolios for this user in one query

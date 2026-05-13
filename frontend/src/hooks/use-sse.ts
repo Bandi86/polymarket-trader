@@ -138,7 +138,10 @@ export function useSSE() {
         if (latencyMs >= 0.01) {
           setLatency(latencyMs);
         }
-        setSSEHealth({ messageCount: useAppStore.getState().sseHealth.messageCount + 1, lastMessageAt: Date.now() });
+        setSSEHealth({
+          messageCount: useAppStore.getState().sseHealth.messageCount + 1,
+          lastMessageAt: Date.now(),
+        });
       } catch (err) {
         console.error("Failed to parse market event:", err);
       }
@@ -202,7 +205,8 @@ export function useSSE() {
                 pnl: data.total_pnl || 0,
                 wins: data.session_wins || 0,
                 losses: data.session_losses || 0,
-                winRate: data.session_trades > 0 ? (data.session_wins / data.session_trades) * 100 : 0,
+                winRate:
+                  data.session_trades > 0 ? (data.session_wins / data.session_trades) * 100 : 0,
               },
             });
             dispatchNotification(

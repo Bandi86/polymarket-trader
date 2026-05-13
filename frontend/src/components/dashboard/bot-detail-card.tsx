@@ -171,9 +171,11 @@ export function BotDetailCard({
             </div>
             <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 px-2.5 py-2">
               <span className="text-[9px] uppercase text-zinc-500 font-semibold">Max DD</span>
-              <div className={`text-sm font-extrabold font-mono ${
-                (portfolio.drawdown_percent || 0) > 10 ? "text-red-400" : "text-amber-400"
-              }`}>
+              <div
+                className={`text-sm font-extrabold font-mono ${
+                  (portfolio.drawdown_percent || 0) > 10 ? "text-red-400" : "text-amber-400"
+                }`}
+              >
                 {(portfolio.drawdown_percent || 0).toFixed(1)}%
               </div>
             </div>

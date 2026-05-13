@@ -42,13 +42,10 @@ export function Dashboard() {
     setIsMounted(true);
   }, []);
 
-  // Check if authenticated (with localStorage)
-  const [hasToken, setHasToken] = useState(false);
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setHasToken(!!localStorage.getItem("token"));
-    }
-  }, []);
+  // Check if authenticated (with localStorage) — sync init to prevent flash
+  const [hasToken] = useState(
+    typeof window !== "undefined" ? !!localStorage.getItem("token") : false
+  );
 
   const isAuthed = isMounted && (isAuthenticated || hasToken);
 

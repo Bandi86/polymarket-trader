@@ -14,6 +14,7 @@ interface CreateBotModalProps {
   prefill?: {
     strategy?: StrategyType;
     marketId?: string;
+    marketName?: string;
     name?: string;
   };
 }
@@ -63,9 +64,16 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
   const [betSize, setBetSize] = useState(10);
   const [stopLoss, setStopLoss] = useState(0.2);
   const [takeProfit, setTakeProfit] = useToProfit(0.3);
+  const [marketId, setMarketId] = useState(prefill?.marketId || "");
+  const [marketName, setMarketName] = useState(prefill?.marketName || "");
 
-  // Apply prefill from Strategy Lab
+  // Apply prefill from Strategy Lab or Markets page
   useEffect(() => {
+    if (prefill?.marketName) {
+      setMarketName(prefill.marketName);
+      setName(`Bot - ${prefill.marketName.slice(0, 30)}`);
+    }
+    if (prefill?.marketId) setMarketId(prefill.marketId);
     if (prefill?.strategy) {
       const matchedTemplate = TEMPLATES.findIndex((t) => t.strategy === prefill.strategy);
       if (matchedTemplate >= 0) {
@@ -78,7 +86,7 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
       }
     }
     if (prefill?.name) setName(prefill.name);
-    if (prefill?.strategy || prefill?.name) setStep("customize");
+    if (prefill?.strategy || prefill?.name || prefill?.marketId) setStep("customize");
   }, [prefill]);
 
   const createBot = useCreateBot();
@@ -112,6 +120,7 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
         stop_loss: stopLoss,
         take_profit: takeProfit,
         trading_mode: "demo",
+        market_id: marketId || undefined,
       },
       {
         onSuccess: (bot) => {
@@ -252,6 +261,21 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                     className="w-full rounded-lg border border-white/10 bg-zinc-800/60 px-3 py-2.5 text-sm text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500/40 focus:ring-1 focus:ring-indigo-500/20"
                   />
                 </div>
+
+                {/* Market info */}
+                {marketName && (
+                  <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3">
+                    <div className="flex items-center gap-2">
+                      <Zap className="h-4 w-4 text-emerald-400 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs text-zinc-500">Kiválasztott piac</p>
+                        <p className="text-sm font-semibold text-emerald-400 truncate">
+                          {marketName}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Strategy badge */}
                 <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/10 p-3">

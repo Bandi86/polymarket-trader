@@ -152,6 +152,9 @@ pub async fn login(
 
     state.credential_service.set_password(user.0, payload.password.clone()).await;
 
+    // Ensure bots are seeded (idempotent — no-op if bots already exist)
+    let _ = db::seed_default_bots(db.as_ref(), user.0).await;
+
     match generate_token(user.0, &user.1) {
         Ok(token) => Json(AuthResponse {
             token,

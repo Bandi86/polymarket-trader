@@ -58,6 +58,8 @@ pub struct ActiveMarket {
     pub price_to_beat: Option<f64>, // Settlement price
     pub status: String,     // "active", "closed", "settled"
     pub category: String,   // "BTC 5", "ETH 15", etc.
+    pub group: String,      // "BTC", "ETH", "SOL", "XRP"
+    pub timeframe_label: String, // "5min", "15min", "1h", "4h", "1d"
 }
 
 #[derive(Debug, Serialize)]
@@ -346,6 +348,14 @@ pub async fn fetch_market_by_slug(slug: &str, asset: &str, timeframe: &str) -> O
             let price_to_beat = event.event_metadata.as_ref()
                 .and_then(|m| m.price_to_beat);
 
+            let tf_label = match timeframe {
+                "D" => "1d",
+                "240" => "4h",
+                "60" => "1h",
+                "15" => "15min",
+                _ => "5min",
+            };
+
             Some(ActiveMarket {
                 condition_id: market.condition_id.clone(),
                 question: market.question.clone(),
@@ -364,6 +374,8 @@ pub async fn fetch_market_by_slug(slug: &str, asset: &str, timeframe: &str) -> O
                 price_to_beat,
                 status: "active".to_string(),
                 category: format!("{} {}", asset.to_uppercase(), timeframe),
+                group: asset.to_uppercase(),
+                timeframe_label: tf_label.to_string(),
             })
         }
         _ => None,
@@ -418,7 +430,22 @@ pub async fn get_active_markets(
     let timeframe = query.timeframe.unwrap_or_else(|| "5".to_string());
     let asset_filter = query.asset;
 
-    let markets = fetch_active_markets(&timeframe).await;
+    let markets = if timeframe == "all" {
+        // Fetch across ALL timeframes
+        let mut all = Vec::new();
+        let timeframes = ["5", "15", "60", "240", "D"];
+        for tf in timeframes {
+            let tf_markets = fetch_active_markets(tf).await;
+            for m in tf_markets {
+                if !all.iter().any(|ex: &ActiveMarket| ex.condition_id == m.condition_id) {
+                    all.push(m);
+                }
+            }
+        }
+        all
+    } else {
+        fetch_active_markets(&timeframe).await
+    };
 
     // Filter by asset if specified
     let filtered = if let Some(asset) = asset_filter {

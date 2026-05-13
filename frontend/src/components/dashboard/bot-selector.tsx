@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Crosshair, Loader2, X } from "lucide-react";
+import { AlertTriangle, Crosshair, Loader2, Play, Square, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useBots, useStartBot, useStopBot } from "@/hooks";
@@ -75,6 +75,7 @@ export function BotSelector() {
   const stopBotMutation = useStopBot();
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmBot, setConfirmBot] = useState<{ id: number; name: string } | null>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   const botList = botsFromApi ?? [];
   const isMutating = startBotMutation.isPending || stopBotMutation.isPending;
@@ -146,6 +147,27 @@ export function BotSelector() {
       toast.error("Hiba a bot törlésekor");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleBulkAction = async (action: "start" | "stop") => {
+    setBulkLoading(true);
+    const endpoint = action === "start" ? "/bots/run-all" : "/bots/stop-all";
+    try {
+      const res = await apiFetch<{ success: boolean; started?: number; stopped?: number }>(
+        endpoint,
+        { method: "POST" }
+      );
+      if (res.success) {
+        const count = action === "start" ? res.started : res.stopped;
+        toast.success(`Minden bot ${action === "start" ? "elindítva" : "leállítva"} (${count})`);
+      } else {
+        toast.error("Hiba a tömeges művelet során");
+      }
+    } catch {
+      toast.error("Hiba a tömeges művelet során");
+    } finally {
+      setBulkLoading(false);
     }
   };
 
@@ -230,9 +252,44 @@ export function BotSelector() {
               </span>
             </div>
           </div>
-          {isFetching && !isLoading && (
-            <Loader2 className="h-3.5 w-3.5 text-zinc-600 animate-spin" />
-          )}
+          {/* Bulk action buttons */}
+          <div className="flex items-center gap-1">
+            {filteredBots.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleBulkAction("start")}
+                  disabled={bulkLoading}
+                  className="flex items-center gap-1 rounded-lg bg-green-500/20 border border-green-500/30 px-2.5 py-1.5 text-xs font-bold text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+                  title="Összes indítása"
+                >
+                  {bulkLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Play className="h-3 w-3" />
+                  )}
+                  <span>Indít</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleBulkAction("stop")}
+                  disabled={bulkLoading}
+                  className="flex items-center gap-1 rounded-lg bg-red-500/20 border border-red-500/30 px-2.5 py-1.5 text-xs font-bold text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                  title="Összes leállítása"
+                >
+                  {bulkLoading ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Square className="h-3 w-3" />
+                  )}
+                  <span>Leállít</span>
+                </button>
+              </>
+            )}
+            {isFetching && !isLoading && (
+              <Loader2 className="h-3.5 w-3.5 text-zinc-600 animate-spin" />
+            )}
+          </div>
         </div>
 
         {/* Live mode warning */}

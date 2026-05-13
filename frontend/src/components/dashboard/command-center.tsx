@@ -308,7 +308,8 @@ function MarketBar() {
 
   // Odds strength: how far from 50%
   const probGap = Math.abs(yesPrice - 0.5) * 200; // 0–100%
-  const probGapColor = probGap > 30 ? "text-green-400" : probGap > 15 ? "text-amber-400" : "text-zinc-400";
+  const probGapColor =
+    probGap > 30 ? "text-green-400" : probGap > 15 ? "text-amber-400" : "text-zinc-400";
 
   return (
     <div className="flex flex-col gap-3">
@@ -336,7 +337,9 @@ function MarketBar() {
           </div>
           <div>
             <span className="text-[9px] uppercase tracking-wider text-zinc-500">Hátralévő</span>
-            <div className={`text-base font-extrabold font-mono ${timeRemaining < 60 ? "text-red-400 animate-pulse" : "text-zinc-100"}`}>
+            <div
+              className={`text-base font-extrabold font-mono ${timeRemaining < 60 ? "text-red-400 animate-pulse" : "text-zinc-100"}`}
+            >
               {timeRemaining > 0 ? formatTime(timeRemaining) : "--:--"}
             </div>
           </div>
@@ -359,7 +362,10 @@ function MarketBar() {
               </div>
             </div>
             {/* Prob gap indicator */}
-            <div className={`text-[9px] font-mono font-bold ${probGapColor}`} title="Prob gap from 50%">
+            <div
+              className={`text-[9px] font-mono font-bold ${probGapColor}`}
+              title="Prob gap from 50%"
+            >
               {probGap.toFixed(0)}%
             </div>
           </div>

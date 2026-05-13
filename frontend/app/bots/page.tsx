@@ -12,6 +12,7 @@ import {
   Loader2,
   Play,
   Plus,
+  RefreshCw,
   RotateCcw,
   ScrollText,
   Search,
@@ -23,6 +24,7 @@ import {
   Wallet,
   WifiOff,
 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CreateBotModal } from "@/components/bot-creation-modal";
@@ -31,7 +33,7 @@ import type { PortfolioResponse } from "@/types";
 
 // ---- Típusok ----
 type BotStatus = "running" | "paused" | "error" | "stopped";
-type SortKey = "pnl" | "winRate" | "trades" | "balance" | "name";
+type SortKey = "pnl" | "winRate" | "trades" | "balance" | "name" | "roi";
 
 interface TradeResult {
   id: string;
@@ -50,6 +52,7 @@ interface Bot {
   stop_loss: number;
   take_profit: number;
   market_id: string;
+  interval?: number;
   history?: TradeResult[];
   portfolio?: {
     balance: number;
@@ -58,6 +61,11 @@ interface Bot {
     winning_trades: number;
     losing_trades: number;
     win_rate: number;
+    initial_balance?: number;
+    roi_percent?: number;
+    drawdown_percent?: number;
+    avg_pnl_per_trade?: number;
+    open_positions?: number;
   };
 }
 
@@ -82,6 +90,14 @@ const STRATEGY_COLORS: Record<string, string> = {
   sniper_arb: "#22c55e",
   volatility_filtered: "#8b5cf6",
   high_conviction_momentum: "#f59e0b",
+  window_delta: "#06b6d4",
+  fair_value: "#ec4899",
+  sniper: "#84cc16",
+  trend: "#a855f7",
+  volatility: "#ef4444",
+  contrarian: "#14b8a6",
+  oracle_lag: "#0ea5e9",
+  bayesian_ev: "#d946ef",
 };
 
 const STATUS_COLORS = {
@@ -92,14 +108,35 @@ const STATUS_COLORS = {
 };
 
 export default function BotsPage() {
+  const router = useRouter();
   const [bots, setBots] = useState<Bot[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [isSyncing, setIsSyncing] = useState(false);
   const [serverOnline, setServerOnline] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createPrefill, setCreatePrefill] = useState<
+    | {
+        marketId?: string;
+        marketName?: string;
+      }
+    | undefined
+  >();
+
+  // Read URL params for market selection (from Markets page)
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const marketId = searchParams.get("marketId");
+    const marketName = searchParams.get("marketName");
+    if (marketId || marketName) {
+      setCreatePrefill({ marketId: marketId ?? undefined, marketName: marketName ?? undefined });
+      setShowCreateModal(true);
+    }
+  }, [searchParams]);
 
   // UI State
   const [search, setSearch] = useState("");
@@ -130,7 +167,22 @@ export default function BotsPage() {
         data.map(async (bot) => {
           try {
             const p = await apiFetch<PortfolioResponse>(`/bots/${bot.id}/portfolio`);
-            return { ...bot, portfolio: p };
+            return {
+              ...bot,
+              portfolio: {
+                balance: p.balance,
+                total_pnl: p.total_pnl,
+                total_trades: p.total_trades,
+                winning_trades: p.winning_trades,
+                losing_trades: p.losing_trades,
+                win_rate: p.win_rate,
+                initial_balance: p.initial_balance,
+                roi_percent: p.roi_percent,
+                drawdown_percent: p.drawdown_percent,
+                avg_pnl_per_trade: p.avg_pnl_per_trade,
+                open_positions: p.open_positions,
+              },
+            };
           } catch {
             return bot;
           }
@@ -166,56 +218,78 @@ export default function BotsPage() {
       setBots(withPortfolio);
       setLastSync(new Date());
       setServerOnline(true);
-    } catch (_err) {
+    } catch (err) {
       setServerOnline(false);
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("Nincs jogosultsága") || msg.includes("401")) {
+        localStorage.removeItem("token");
+        clearInterval(loadBotsIntervalRef.current);
+        router.push("/login");
+        return;
+      }
     } finally {
       setIsSyncing(false);
+      setInitialLoadComplete(true);
     }
-  }, [addLog]);
+  }, [addLog, router]);
+
+  const loadBotsIntervalRef = useRef<ReturnType<typeof setInterval>>(
+    0 as unknown as ReturnType<typeof setInterval>
+  );
 
   useEffect(() => {
     setMounted(true);
     loadBots();
-    const interval = setInterval(loadBots, 15000);
-    return () => clearInterval(interval);
+    loadBotsIntervalRef.current = setInterval(loadBots, 15000);
+    return () => clearInterval(loadBotsIntervalRef.current);
   }, [loadBots]);
 
   const handleStart = async (id: string, name: string) => {
     setActionLoading(id);
     try {
-      await apiFetch(`/bots/${id}/start`, { method: "POST" });
-      toast.success(`${name} elindítva`);
-      addLog(`${name}: Elindítva.`, "success");
-      await loadBots();
+      const res = await apiFetch<{ success: boolean; status: string }>(`/bots/${id}/start`, {
+        method: "POST",
+        body: JSON.stringify({ initial_balance: 100 }),
+      });
+      if (res.success) {
+        toast.success(`${name} elindult`);
+        addLog(`${name}: Elindítva.`, "success");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Hiba történt";
       toast.error(msg);
+      addLog(`${name}: Indítási hiba: ${msg}`, "error");
     } finally {
       setActionLoading(null);
+      await loadBots();
     }
   };
 
   const handleStop = async (id: string, name: string) => {
     setActionLoading(id);
     try {
-      await apiFetch(`/bots/${id}/stop`, { method: "POST" });
-      toast.success(`${name} leállítva`);
-      addLog(`${name}: Leállítva.`, "warn");
-      await loadBots();
+      const res = await apiFetch<{ success: boolean; status: string }>(`/bots/${id}/stop`, {
+        method: "POST",
+      });
+      if (res.success) {
+        toast.success(`${name} leállítva`);
+        addLog(`${name}: Leállítva.`, "warn");
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Hiba történt";
       toast.error(msg);
     } finally {
       setActionLoading(null);
+      await loadBots();
     }
   };
 
   const handleReset = async (id: string, name: string) => {
-    if (!confirm(`Resetelsz minden értéket: ${name}?`)) return;
+    if (!confirm(`Biztosan nullázod a(z) "${name}" bot statisztikáit?`)) return;
     setActionLoading(id);
     try {
       await apiFetch(`/bots/${id}/reset`, { method: "POST" });
-      toast.success("Nullázva");
+      toast.success(`${name} nullázva`);
       addLog(`${name}: Statisztikák nullázva.`, "info");
       setBots((prev) => prev.map((b) => (b.id === id ? { ...b, history: [] } : b)));
       await loadBots();
@@ -230,7 +304,7 @@ export default function BotsPage() {
     if (!confirm("BIZTOSAN nullázni akarod az ÖSSZES bot statisztikáját és egyenlegét?")) return;
     addLog("Összes bot nullázása folyamatban...", "warn");
     try {
-      await Promise.all(bots.map((bot) => apiFetch(`/bots/${bot.id}/reset`, { method: "POST" })));
+      await apiFetch("/bots/reset-all", { method: "POST" });
       toast.success("Minden bot nullázva!");
       setBots((prev) => prev.map((b) => ({ ...b, history: [] })));
       await loadBots();
@@ -240,20 +314,25 @@ export default function BotsPage() {
   };
 
   const handleBulkAction = async (action: "start" | "stop") => {
-    const targets = bots.filter((b) =>
-      action === "start" ? b.status !== "running" : b.status === "running"
-    );
-    if (targets.length === 0) return;
-    toast.promise(
-      Promise.all(targets.map((b) => apiFetch(`/bots/${b.id}/${action}`, { method: "POST" }))),
-      {
-        loading: "Művelet folyamatban...",
-        success: "Kész!",
-        error: "Hiba történt",
+    setBulkLoading(true);
+    const endpoint = action === "start" ? "/bots/run-all" : "/bots/stop-all";
+    try {
+      const res = await apiFetch<{ success: boolean; started?: number; stopped?: number }>(
+        endpoint,
+        { method: "POST" }
+      );
+      if (res.success) {
+        const count = action === "start" ? res.started : res.stopped;
+        toast.success(`Minden bot ${action === "start" ? "elindítva" : "leállítva"} (${count})`);
+        addLog(`Összes bot ${action === "start" ? "indítása" : "leállítása"} sikeres.`, "success");
       }
-    );
-    addLog(`Minden bot ${action === "start" ? "indítása" : "leállítása"}.`, "info");
-    setTimeout(loadBots, 2000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Hiba történt";
+      toast.error(msg);
+    } finally {
+      setBulkLoading(false);
+      await loadBots();
+    }
   };
 
   const filteredBots = useMemo(() => {
@@ -276,6 +355,9 @@ export default function BotsPage() {
       } else if (sortKey === "trades") {
         valA = a.portfolio?.total_trades || 0;
         valB = b.portfolio?.total_trades || 0;
+      } else if (sortKey === "roi") {
+        valA = a.portfolio?.roi_percent || 0;
+        valB = b.portfolio?.roi_percent || 0;
       } else if (sortKey === "name")
         return sortDir === "desc" ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name);
       return sortDir === "desc" ? valB - valA : valA - valB;
@@ -293,9 +375,12 @@ export default function BotsPage() {
   }, [bots, search, statusFilter, sortKey, sortDir, quickFilter]);
 
   const totalStats = {
+    total: bots.length,
     active: bots.filter((b) => b.status === "running").length,
+    error: bots.filter((b) => b.status === "error").length,
     pnl: bots.reduce((a, b) => a + (b.portfolio?.total_pnl || 0), 0),
     balance: bots.reduce((a, b) => a + (b.portfolio?.balance || 0), 0),
+    initial: bots.reduce((a, b) => a + (b.portfolio?.initial_balance || 0), 0),
     trades: bots.reduce((a, b) => a + (b.portfolio?.total_trades || 0), 0),
     wins: bots.reduce((a, b) => a + (b.portfolio?.winning_trades || 0), 0),
     losses: bots.reduce((a, b) => a + (b.portfolio?.losing_trades || 0), 0),
@@ -305,46 +390,106 @@ export default function BotsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header with Toolbar */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-indigo-500/20 bg-indigo-500/10">
             <BotIcon className="h-6 w-6 text-indigo-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-white">Bot Fleet Manager</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-white">Bot Fleet Manager</h1>
+              {serverOnline ? (
+                <span className="flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-green-400 border border-green-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
+                  ONLINE
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 rounded-full bg-red-500/10 px-2.5 py-0.5 text-[10px] font-semibold text-red-400 border border-red-500/20">
+                  <WifiOff className="h-3 w-3" />
+                  OFFLINE
+                </span>
+              )}
+            </div>
             <p className="text-sm text-zinc-500">
-              {bots.length} bot · {totalStats.active} aktív
+              {bots.length} bot &middot; {totalStats.active} aktív
+              {totalStats.error > 0 && (
+                <span className="ml-2 text-red-400">{totalStats.error} hibás</span>
+              )}
             </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
-        >
-          <Plus className="h-4 w-4" />
-          Új bot
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Bulk Actions Toolbar */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-white/10 bg-zinc-900/80 p-1.5 backdrop-blur-sm">
+            <button
+              type="button"
+              onClick={() => handleBulkAction("start")}
+              disabled={bulkLoading || bots.length === 0}
+              className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3.5 py-2 text-xs font-semibold text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
+            >
+              <Play className="h-3.5 w-3.5" />
+              Indít mind
+            </button>
+            <button
+              type="button"
+              onClick={() => handleBulkAction("stop")}
+              disabled={bulkLoading || totalStats.active === 0}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3.5 py-2 text-xs font-semibold text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+            >
+              <Square className="h-3.5 w-3.5" />
+              Leállít mind
+            </button>
+            <div className="h-5 w-px bg-white/10" />
+            <button
+              type="button"
+              onClick={handleResetAll}
+              disabled={bulkLoading || bots.length === 0}
+              className="flex items-center gap-1.5 rounded-lg bg-indigo-500/10 px-3.5 py-2 text-xs font-semibold text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-40"
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+              Nulláz mind
+            </button>
+            <div className="h-5 w-px bg-white/10" />
+            <button
+              type="button"
+              onClick={loadBots}
+              disabled={isSyncing}
+              className="flex items-center justify-center rounded-lg p-2 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50 transition-colors"
+              title="Frissítés"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 rounded-lg bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-600"
+          >
+            <Plus className="h-4 w-4" />
+            Új bot
+          </button>
+        </div>
       </div>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard
-          label="Aktív Botok"
-          value={totalStats.active}
+          label="Aktív"
+          value={`${totalStats.active}/${totalStats.total}`}
           icon={<Activity className="h-4 w-4" />}
           color="green"
         />
         <StatCard
-          label="Összes PnL"
+          label="Össz. PnL"
           value={`$${totalStats.pnl.toFixed(2)}`}
           icon={<TrendingUp className="h-4 w-4" />}
           color={totalStats.pnl >= 0 ? "green" : "red"}
         />
         <StatCard
-          label="Összes Trade"
+          label="Trade-ek"
           value={totalStats.trades}
           icon={<BarChart3 className="h-4 w-4" />}
           color="blue"
@@ -357,7 +502,7 @@ export default function BotsPage() {
         />
         <StatCard
           label="Win Rate"
-          value={`${bots.length > 0 ? ((totalStats.wins / (totalStats.wins + totalStats.losses)) * 100 || 0).toFixed(1) : 0}%`}
+          value={`${totalStats.trades > 0 ? ((totalStats.wins / totalStats.trades) * 100).toFixed(1) : 0}%`}
           icon={<Trophy className="h-4 w-4" />}
           color="amber"
         />
@@ -369,10 +514,9 @@ export default function BotsPage() {
         />
       </div>
 
-      {/* Filters */}
+      {/* Filters + Quick Actions */}
       <div className="space-y-4 rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
         <div className="flex flex-wrap items-center gap-3">
-          {/* Search */}
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <input
@@ -384,7 +528,6 @@ export default function BotsPage() {
             />
           </div>
 
-          {/* Status Filters */}
           <div className="flex rounded-lg border border-white/10 bg-zinc-800/30 p-1">
             {(["all", "running", "stopped", "error"] as const).map((f) => (
               <button
@@ -400,15 +543,14 @@ export default function BotsPage() {
                 {f === "all"
                   ? "Összes"
                   : f === "running"
-                    ? `● Aktív (${bots.filter((b) => b.status === "running").length})`
+                    ? `Aktív (${bots.filter((b) => b.status === "running").length})`
                     : f === "stopped"
-                      ? `■ Leállítva`
-                      : `✕ Hiba`}
+                      ? "Leállítva"
+                      : `Hiba (${bots.filter((b) => b.status === "error").length})`}
               </button>
             ))}
           </div>
 
-          {/* Sort */}
           <select
             value={sortKey}
             onChange={(e) => setSortKey(e.target.value as SortKey)}
@@ -416,6 +558,7 @@ export default function BotsPage() {
           >
             <option value="pnl">Profit</option>
             <option value="winRate">Win Rate</option>
+            <option value="roi">ROI</option>
             <option value="balance">Egyenleg</option>
             <option value="trades">Trade-ek</option>
             <option value="name">Név</option>
@@ -431,7 +574,6 @@ export default function BotsPage() {
             />
           </button>
 
-          {/* Quick filters toggle */}
           <button
             type="button"
             onClick={() => setShowFilters(!showFilters)}
@@ -449,7 +591,6 @@ export default function BotsPage() {
           </button>
         </div>
 
-        {/* Quick filters panel */}
         <AnimatePresence>
           {showFilters && (
             <motion.div
@@ -469,7 +610,7 @@ export default function BotsPage() {
                 }`}
               >
                 <Trophy className="h-3 w-3" />
-                Top 3 Legjobb
+                Top 3
               </button>
               <button
                 type="button"
@@ -481,34 +622,7 @@ export default function BotsPage() {
                 }`}
               >
                 <AlertTriangle className="h-3 w-3" />
-                Top 3 Legrosszabb
-              </button>
-
-              <div className="h-4 w-px bg-white/10 mx-2" />
-
-              <button
-                type="button"
-                onClick={handleBulkAction.bind(null, "start")}
-                className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
-              >
-                <Play className="h-3 w-3" />
-                Indít mind
-              </button>
-              <button
-                type="button"
-                onClick={handleBulkAction.bind(null, "stop")}
-                className="flex items-center gap-1.5 rounded-md bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
-              >
-                <Square className="h-3 w-3" />
-                Megállít mind
-              </button>
-              <button
-                type="button"
-                onClick={handleResetAll}
-                className="flex items-center gap-1.5 rounded-md bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Összes nullázása
+                Worst 3
               </button>
             </motion.div>
           )}
@@ -527,19 +641,34 @@ export default function BotsPage() {
             onStart={() => handleStart(bot.id, bot.name)}
             onStop={() => handleStop(bot.id, bot.name)}
             onReset={() => handleReset(bot.id, bot.name)}
-            onDelete={() => {
-              if (confirm("Végleges törlés?"))
-                apiFetch(`/bots/${bot.id}`, { method: "DELETE" }).then(loadBots);
+            onDelete={async () => {
+              if (confirm(`Véglegesen törlöd a(z) "${bot.name}" botot?`)) {
+                await apiFetch(`/bots/${bot.id}`, { method: "DELETE" });
+                toast.success(`${bot.name} törölve`);
+                await loadBots();
+              }
             }}
           />
         ))}
       </div>
 
-      {filteredBots.length === 0 && (
+      {!initialLoadComplete && filteredBots.length === 0 && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
+        </div>
+      )}
+
+      {initialLoadComplete && filteredBots.length === 0 && (
         <div className="flex flex-col items-center justify-center rounded-xl border border-white/5 bg-zinc-900/30 py-16">
           <BotIcon className="h-12 w-12 text-zinc-700 mb-4" />
           <p className="text-lg font-medium text-zinc-400">Nincs találat</p>
-          <p className="text-sm text-zinc-600">Próbáld módosítani a szűrőket</p>
+          <p className="text-sm text-zinc-600">
+            {!serverOnline
+              ? "A szerver nem elérhető. Ellenőrizd, hogy fut-e a backend."
+              : bots.length === 0
+                ? "Még nincs bot létrehozva. Kattints az 'Új bot' gombra!"
+                : "Próbáld módosítani a szűrőket"}
+          </p>
         </div>
       )}
 
@@ -551,17 +680,6 @@ export default function BotsPage() {
             <h3 className="text-sm font-semibold uppercase tracking-wider">Eseménynapló</h3>
           </div>
           <div className="flex items-center gap-3 text-xs text-zinc-500">
-            {serverOnline ? (
-              <span className="flex items-center gap-1.5 text-green-500">
-                <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                ONLINE
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-red-500">
-                <WifiOff className="h-3 w-3" />
-                OFFLINE
-              </span>
-            )}
             <span>Frissítve: {lastSync.toLocaleTimeString()}</span>
             {isSyncing && <Loader2 className="h-3 w-3 animate-spin" />}
           </div>
@@ -598,11 +716,16 @@ export default function BotsPage() {
       <AnimatePresence>
         {showCreateModal && (
           <CreateBotModal
-            onClose={() => setShowCreateModal(false)}
+            onClose={() => {
+              setShowCreateModal(false);
+              setCreatePrefill(undefined);
+            }}
             onSuccess={() => {
               setShowCreateModal(false);
+              setCreatePrefill(undefined);
               void loadBots();
             }}
+            prefill={createPrefill}
           />
         )}
       </AnimatePresence>
@@ -631,16 +754,14 @@ function StatCard({
   };
 
   return (
-    <div className={`rounded-xl border p-4 ${colors[color]}`}>
-      <div className="mb-2 flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/20">
+    <div className={`rounded-xl border p-3 ${colors[color]}`}>
+      <div className="mb-1 flex items-center gap-1.5">
+        <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-black/20">
           {icon}
         </div>
-        <span className="text-xs font-medium uppercase tracking-wider text-current/60">
-          {label}
-        </span>
+        <span className="text-[10px] font-medium uppercase tracking-wider">{label}</span>
       </div>
-      <p className="text-2xl font-bold">{value}</p>
+      <p className="text-lg font-bold">{value}</p>
     </div>
   );
 }
@@ -667,11 +788,17 @@ function BotCard({
   const [expandedSection, setExpandedSection] = useState<"stats" | "trades" | null>(null);
   const pnl = bot.portfolio?.total_pnl || 0;
   const balance = bot.portfolio?.balance || 0;
+  const initBal = bot.portfolio?.initial_balance || 100;
   const wins = bot.portfolio?.winning_trades || 0;
   const losses = bot.portfolio?.losing_trades || 0;
   const winRate = bot.portfolio?.win_rate || 0;
+  const roi = bot.portfolio?.roi_percent || 0;
+  const dd = bot.portfolio?.drawdown_percent || 0;
+  const avgPnl = bot.portfolio?.avg_pnl_per_trade || 0;
+  const totalTrades = bot.portfolio?.total_trades || 0;
   const strategyColor = STRATEGY_COLORS[bot.strategy_type] || "#818cf8";
   const isRunning = bot.status === "running";
+  const isError = bot.status === "error";
 
   return (
     <motion.div
@@ -679,9 +806,26 @@ function BotCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       className={`rounded-xl border transition-all ${
-        isRunning ? "border-green-500/20 bg-green-500/5" : "border-white/5 bg-zinc-900/50"
+        isRunning
+          ? "border-green-500/20 bg-green-500/[0.03]"
+          : isError
+            ? "border-red-500/20 bg-red-500/[0.03]"
+            : "border-white/5 bg-zinc-900/50"
       }`}
     >
+      {/* Status indicator bar */}
+      <div
+        className={`h-1 rounded-t-xl ${
+          isRunning
+            ? "bg-gradient-to-r from-green-500 to-emerald-400"
+            : isError
+              ? "bg-red-500"
+              : bot.status === "paused"
+                ? "bg-amber-500"
+                : "bg-zinc-700"
+        }`}
+      />
+
       {/* Card Header */}
       <button
         onClick={onToggle}
@@ -690,27 +834,29 @@ function BotCard({
       >
         <div className="flex items-center gap-3 min-w-0">
           <div
-            className={`h-3 w-3 rounded-full flex-shrink-0 ${STATUS_COLORS[bot.status]} ${
+            className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[bot.status]} ${
               isRunning ? "animate-pulse shadow-lg shadow-green-500/50" : ""
             }`}
           />
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-white">{bot.name}</h3>
-            <span
-              className="inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase"
-              style={{ color: strategyColor, backgroundColor: `${strategyColor}15` }}
-            >
-              {bot.strategy_type}
-            </span>
-            <span
-              className={`ml-1 inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
-                bot.trading_mode === "live"
-                  ? "bg-red-500/15 text-red-400 border border-red-500/20"
-                  : "bg-amber-500/15 text-amber-400 border border-amber-500/20"
-              }`}
-            >
-              {bot.trading_mode === "live" ? "LIVE" : "DEMO"}
-            </span>
+            <div className="flex flex-wrap items-center gap-1 mt-0.5">
+              <span
+                className="inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase"
+                style={{ color: strategyColor, backgroundColor: `${strategyColor}15` }}
+              >
+                {bot.strategy_type}
+              </span>
+              <span
+                className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                  bot.trading_mode === "live"
+                    ? "bg-red-500/15 text-red-400 border border-red-500/20"
+                    : "bg-amber-500/15 text-amber-400 border border-amber-500/20"
+                }`}
+              >
+                {bot.trading_mode === "live" ? "LIVE" : "DEMO"}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -727,13 +873,23 @@ function BotCard({
         </div>
       </button>
 
-      {/* Collapsed view: Quick stats */}
-      {!isExpanded && (
-        <div className="px-4 pb-3 flex items-center justify-between text-xs">
-          <span className="text-zinc-500">{bot.strategy_type}</span>
-          <div className="flex items-center gap-3">
-            <span className="text-zinc-600">{winRate.toFixed(0)}% WR</span>
-            <span className="text-zinc-600">{bot.portfolio?.total_trades || 0} trades</span>
+      {/* Collapsed view: Quick stats row */}
+      {!isExpanded && (totalTrades > 0 || winRate > 0) && (
+        <div className="px-4 pb-3 grid grid-cols-3 gap-2 text-[10px]">
+          <div className="rounded bg-zinc-800/50 px-2 py-1 text-center">
+            <span className="text-zinc-500">WR</span>
+            <span className="ml-1 font-medium text-white">{winRate.toFixed(0)}%</span>
+          </div>
+          <div className="rounded bg-zinc-800/50 px-2 py-1 text-center">
+            <span className="text-zinc-500">Trades</span>
+            <span className="ml-1 font-medium text-white">{totalTrades}</span>
+          </div>
+          <div className="rounded bg-zinc-800/50 px-2 py-1 text-center">
+            <span className="text-zinc-500">ROI</span>
+            <span className={`ml-1 font-medium ${roi >= 0 ? "text-green-400" : "text-red-400"}`}>
+              {roi >= 0 ? "+" : ""}
+              {roi.toFixed(1)}%
+            </span>
           </div>
         </div>
       )}
@@ -748,35 +904,36 @@ function BotCard({
             className="overflow-hidden border-t border-white/5"
           >
             <div className="p-4 space-y-3">
-              {/* Collapsible Stats Section */}
-              <CollapsibleSection
-                title="Statisztikák"
-                expanded={expandedSection === "stats"}
-                onToggle={() => setExpandedSection(expandedSection === "stats" ? null : "stats")}
-              >
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
-                    <p className="text-[10px] uppercase text-zinc-500 mb-1">Tét</p>
-                    <p className="text-sm font-bold text-white">${bot.bet_size}</p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
-                    <p className="text-[10px] uppercase text-red-500/70 mb-1">Stop Loss</p>
-                    <p className="text-sm font-bold text-red-400">
-                      -{(bot.stop_loss * 100).toFixed(0)}%
-                    </p>
-                  </div>
-                  <div className="rounded-lg bg-zinc-800/50 p-3 text-center">
-                    <p className="text-[10px] uppercase text-green-500/70 mb-1">Take Profit</p>
-                    <p className="text-sm font-bold text-green-400">
-                      +{(bot.take_profit * 100).toFixed(0)}%
-                    </p>
-                  </div>
+              {/* Performance Summary */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-lg bg-zinc-800/30 p-2.5">
+                  <span className="text-zinc-500">Kezdő egyenleg</span>
+                  <p className="font-semibold text-white">${initBal.toFixed(2)}</p>
                 </div>
+                <div className="rounded-lg bg-zinc-800/30 p-2.5">
+                  <span className="text-zinc-500">Jelenlegi</span>
+                  <p className="font-semibold text-white">${balance.toFixed(2)}</p>
+                </div>
+                <div className="rounded-lg bg-zinc-800/30 p-2.5">
+                  <span className="text-zinc-500">ROI</span>
+                  <p className={`font-semibold ${roi >= 0 ? "text-green-400" : "text-red-400"}`}>
+                    {roi >= 0 ? "+" : ""}
+                    {roi.toFixed(2)}%
+                  </p>
+                </div>
+                <div className="rounded-lg bg-zinc-800/30 p-2.5">
+                  <span className="text-zinc-500">Max Drawdown</span>
+                  <p className="font-semibold text-red-400">-{dd.toFixed(2)}%</p>
+                </div>
+              </div>
 
-                {/* Win Rate Bar */}
+              {/* Win Rate Bar */}
+              {(wins > 0 || losses > 0) && (
                 <div>
                   <div className="mb-1 flex items-center justify-between text-xs">
-                    <span className="text-zinc-500">Win Rate</span>
+                    <span className="text-zinc-500">
+                      Win Rate ({wins}W / {losses}L)
+                    </span>
                     <span className="font-medium text-white">{winRate.toFixed(1)}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-zinc-800 overflow-hidden">
@@ -786,36 +943,61 @@ function BotCard({
                       className="h-full rounded-full bg-gradient-to-r from-green-500 to-emerald-500"
                     />
                   </div>
-                  <p className="mt-1 text-xs text-zinc-600">
-                    {wins} nyert / {losses} vesztett
-                  </p>
+                  <div className="mt-1 flex justify-between text-[10px] text-zinc-600">
+                    <span>Átlag PnL: ${avgPnl.toFixed(2)}</span>
+                    <span>Tét: ${bot.bet_size}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Config */}
+              <CollapsibleSection
+                title="Konfiguráció"
+                expanded={expandedSection === "stats"}
+                onToggle={() => setExpandedSection(expandedSection === "stats" ? null : "stats")}
+              >
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded-lg bg-zinc-800/50 p-2.5 text-center">
+                    <p className="text-zinc-500 mb-0.5">Tét</p>
+                    <p className="font-bold text-white">${bot.bet_size}</p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-800/50 p-2.5 text-center">
+                    <p className="text-red-500/70 mb-0.5">Stop Loss</p>
+                    <p className="font-bold text-red-400">-{(bot.stop_loss * 100).toFixed(0)}%</p>
+                  </div>
+                  <div className="rounded-lg bg-zinc-800/50 p-2.5 text-center">
+                    <p className="text-green-500/70 mb-0.5">Take Profit</p>
+                    <p className="font-bold text-green-400">
+                      +{(bot.take_profit * 100).toFixed(0)}%
+                    </p>
+                  </div>
                 </div>
               </CollapsibleSection>
 
-              {/* Collapsible Trades Section */}
+              {/* Trade History */}
               <CollapsibleSection
-                title="Legutóbbi kötések"
+                title={`Legutóbbi kötések (${bot.history?.length || 0})`}
                 expanded={expandedSection === "trades"}
                 onToggle={() => setExpandedSection(expandedSection === "trades" ? null : "trades")}
               >
-                <div className="max-h-32 space-y-1.5 overflow-y-auto rounded-lg bg-black/20 p-2">
+                <div className="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-black/20 p-2">
                   {bot.history && bot.history.length > 0 ? (
-                    bot.history.slice(0, 8).map((t) => (
+                    bot.history.slice(0, 12).map((t) => (
                       <div
                         key={t.id}
-                        className="flex items-center justify-between rounded bg-zinc-800/50 px-2 py-1.5 text-xs"
+                        className="flex items-center justify-between rounded bg-zinc-800/50 px-2.5 py-1.5 text-xs"
                       >
                         <span className={t.win ? "text-green-400" : "text-red-400"}>
-                          {t.win ? "✅ NYERT" : "❌ VESZTETT"}
+                          {t.win ? "NYERT" : "VESZTETT"}
                         </span>
                         <span className="font-mono font-medium text-white">
-                          ${t.amount.toFixed(2)}
+                          {t.win ? "+" : ""}${t.amount.toFixed(2)}
                         </span>
                         <span className="text-zinc-600">{t.time}</span>
                       </div>
                     ))
                   ) : (
-                    <p className="py-3 text-center text-xs text-zinc-600">Még nincs kötés...</p>
+                    <p className="py-3 text-center text-xs text-zinc-600">Még nincs kötés</p>
                   )}
                 </div>
               </CollapsibleSection>
@@ -877,7 +1059,6 @@ function BotCard({
   );
 }
 
-// Collapsible section component
 function CollapsibleSection({
   title,
   expanded,

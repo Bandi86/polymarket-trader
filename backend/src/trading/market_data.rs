@@ -2,19 +2,31 @@
 //! Provides MarketSnapshot with full Polymarket + Binance context
 
 use crate::trading::bot_executor::strategies::MarketSnapshot;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::collections::VecDeque;
+use std::time::{SystemTime, UNIX_EPOCH, Instant};
 
 const GAMMA_API: &str = "https://gamma-api.polymarket.com";
 
-#[derive(Debug, Clone)]
 pub struct MarketDataService {
     http_client: reqwest::Client,
+    // Price history for velocity/acceleration calculation (30-second rolling window)
+    price_history: std::sync::Mutex<VecDeque<(f64, Instant)>>,
+}
+
+impl Clone for MarketDataService {
+    fn clone(&self) -> Self {
+        Self {
+            http_client: self.http_client.clone(),
+            price_history: std::sync::Mutex::new(VecDeque::new()),
+        }
+    }
 }
 
 impl MarketDataService {
     pub fn new() -> Self {
         Self {
             http_client: reqwest::Client::new(),
+            price_history: std::sync::Mutex::new(VecDeque::new()),
         }
     }
 
@@ -178,7 +190,48 @@ impl MarketDataService {
             None
         };
 
-        Ok((btc_price, btc_change_24h, None, None, None, None))
+        // Calculate BTC velocity, acceleration, and volatility from rolling price history
+        let now = Instant::now();
+        let (btc_velocity, btc_acceleration, btc_volatility, btc_window_open) = {
+            let mut history = self.price_history.lock().unwrap();
+            history.push_back((btc_price, now));
+
+            // Keep only last 30 seconds
+            let cutoff = now - std::time::Duration::from_secs(30);
+            history.retain(|(_, t)| *t > cutoff);
+
+            if history.len() >= 2 {
+                let oldest = history.front().map(|(p, _)| *p).unwrap_or(btc_price);
+                let latest = history.back().map(|(p, _)| *p).unwrap_or(btc_price);
+                let duration_secs = history.back().map(|(_, t)| t.elapsed().as_secs_f64()).unwrap_or(1.0).max(0.1);
+
+                // Velocity: % change per second
+                let delta = (latest - oldest) / oldest;
+                let velocity = delta / duration_secs;
+
+                // Acceleration: change in velocity over the window
+                let mid_idx = history.len() / 2;
+                let (acceleration, volatility) = if history.len() >= 3 {
+                    let mid_price = history[mid_idx].0;
+                    let mid_duration = duration_secs / 2.0;
+                    let prev_delta = (mid_price - oldest) / oldest;
+                    let prev_velocity = prev_delta / mid_duration.max(0.1);
+                    let accel = (velocity - prev_velocity) / mid_duration.max(0.1);
+                    (Some(accel), Some(accel.abs()))
+                } else {
+                    (Some(0.0), Some(0.0))
+                };
+
+                // Window open price: BTC price at market start (oldest in history)
+                let window_open = Some(oldest);
+
+                (Some(velocity), acceleration, volatility, window_open)
+            } else {
+                (None, None, None, None)
+            }
+        };
+
+        Ok((btc_price, btc_change_24h, btc_velocity, btc_acceleration, btc_volatility, btc_window_open))
     }
 }
 

@@ -83,10 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = rx.recv().await { let _ = broadcaster.send(event); }
     });
 
-// Restore any running bots from previous session (bandi user only)
+// Restore any running bots from previous session
     let restore_orchestrator = app_state.orchestrator.clone();
     tokio::spawn(async move {
-        trading::orchestrator::restore_running_bots(restore_orchestrator, 5).await; // 5 = bandi user_id
+        // Try to restore for bandi (5) and testuser (19)
+        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 5).await;
+        trading::orchestrator::restore_running_bots(restore_orchestrator, 19).await;
     });
     tracing::info!("Bot restore from database started");
 

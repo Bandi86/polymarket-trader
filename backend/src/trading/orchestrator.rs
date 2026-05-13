@@ -394,6 +394,10 @@ impl BotOrchestrator {
 
                 rb.pending_bet = None;
             }
+
+            // IMMEDIATE DB SYNC: save current_balance to DB portfolio right after settlement
+            // This prevents the 30-second auto-save delay where UI shows wrong balance
+            queries::update_portfolio_balance(&self.db, bot_id, rb.current_balance).await.ok();
         }
         
         // Track market slug changes - save closing price when market transitions

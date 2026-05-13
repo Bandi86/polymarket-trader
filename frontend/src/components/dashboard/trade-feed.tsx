@@ -4,8 +4,8 @@ import { motion } from "framer-motion";
 import { ArrowDownRight, ArrowUpRight, Clock, Filter, Flame, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBots } from "@/hooks";
-import { useAppStore } from "@/store";
 import { useNotificationStore } from "@/lib/notifications";
+import { useAppStore } from "@/store";
 
 interface TradeEntry {
   id: string;
@@ -119,7 +119,10 @@ export function TradeFeed() {
     const map = new Map<string, { consecutive: number; wins: number; losses: number }>();
     for (const trade of sseTrades) {
       if (!map.has(trade.botName)) {
-        map.set(trade.botName, getBotStreak(trade.botName) ?? { consecutive: 0, wins: 0, losses: 0 });
+        map.set(
+          trade.botName,
+          getBotStreak(trade.botName) ?? { consecutive: 0, wins: 0, losses: 0 }
+        );
       }
     }
     return map;
@@ -276,12 +279,17 @@ export function TradeFeed() {
                 </span>
 
                 {/* Bot name + streak */}
-                <span className="flex items-center gap-1 shrink-0 w-20 truncate" title={trade.botName}>
+                <span
+                  className="flex items-center gap-1 shrink-0 w-20 truncate"
+                  title={trade.botName}
+                >
                   <span className="truncate">{trade.botName}</span>
                   {(() => {
                     const streak = streaksByBot.get(trade.botName);
                     return streak && streak.consecutive >= 2 ? (
-                      <Flame className={`h-3 w-3 shrink-0 ${streak.wins > 0 ? "text-orange-400" : "text-blue-400"}`} />
+                      <Flame
+                        className={`h-3 w-3 shrink-0 ${streak.wins > 0 ? "text-orange-400" : "text-blue-400"}`}
+                      />
                     ) : null;
                   })()}
                 </span>

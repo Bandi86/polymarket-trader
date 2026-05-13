@@ -270,7 +270,10 @@ export const useAppStore = create<AppState>()(
           // Derive status from health metrics + latency
           if (!next.connected) {
             next.status = "connecting";
-          } else if (next.errorCount > 10 || (next.lastMessageAt && Date.now() - next.lastMessageAt > 30_000)) {
+          } else if (
+            next.errorCount > 10 ||
+            (next.lastMessageAt && Date.now() - next.lastMessageAt > 30_000)
+          ) {
             next.status = "unhealthy";
           } else if (next.reconnectCount > 3 || state.latency.avg > 500) {
             next.status = "degraded";
