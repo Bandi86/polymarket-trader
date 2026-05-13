@@ -183,16 +183,32 @@ export function useSSE() {
             addLog({
               bot_id: data.bot_id,
               bot_name: `Bot ${data.bot_id}`,
-              message: `Session ended. PnL: $${data.total_pnl.toFixed(2)}`,
+              message: `Session ended. PnL: $${data.total_pnl.toFixed(2)} | ${data.session_trades} trades (${data.session_wins}W/${data.session_losses}L) | DD: ${((data.max_drawdown || 0) * 100).toFixed(1)}%`,
               timestamp: Date.now(),
               level: "info",
             });
-            updateBot(data.bot_id, { status: "stopped" });
+            updateBot(data.bot_id, {
+              status: "stopped",
+              stats: {
+                trades: data.session_trades || 0,
+                pnl: data.total_pnl || 0,
+                wins: data.session_wins || 0,
+                losses: data.session_losses || 0,
+                winRate: data.session_trades > 0 ? (data.session_wins / data.session_trades) * 100 : 0,
+              },
+            });
             dispatchNotification(
               "session_complete",
               `${data.bot_name || `Bot ${data.bot_id}`} session ended`,
-              `Final balance: $${typeof data.final_balance === "number" ? data.final_balance.toFixed(2) : "—"}`,
-              { totalPnl: data.total_pnl, finalBalance: data.final_balance },
+              `Final: $${typeof data.final_balance === "number" ? data.final_balance.toFixed(2) : "—"} | ${data.session_trades} trades | ${((data.max_drawdown || 0) * 100).toFixed(1)}% DD`,
+              {
+                totalPnl: data.total_pnl,
+                finalBalance: data.final_balance,
+                sessionTrades: data.session_trades,
+                sessionWins: data.session_wins,
+                sessionLosses: data.session_losses,
+                maxDrawdown: data.max_drawdown,
+              },
               data.bot_id,
               data.bot_name
             );

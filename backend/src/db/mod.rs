@@ -1089,10 +1089,12 @@ pub async fn create_session(
     /// Get all running sessions (across all users) - for restoring bots on startup
     pub async fn get_all_running_sessions(
         db: &Db,
+        user_id: i64,
     ) -> Result<Vec<BotSessionRecord>, sqlx::Error> {
         let result = sqlx::query_as::<_, BotSessionRecord>(
-            "SELECT * FROM bot_sessions WHERE status = 'running'"
+            "SELECT * FROM bot_sessions WHERE status = 'running' AND user_id = ?"
         )
+        .bind(user_id)
         .fetch_all(db.as_ref())
         .await?;
 

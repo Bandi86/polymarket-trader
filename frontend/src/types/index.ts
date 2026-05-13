@@ -41,6 +41,16 @@ export interface Bot {
     losses: number;
     winRate?: number;
   };
+  session: {
+    active: boolean;
+    startBalance: number;
+    currentBalance: number;
+    trades: number;
+    wins: number;
+    losses: number;
+    pnl: number;
+    maxDrawdown: number;
+  };
   pnl?: number;
   trades_count?: number;
   win_rate?: number;

@@ -50,10 +50,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // === AUTO-LOAD RUNNING BOTS ON STARTUP ===
+    // === AUTO-LOAD RUNNING BOTS ON STARTUP (bandi user only) ===
     {
+        const BANDI_USER_ID: i64 = 5; // Only load bandi's bots
         let pool = db.as_ref();
-        let active_bots = sqlx::query("SELECT id, user_id FROM bot_configs WHERE status = 'running'")
+        let active_bots = sqlx::query("SELECT id, user_id FROM bot_configs WHERE status = 'running' AND user_id = ?")
+            .bind(BANDI_USER_ID)
             .fetch_all(pool).await.unwrap_or_default();
 
         for bot_row in active_bots {
@@ -81,11 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = rx.recv().await { let _ = broadcaster.send(event); }
     });
 
-// Restore any running bots from previous session
-    // This restarts bots that were running before the server was stopped
+// Restore any running bots from previous session (bandi user only)
     let restore_orchestrator = app_state.orchestrator.clone();
     tokio::spawn(async move {
-        trading::orchestrator::restore_running_bots(restore_orchestrator).await;
+        trading::orchestrator::restore_running_bots(restore_orchestrator, 5).await; // 5 = bandi user_id
     });
     tracing::info!("Bot restore from database started");
 

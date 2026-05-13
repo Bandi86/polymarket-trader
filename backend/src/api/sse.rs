@@ -343,13 +343,17 @@ pub async fn bot_events_stream(
                                         "seq": current_seq
                                     })
                                 }
-                                BotEvent::SessionEnded { bot_id, session_id, final_balance, total_pnl } => {
+                                BotEvent::SessionEnded { bot_id, session_id, final_balance, total_pnl, session_trades, session_wins, session_losses, max_drawdown } => {
                                     serde_json::json!({
                                         "type": "session_ended",
                                         "bot_id": bot_id,
                                         "session_id": session_id,
                                         "final_balance": final_balance,
                                         "total_pnl": total_pnl,
+                                        "session_trades": session_trades,
+                                        "session_wins": session_wins,
+                                        "session_losses": session_losses,
+                                        "max_drawdown": max_drawdown,
                                         "server_timestamp": chrono::Utc::now().timestamp_millis(),
                                         "seq": current_seq
                                     })

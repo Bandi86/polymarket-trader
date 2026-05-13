@@ -23,7 +23,16 @@ use crate::trading::polymarket::{PolymarketClient, ApiKeyCreds, OrderRequest};
 #[derive(Debug, Clone, serde::Serialize)]
 pub enum BotEvent {
     SessionStarted { bot_id: i64, session_id: i64, bot_name: String },
-    SessionEnded { bot_id: i64, session_id: i64, final_balance: f64, total_pnl: f64 },
+    SessionEnded {
+        bot_id: i64,
+        session_id: i64,
+        final_balance: f64,
+        total_pnl: f64,
+        session_trades: i64,
+        session_wins: i64,
+        session_losses: i64,
+        max_drawdown: f64,
+    },
     TradeDecision { bot_id: i64, outcome: String, confidence: f64, bet_size: f64, reason: String },
     OrderExecuted { bot_id: i64, order_id: String },
     BalanceUpdated { bot_id: i64, balance: f64 },
@@ -58,6 +67,13 @@ pub struct RunningBot {
     pub current_balance: f64,
     pub pending_bet: Option<PendingBet>,
     pub btc_price_history: Vec<(f64, Instant)>,
+    // Session stats tracking
+    pub session_trades: i64,
+    pub session_wins: i64,
+    pub session_losses: i64,
+    pub session_pnl: f64,
+    pub peak_balance: f64,       // For max_drawdown calculation
+    pub max_drawdown: f64,      // Running max drawdown
 }
 
 #[derive(Clone)]
@@ -74,10 +90,10 @@ pub struct BotOrchestrator {
 
 /// Restore running bots from database on startup
 /// This is called once at startup to restore any bots that were running before the server stopped
-pub async fn restore_running_bots(orchestrator: Arc<BotOrchestrator>) {
+pub async fn restore_running_bots(orchestrator: Arc<BotOrchestrator>, user_id: i64) {
     tracing::info!("Restoring running bots from database...");
 
-    let running_sessions = match queries::get_all_running_sessions(&orchestrator.db).await {
+    let running_sessions = match queries::get_all_running_sessions(&orchestrator.db, user_id).await {
         Ok(sessions) => sessions,
         Err(e) => {
             tracing::error!("Failed to fetch running sessions for restore: {}", e);
@@ -130,6 +146,12 @@ pub async fn restore_running_bots(orchestrator: Arc<BotOrchestrator>) {
             current_balance: session.start_balance,
             pending_bet: None,
             btc_price_history: Vec::new(),
+            session_trades: 0,
+            session_wins: 0,
+            session_losses: 0,
+            session_pnl: 0.0,
+            peak_balance: session.start_balance,
+            max_drawdown: 0.0,
         };
 
         // Insert into running_bots map
@@ -196,6 +218,8 @@ impl BotOrchestrator {
             bot_id: bot.id, session_id: 0, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
             last_market_slug: None, consecutive_errors: 0, last_btc_price: None, btc_window_open: None, current_balance,
             pending_bet: None, btc_price_history: Vec::new(),
+            session_trades: 0, session_wins: 0, session_losses: 0, session_pnl: 0.0,
+            peak_balance: current_balance, max_drawdown: 0.0,
         });
         Ok(0)
     }
@@ -208,9 +232,11 @@ impl BotOrchestrator {
         let session_id = queries::create_session(&self.db, bot.id, bot.user_id, initial_balance, Some(bot.params.as_str()), &bot.trading_mode).await.map_err(|e| e.to_string())?;
         let mut running = self.running_bots.write().await;
         running.insert(bot.id, RunningBot {
-            bot_id: bot.id, session_id, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params), 
-            last_market_slug: None, consecutive_errors: 0, last_btc_price: None, btc_window_open: None, 
+            bot_id: bot.id, session_id, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
+            last_market_slug: None, consecutive_errors: 0, last_btc_price: None, btc_window_open: None,
             current_balance: initial_balance, pending_bet: None, btc_price_history: Vec::new(),
+            session_trades: 0, session_wins: 0, session_losses: 0, session_pnl: 0.0,
+            peak_balance: initial_balance, max_drawdown: 0.0,
         });
         self.event_sender.send(BotEvent::SessionStarted { bot_id: bot.id, session_id, bot_name: bot.name.clone() }).ok();
         tracing::info!("Bot {} started (session {}), trading_mode={}", bot.id, session_id, bot.trading_mode);
@@ -221,8 +247,27 @@ impl BotOrchestrator {
         let mut running = self.running_bots.write().await;
         if let Some(rb) = running.remove(&bot_id) {
             queries::update_bot_status(&self.db, bot_id, user_id, "stopped").await.ok();
-            queries::end_session_by_bot(&self.db, bot_id).await.ok();
-            self.event_sender.send(BotEvent::SessionEnded { bot_id, session_id: rb.session_id, final_balance: 0.0, total_pnl: 0.0 }).ok();
+            // End session with full stats instead of just marking as stopped
+            queries::end_session(
+                &self.db,
+                rb.session_id,
+                rb.current_balance,
+                rb.session_trades,
+                rb.session_wins,
+                rb.session_losses,
+                rb.session_pnl,
+                rb.max_drawdown,
+            ).await.ok();
+            self.event_sender.send(BotEvent::SessionEnded {
+                bot_id,
+                session_id: rb.session_id,
+                final_balance: rb.current_balance,
+                total_pnl: rb.session_pnl,
+                session_trades: rb.session_trades,
+                session_wins: rb.session_wins,
+                session_losses: rb.session_losses,
+                max_drawdown: rb.max_drawdown,
+            }).ok();
         }
         Ok(())
     }
@@ -239,11 +284,11 @@ impl BotOrchestrator {
 
         eprintln!("[DEBUG] Bot {} cycle: portfolio.balance={}, trading_mode={}", bot_id, portfolio.balance, bot.trading_mode);
 
-        // --- STOP LOSS 30% ---
-        if portfolio.balance <= portfolio.initial_balance * 0.7 {
-            self.stop_bot(bot_id, user_id).await?;
-            return Ok(());
-        }
+        // --- STOP LOSS 30% (DISABLED FOR TESTING) ---
+        // if portfolio.balance <= portfolio.initial_balance * 0.7 {
+        //     self.stop_bot(bot_id, user_id).await?;
+        //     return Ok(());
+        // }
 
         let all_markets = fetch_active_markets("5").await;
         let market = if let Some(m) = all_markets.first() { m.clone() } else { return Ok(()); };
@@ -327,6 +372,26 @@ impl BotOrchestrator {
                 queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, profit, bet.bet_size).await.ok();
                 self.event_sender.send(BotEvent::TradeResult { bot_id, won, pnl: profit }).ok();
                 eprintln!("[SETTLE] Bot {}: {} won={} profit={:.4} diff={:.6} close={:.2}", bot_id, bet.side, won, profit, diff, settle_price);
+
+                // Update session stats
+                rb.session_trades += 1;
+                rb.session_pnl += profit;
+                if won {
+                    rb.session_wins += 1;
+                } else {
+                    rb.session_losses += 1;
+                }
+
+                // Update max_drawdown tracking
+                rb.current_balance += profit;
+                if rb.current_balance > rb.peak_balance {
+                    rb.peak_balance = rb.current_balance;
+                }
+                let drawdown = (rb.peak_balance - rb.current_balance) / rb.peak_balance;
+                if drawdown > rb.max_drawdown {
+                    rb.max_drawdown = drawdown;
+                }
+
                 rb.pending_bet = None;
             }
         }

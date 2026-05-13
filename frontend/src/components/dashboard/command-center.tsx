@@ -227,7 +227,7 @@ function AccountInfoBar() {
 
 // Compact Market Bar - inside collapsible panel
 function MarketBar() {
-  const { btcPrice, startPrice, priceDelta, timeRemaining, yesPrice, volume, latency } =
+  const { btcPrice, startPrice, priceDelta, timeRemaining, yesPrice, noPrice, volume, latency } =
     useAppStore();
 
   const latencyColor =
@@ -258,20 +258,67 @@ function MarketBar() {
   };
 
   const marketDuration = 300;
+
+  // Probability Arc — mini SVG showing YES probability as arc fill
+  function ProbabilityArc({ yesPrice }: { yesPrice: number }) {
+    const radius = 18;
+    const circumference = Math.PI * radius; // half-circle
+    const fillPercent = Math.min(Math.max(yesPrice * 100, 2), 98);
+    const offset = circumference - (fillPercent / 100) * circumference;
+
+    const color = yesPrice > 0.55 ? "#22c55e" : yesPrice < 0.45 ? "#ef4444" : "#a855f7";
+
+    return (
+      <svg width="44" height="24" viewBox="0 0 44 24" className="shrink-0">
+        <path
+          d="M 4 22 A 18 18 0 0 1 40 22"
+          fill="none"
+          stroke="#27272a"
+          strokeWidth="3"
+          strokeLinecap="round"
+        />
+        <path
+          d="M 4 22 A 18 18 0 0 1 40 22"
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          className="transition-all duration-500"
+        />
+        <line
+          x1="22"
+          y1="22"
+          x2="22"
+          y2="8"
+          stroke={color}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          opacity="0.7"
+        />
+      </svg>
+    );
+  }
+
   const timeProgress =
     timeRemaining > 0 ? ((marketDuration - timeRemaining) / marketDuration) * 100 : 100;
   const progressColor =
     timeRemaining < 60 ? "bg-red-500" : timeRemaining < 180 ? "bg-amber-500" : "bg-emerald-500";
 
+  // Odds strength: how far from 50%
+  const probGap = Math.abs(yesPrice - 0.5) * 200; // 0–100%
+  const probGapColor = probGap > 30 ? "text-green-400" : probGap > 15 ? "text-amber-400" : "text-zinc-400";
+
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between gap-4">
-        {/* Left: Timer */}
-        <div className="flex items-center gap-2">
+        {/* Left: Timer + Odds */}
+        <div className="flex items-center gap-3">
           <div
-            className={`flex h-8 w-8 items-center justify-center rounded-lg ${
+            className={`flex h-9 w-9 items-center justify-center rounded-lg ${
               timeRemaining < 60
-                ? "bg-red-500/15"
+                ? "bg-red-500/20 animate-pulse"
                 : timeRemaining < 180
                   ? "bg-amber-500/15"
                   : "bg-green-500/15"
@@ -288,9 +335,32 @@ function MarketBar() {
             />
           </div>
           <div>
-            <span className="text-[9px] uppercase tracking-wider text-zinc-500">Hátralévő idő</span>
-            <div className="text-base font-extrabold font-mono text-zinc-100">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-500">Hátralévő</span>
+            <div className={`text-base font-extrabold font-mono ${timeRemaining < 60 ? "text-red-400 animate-pulse" : "text-zinc-100"}`}>
               {timeRemaining > 0 ? formatTime(timeRemaining) : "--:--"}
+            </div>
+          </div>
+
+          {/* Odds */}
+          <div className="flex items-center gap-2">
+            <ProbabilityArc yesPrice={yesPrice} />
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-bold uppercase text-green-400">YES</span>
+                <span className="text-xs font-extrabold font-mono text-green-400">
+                  {(yesPrice * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[9px] font-bold uppercase text-red-400">NO</span>
+                <span className="text-xs font-extrabold font-mono text-red-400">
+                  {(noPrice * 100).toFixed(1)}%
+                </span>
+              </div>
+            </div>
+            {/* Prob gap indicator */}
+            <div className={`text-[9px] font-mono font-bold ${probGapColor}`} title="Prob gap from 50%">
+              {probGap.toFixed(0)}%
             </div>
           </div>
         </div>

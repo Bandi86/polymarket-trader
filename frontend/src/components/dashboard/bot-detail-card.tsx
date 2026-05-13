@@ -142,7 +142,7 @@ export function BotDetailCard({
         </div>
 
         {portfolio && portfolio.balance != null && portfolio.total_trades > 0 && (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             <div className="rounded-lg bg-green-500/5 border border-green-500/10 px-2.5 py-2">
               <span className="text-[9px] uppercase text-zinc-500 font-semibold">PnL</span>
               <div
@@ -167,6 +167,14 @@ export function BotDetailCard({
               <div className="flex gap-1 mt-0.5">
                 <span className="text-[9px] text-green-400">{portfolio.winning_trades}W</span>
                 <span className="text-[9px] text-red-400">{portfolio.losing_trades}L</span>
+              </div>
+            </div>
+            <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 px-2.5 py-2">
+              <span className="text-[9px] uppercase text-zinc-500 font-semibold">Max DD</span>
+              <div className={`text-sm font-extrabold font-mono ${
+                (portfolio.drawdown_percent || 0) > 10 ? "text-red-400" : "text-amber-400"
+              }`}>
+                {(portfolio.drawdown_percent || 0).toFixed(1)}%
               </div>
             </div>
           </div>
