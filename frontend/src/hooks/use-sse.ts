@@ -21,6 +21,7 @@ export function useSSE() {
     updateBot,
     setSystemStatus,
     setLatency,
+    setSSEHealth,
     addBotActivity,
   } = useAppStore();
 
@@ -53,6 +54,12 @@ export function useSSE() {
 
     eventSource.addEventListener("connected", () => {
       console.log("SSE connected event received");
+      const wasConnected = useAppStore.getState().sseHealth.connected;
+      setSSEHealth({
+        connected: true,
+        connectedSince: wasConnected ? useAppStore.getState().sseHealth.connectedSince : Date.now(),
+        reconnectCount: wasConnected ? useAppStore.getState().sseHealth.reconnectCount + 1 : 0,
+      });
     });
 
     eventSource.addEventListener("market", (e: MessageEvent) => {
@@ -131,6 +138,7 @@ export function useSSE() {
         if (latencyMs >= 0.01) {
           setLatency(latencyMs);
         }
+        setSSEHealth({ messageCount: useAppStore.getState().sseHealth.messageCount + 1, lastMessageAt: Date.now() });
       } catch (err) {
         console.error("Failed to parse market event:", err);
       }

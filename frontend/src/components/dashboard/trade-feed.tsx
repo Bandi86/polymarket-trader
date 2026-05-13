@@ -1,10 +1,11 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowDownRight, ArrowUpRight, Clock, Filter, Pause, Play } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Clock, Filter, Flame, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBots } from "@/hooks";
 import { useAppStore } from "@/store";
+import { useNotificationStore } from "@/lib/notifications";
 
 interface TradeEntry {
   id: string;
@@ -111,6 +112,18 @@ export function TradeFeed() {
     trades.sort((a, b) => b.timestamp - a.timestamp);
     return trades.slice(0, 100);
   }, [botActivities, bots]);
+
+  // Streak state — derived from notification store
+  const getBotStreak = useNotificationStore((s) => s.getBotStreak);
+  const streaksByBot = useMemo(() => {
+    const map = new Map<string, { consecutive: number; wins: number; losses: number }>();
+    for (const trade of sseTrades) {
+      if (!map.has(trade.botName)) {
+        map.set(trade.botName, getBotStreak(trade.botName) ?? { consecutive: 0, wins: 0, losses: 0 });
+      }
+    }
+    return map;
+  }, [sseTrades, getBotStreak]);
 
   // Auto-scroll to top (newest first)
   useEffect(() => {
@@ -262,9 +275,15 @@ export function TradeFeed() {
                   {formatTime(trade.timestamp)}
                 </span>
 
-                {/* Bot name */}
-                <span className="text-zinc-400 shrink-0 w-20 truncate" title={trade.botName}>
-                  {trade.botName}
+                {/* Bot name + streak */}
+                <span className="flex items-center gap-1 shrink-0 w-20 truncate" title={trade.botName}>
+                  <span className="truncate">{trade.botName}</span>
+                  {(() => {
+                    const streak = streaksByBot.get(trade.botName);
+                    return streak && streak.consecutive >= 2 ? (
+                      <Flame className={`h-3 w-3 shrink-0 ${streak.wins > 0 ? "text-orange-400" : "text-blue-400"}`} />
+                    ) : null;
+                  })()}
                 </span>
 
                 {/* Type badge */}

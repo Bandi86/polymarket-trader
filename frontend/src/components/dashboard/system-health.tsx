@@ -8,7 +8,18 @@ import { useAppStore } from "@/store";
 export function SystemHealth() {
   const { data: sys, isLoading } = useSystemStatus();
   const latency = useAppStore((s) => s.latency);
+  const sseHealth = useAppStore((s) => s.sseHealth);
   const systemStatus = useAppStore((s) => s.systemStatus);
+
+  // Uptime display
+  const uptimeMs = sseHealth.connectedSince ? Date.now() - sseHealth.connectedSince : 0;
+  const uptimeStr = uptimeMs > 0
+    ? uptimeMs < 60_000
+      ? `${Math.floor(uptimeMs / 1000)}s`
+      : uptimeMs < 3_600_000
+        ? `${Math.floor(uptimeMs / 60_000)}m`
+        : `${Math.floor(uptimeMs / 3_600_000)}h`
+    : "—";
 
   // Latency sparkline (last 30 samples)
   const sparkline = latency.samples.slice(-30);
@@ -25,8 +36,10 @@ export function SystemHealth() {
     {
       label: "SSE Connection",
       icon: Wifi,
-      status: "healthy",
-      detail: `${latency.avg.toFixed(1)}ms avg JS latency`,
+      status: sseHealth.status,
+      detail: `${sseHealth.messageCount} msgs · ${sseHealth.errorCount} errors · ${uptimeStr} uptime`,
+      dotClass: sseHealth.status === "healthy" ? "bg-green-400" : sseHealth.status === "degraded" ? "bg-amber-400 animate-pulse" : sseHealth.status === "unhealthy" ? "bg-red-400 animate-pulse" : "bg-zinc-600",
+      labelClass: sseHealth.status === "healthy" ? "text-green-400" : sseHealth.status === "degraded" ? "text-amber-400" : sseHealth.status === "unhealthy" ? "text-red-400" : "text-zinc-500",
     },
     {
       label: "Backend Status",
@@ -60,19 +73,21 @@ export function SystemHealth() {
       <div className="space-y-2">
         {healthItems.map((item) => {
           const Icon = item.icon;
-          const statusColor =
-            item.status === "healthy" || item.status === "configured"
+          const isHealthStatus = ["healthy", "degraded", "unhealthy", "connecting"].includes(item.status);
+          const statusColor = isHealthStatus
+            ? item.labelClass ?? "text-zinc-500"
+            : item.status === "healthy" || item.status === "configured"
               ? "text-green-400"
               : item.status === "loading"
                 ? "text-amber-400"
                 : "text-zinc-600";
-
-          const dotColor =
+          const dotColor = item.dotClass ?? (
             item.status === "healthy" || item.status === "configured"
               ? "bg-green-400"
               : item.status === "loading"
                 ? "bg-amber-400 animate-pulse"
-                : "bg-zinc-600";
+                : "bg-zinc-600"
+          );
 
           return (
             <motion.div

@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import {
   ArrowUpRight,
   Bot,
+  Flame,
   LineChart,
   Loader2,
   Search,
@@ -13,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { useAppStore } from "@/store";
+import { useNotificationStore } from "@/lib/notifications";
 
 const EMPTY_ACTIVITIES: never[] = [];
 
@@ -188,6 +190,9 @@ function ActivityDetail({
 
 export function LiveBotActivityCard({ botId }: { botId: number }) {
   const activities = useAppStore((s) => s.botActivities[botId] ?? EMPTY_ACTIVITIES);
+  const getBotStreak = useNotificationStore((s) => s.getBotStreak);
+  const botName = `Bot ${botId}`;
+  const streak = getBotStreak(botName);
 
   if (activities.length === 0) {
     return (
@@ -210,7 +215,15 @@ export function LiveBotActivityCard({ botId }: { botId: number }) {
         <span className="text-[10px] font-semibold text-zinc-400 uppercase tracking-wider">
           {lastConfig.label}
         </span>
-        <span className="text-[10px] text-zinc-600 ml-auto font-mono">
+        {streak && streak.consecutive >= 2 && (
+          <span className="flex items-center gap-0.5 ml-auto">
+            <Flame className={`h-3 w-3 ${streak.wins > 0 ? "text-orange-400" : "text-blue-400"}`} />
+            <span className={`text-[10px] font-bold font-mono ${streak.wins > 0 ? "text-orange-400" : "text-blue-400"}`}>
+              {streak.consecutive}
+            </span>
+          </span>
+        )}
+        <span className="text-[10px] text-zinc-600 ml-1 font-mono">
           {formatTime(lastActivity.timestamp)}
         </span>
       </div>

@@ -88,6 +88,18 @@ interface AppState {
   };
   setLatency: (latencyMs: number) => void;
 
+  // SSE Health Metrics
+  sseHealth: {
+    connected: boolean;
+    messageCount: number;
+    errorCount: number;
+    reconnectCount: number;
+    lastMessageAt: number | null;
+    connectedSince: number | null;
+    status: "healthy" | "degraded" | "unhealthy" | "connecting";
+  };
+  setSSEHealth: (updates: Partial<AppState["sseHealth"]>) => void;
+
   // Bot Activity Feed
   botActivities: Record<
     number,
@@ -240,6 +252,32 @@ export const useAppStore = create<AppState>()(
               samples,
             },
           };
+        }),
+
+      // SSE Health
+      sseHealth: {
+        connected: false,
+        messageCount: 0,
+        errorCount: 0,
+        reconnectCount: 0,
+        lastMessageAt: null,
+        connectedSince: null,
+        status: "connecting",
+      },
+      setSSEHealth: (updates) =>
+        set((state) => {
+          const next = { ...state.sseHealth, ...updates };
+          // Derive status from health metrics + latency
+          if (!next.connected) {
+            next.status = "connecting";
+          } else if (next.errorCount > 10 || (next.lastMessageAt && Date.now() - next.lastMessageAt > 30_000)) {
+            next.status = "unhealthy";
+          } else if (next.reconnectCount > 3 || state.latency.avg > 500) {
+            next.status = "degraded";
+          } else {
+            next.status = "healthy";
+          }
+          return { sseHealth: next };
         }),
 
       // Bot Activity Feed
