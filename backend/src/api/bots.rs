@@ -128,6 +128,12 @@ fn default_take_profit() -> f64 { 0.2 }
 pub struct StartBotRequest {
     pub initial_balance: Option<f64>,
     pub mode: Option<String>,
+    #[serde(default)]
+    pub target_profit: Option<f64>,
+    #[serde(default)]
+    pub max_trades: Option<i64>,
+    #[serde(default)]
+    pub max_duration_secs: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
