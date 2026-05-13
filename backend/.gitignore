@@ -11,4 +11,4 @@ data/
 
 # Environment
 .env
-.env.local
+.env.local.sqlx/
