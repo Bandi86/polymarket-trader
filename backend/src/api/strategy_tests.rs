@@ -13,6 +13,9 @@ use axum::http::StatusCode;
 use crate::api::AppState;
 use crate::trading::execution::paper::{PaperExecutionAdapter, PaperTradeIntent};
 
+type StrategyTestRow = (String, String, String, f64, Option<f64>, i32, i32, i32, f64);
+type StrategyIntentRow = (i64, String, String, f64, String, String, String, String);
+
 #[derive(Serialize)]
 struct ErrorResponse {
     error: String,
@@ -257,7 +260,7 @@ pub async fn get_strategy_test(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> TestResult {
-    let row: Option<(String, String, String, f64, Option<f64>, i32, i32, i32, f64)> = sqlx::query_as(
+    let row: Option<StrategyTestRow> = sqlx::query_as(
         "SELECT strategy_type, market_id, status, initial_balance, final_balance, total_trades, winning_trades, losing_trades, total_pnl FROM bot_runs WHERE id = ?"
     )
     .bind(id)
@@ -290,7 +293,7 @@ pub async fn get_strategy_test_events(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Json<serde_json::Value> {
-    let intents: Vec<(i64, String, String, f64, String, String, String, String)> = sqlx::query_as(
+    let intents: Vec<StrategyIntentRow> = sqlx::query_as(
         "SELECT id, side, strategy_type, confidence, reason, status, snapshot_json, created_at FROM trade_intents WHERE run_id = ? ORDER BY created_at"
     )
     .bind(id)

@@ -146,7 +146,7 @@ export function useBotStatusState({
       equityCurvePlot,
       balanceGrowth,
     };
-  }, [closedPositions, bot.portfolio.balance]);
+  }, [closedPositions, bot.portfolio.balance, bot.portfolio.initialBalance]);
 
   // Health status
   const health = useMemo((): HealthStatus => {

@@ -66,10 +66,10 @@ impl SettlementService {
         let price_to_beat = market_data.get("priceToBeat")
             .and_then(|v| v.as_f64())
             .or_else(|| {
-                // Try to get from trading price
-                market_data.get("outcomePrices")
-                    .and_then(|v| v.as_array())
-                    .and_then(|arr| arr.get(0))
+                    // Try to get from trading price
+                    market_data.get("outcomePrices")
+                        .and_then(|v| v.as_array())
+                    .and_then(|arr| arr.first())
                     .and_then(|v| v.as_str())
                     .and_then(|s| s.parse::<f64>().ok())
             });
@@ -161,7 +161,7 @@ impl SettlementService {
                 r#"INSERT INTO activity_log (user_id, bot_id, level, message) VALUES (0, ?, 'INFO', ?)"#
             )
             .bind(bot_id)
-            .bind(&format!("Settled market {}: {} won ${:.2}", market_id, side, pnl))
+            .bind(format!("Settled market {}: {} won ${:.2}", market_id, side, pnl))
             .execute(db.as_ref())
             .await
             .ok();

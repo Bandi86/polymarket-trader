@@ -526,40 +526,46 @@ pub async fn start_bot(
         })).into_response();
     }
 
-    // FIX: Demo/paper default balance $100 (was $10)
     let requested_balance = payload
         .as_ref()
-        .and_then(|p| p.initial_balance)
-        .unwrap_or(100.0);
+        .and_then(|p| p.initial_balance);
     let requested_mode = payload.as_ref().and_then(|p| p.mode.as_deref());
     let bot_mode = requested_mode.unwrap_or(&bot.trading_mode);
     let is_demo = normalize_mode(bot_mode) == "demo";
     let initial_balance = if is_demo {
-        let paper_balance = requested_balance;
-        tracing::info!("Bot {} running in demo mode — using simulated ${:.2} balance", id, paper_balance);
+        // Use existing portfolio balance; only reset if explicit initial_balance provided
+        let existing_portfolio = queries::get_portfolio(&db, id, user_id).await.ok().flatten();
+        let balance_to_use = if let Some(ref portfolio) = existing_portfolio {
+            if let Some(explicit_balance) = requested_balance {
+                // User explicitly wants a new starting balance — reset portfolio
+                if let Err(e) = queries::reset_portfolio(&db, id, explicit_balance).await {
+                    tracing::warn!("Failed to reset portfolio: {}", e);
+                }
+                explicit_balance
+            } else {
+                // Use existing balance (carry over from previous session)
+                portfolio.balance
+            }
+        } else {
+            let default_balance = requested_balance.unwrap_or(100.0);
+            if queries::ensure_portfolio(&db, id, user_id, default_balance).await.is_err() {
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                    error: "Failed to create paper trading portfolio".to_string(),
+                })).into_response();
+            }
+            default_balance
+        };
+
+        tracing::info!("Bot {} running in demo mode — using simulated ${:.2} balance", id, balance_to_use);
 
         let min_required = bot.bet_size.max(1.0);
-        if paper_balance < min_required {
+        if balance_to_use < min_required {
             return (StatusCode::BAD_REQUEST, Json(ErrorResponse {
-                error: format!("Bet size ${:.2} exceeds paper trading balance ${:.2}", bot.bet_size, paper_balance),
+                error: format!("Bet size ${:.2} exceeds paper trading balance ${:.2}", bot.bet_size, balance_to_use),
             })).into_response();
         }
 
-        match queries::get_portfolio(&db, id, user_id).await {
-            Ok(Some(_)) => {
-                if let Err(e) = queries::reset_portfolio(&db, id, paper_balance).await {
-                    tracing::warn!("Failed to reset portfolio: {}", e);
-                }
-            }
-            _ => {
-                if queries::ensure_portfolio(&db, id, user_id, paper_balance).await.is_err() {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
-                        error: "Failed to create paper trading portfolio".to_string(),
-                    })).into_response();
-                }
-            }
-        }
-        paper_balance
+        balance_to_use
     } else {
         // Live trading
         let creds = match state.credential_service.get_credentials(&db, user_id).await {
@@ -932,9 +938,11 @@ pub async fn get_trades(
 pub async fn run_all_bots(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    payload: Option<Json<StartBotRequest>>,
 ) -> Response {
     let db = state.db();
     let user_id = claims.user_id;
+    let requested_balance = payload.as_ref().and_then(|p| p.initial_balance);
 
     let cache = state.credential_cache.read().await;
     let creds = cache.get(&user_id).cloned();
@@ -970,9 +978,29 @@ pub async fn run_all_bots(
                 }
 
                 let is_demo = normalize_mode(&bot.trading_mode) == "demo";
-                // FIX: Demo default balance $100 (was $100, kept consistent)
+
                 let balance_to_use = if is_demo {
-                    100.0
+                    // Use existing portfolio balance; only create if missing
+                    match queries::get_portfolio(&db, bot.id, user_id).await {
+                        Ok(Some(p)) => {
+                            if let Some(explicit_balance) = requested_balance {
+                                if let Err(e) = queries::reset_portfolio(&db, bot.id, explicit_balance).await {
+                                    tracing::warn!("Failed to reset portfolio for bot {}: {}", bot.id, e);
+                                }
+                                explicit_balance
+                            } else {
+                                p.balance
+                            }
+                        }
+                        _ => {
+                            let default_balance = requested_balance.unwrap_or(100.0);
+                            if let Err(e) = queries::ensure_portfolio(&db, bot.id, user_id, default_balance).await {
+                                tracing::error!("Failed to create portfolio for bot {}: {}", bot.id, e);
+                                continue;
+                            }
+                            default_balance
+                        }
+                    }
                 } else {
                     wallet_balance
                 };
@@ -986,17 +1014,20 @@ pub async fn run_all_bots(
                     continue;
                 }
 
-                match queries::get_portfolio(&db, bot.id, user_id).await {
-                    Ok(None) => {
-                        if let Err(e) = queries::ensure_portfolio(&db, bot.id, user_id, balance_to_use).await {
-                            tracing::error!("Failed to create portfolio for bot {}: {}", bot.id, e);
+                // For live mode, ensure portfolio exists
+                if !is_demo {
+                    match queries::get_portfolio(&db, bot.id, user_id).await {
+                        Ok(None) => {
+                            if let Err(e) = queries::ensure_portfolio(&db, bot.id, user_id, balance_to_use).await {
+                                tracing::error!("Failed to create portfolio for bot {}: {}", bot.id, e);
+                                continue;
+                            }
+                        }
+                        Ok(Some(_)) => {}
+                        Err(e) => {
+                            tracing::error!("Failed to get portfolio for bot {}: {}", bot.id, e);
                             continue;
                         }
-                    }
-                    Ok(Some(_)) => {}
-                    Err(e) => {
-                        tracing::error!("Failed to get portfolio for bot {}: {}", bot.id, e);
-                        continue;
                     }
                 }
 
@@ -1058,8 +1089,9 @@ pub async fn stop_all_bots(
 pub async fn start_all_bots(
     State(state): State<AppState>,
     Extension(claims): Extension<Claims>,
+    payload: Option<Json<StartBotRequest>>,
 ) -> Response {
-    run_all_bots(State(state), Extension(claims)).await
+    run_all_bots(State(state), Extension(claims), payload).await
 }
 
 /// Reset all bots for the user — stop them and reset their portfolios to $100

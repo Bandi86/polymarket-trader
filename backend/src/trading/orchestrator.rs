@@ -44,7 +44,7 @@ pub enum BotEvent {
     TradeResult { bot_id: i64, won: bool, pnl: f64 },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct PendingBet {
     pub side: String,
     pub bet_size: f64,
@@ -268,6 +268,24 @@ impl BotOrchestrator {
                 session_losses: rb.session_losses,
                 max_drawdown: rb.max_drawdown,
             }).ok();
+        } else {
+            // Bot not in running_bots map but might still be marked "running" in DB
+            // This handles stale DB state after restart or inconsistent stop
+            tracing::warn!("Bot {} stop requested but not in running map — cleaning DB status", bot_id);
+            queries::update_bot_status(&self.db, bot_id, user_id, "stopped").await.ok();
+            // Also end any ghost active session
+            if let Ok(Some(session)) = queries::get_active_session(&self.db, bot_id).await {
+                queries::end_session(
+                    &self.db,
+                    session.id,
+                    session.start_balance,
+                    session.total_trades,
+                    session.winning_trades,
+                    session.losing_trades,
+                    session.total_pnl,
+                    session.max_drawdown,
+                ).await.ok();
+            }
         }
         Ok(())
     }
@@ -421,8 +439,8 @@ impl BotOrchestrator {
             yes_price: market.yes_price,
             no_price: market.no_price,
             time_remaining: market.time_remaining,
-            btc_velocity: btc_velocity,
-            btc_acceleration: btc_acceleration,
+            btc_velocity,
+            btc_acceleration,
             btc_volatility: btc_acceleration.map(|a| a.abs()),
         };
 
@@ -557,6 +575,41 @@ impl BotOrchestrator {
     pub async fn is_running(&self, bot_id: i64) -> bool { self.running_bots.read().await.contains_key(&bot_id) }
     pub async fn get_all_running_bots(&self) -> Vec<i64> { self.running_bots.read().await.keys().copied().collect() }
     pub async fn get_running_bots(&self, user_id: i64) -> Vec<i64> { self.running_bots.read().await.iter().filter(|(_, b)| b.user_id == user_id).map(|(id, _)| *id).collect() }
+
+    /// Get detailed trading info for a bot (for "why isn't it trading?" status)
+    /// Returns a simple info struct (avoids cloning StrategyExecutor)
+    pub async fn get_bot_trading_info(&self, bot_id: i64) -> Option<RunningBotInfo> {
+        let running = self.running_bots.read().await;
+        running.get(&bot_id).map(|rb| RunningBotInfo {
+            session_id: rb.session_id,
+            current_balance: rb.current_balance,
+            session_trades: rb.session_trades,
+            session_wins: rb.session_wins,
+            session_losses: rb.session_losses,
+            session_pnl: rb.session_pnl,
+            max_drawdown: rb.max_drawdown,
+            pending_bet: rb.pending_bet.clone(),
+            last_market_slug: rb.last_market_slug.clone(),
+            last_btc_price: rb.last_btc_price,
+            consecutive_errors: rb.consecutive_errors,
+        })
+    }
+}
+
+/// Lightweight trading info (avoids cloning StrategyExecutor)
+#[derive(Debug, Clone)]
+pub struct RunningBotInfo {
+    pub session_id: i64,
+    pub current_balance: f64,
+    pub session_trades: i64,
+    pub session_wins: i64,
+    pub session_losses: i64,
+    pub session_pnl: f64,
+    pub max_drawdown: f64,
+    pub pending_bet: Option<PendingBet>,
+    pub last_market_slug: Option<String>,
+    pub last_btc_price: Option<f64>,
+    pub consecutive_errors: u32,
 }
 
 pub async fn start_orchestrator_loop(orchestrator: Arc<BotOrchestrator>, bot_id: i64, user_id: i64, interval_secs: u64, credential_cache: Option<Arc<RwLock<HashMap<i64, CachedCredentials>>>>) {
@@ -631,4 +684,88 @@ pub fn start_competition_loop(orchestrator: Arc<BotOrchestrator>) {
         }
     });
     tracing::info!("Competition loop started");
+}
+
+// ==================== Tests ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_running_bot_info_fields() {
+        let info = RunningBotInfo {
+            session_id: 1,
+            current_balance: 100.0,
+            session_trades: 5,
+            session_wins: 3,
+            session_losses: 2,
+            session_pnl: 15.0,
+            max_drawdown: 0.1,
+            pending_bet: None,
+            last_market_slug: Some("btc-updown-5m-12345".to_string()),
+            last_btc_price: Some(78000.0),
+            consecutive_errors: 0,
+        };
+        assert_eq!(info.session_id, 1);
+        assert_eq!(info.current_balance, 100.0);
+        assert_eq!(info.session_trades, 5);
+        assert_eq!(info.session_wins, 3);
+        assert_eq!(info.session_losses, 2);
+        assert_eq!(info.session_pnl, 15.0);
+        assert!(info.pending_bet.is_none());
+        assert_eq!(info.consecutive_errors, 0);
+    }
+
+    #[test]
+    fn test_running_bot_info_with_pending_bet() {
+        let bet = PendingBet {
+            side: "YES".to_string(),
+            bet_size: 10.0,
+            start_price: 77900.0,
+            end_price: None,
+            entry_price: 0.55,
+            decision_id: 42,
+        };
+        let info = RunningBotInfo {
+            session_id: 2,
+            current_balance: 90.0,
+            session_trades: 1,
+            session_wins: 0,
+            session_losses: 0,
+            session_pnl: -10.0,
+            max_drawdown: 0.1,
+            pending_bet: Some(bet.clone()),
+            last_market_slug: None,
+            last_btc_price: None,
+            consecutive_errors: 0,
+        };
+        assert_eq!(info.session_trades, 1);
+        assert_eq!(info.session_pnl, -10.0);
+        assert!(info.pending_bet.is_some());
+        let pb = info.pending_bet.unwrap();
+        assert_eq!(pb.side, "YES");
+        assert_eq!(pb.bet_size, 10.0);
+        assert_eq!(pb.start_price, 77900.0);
+        assert_eq!(pb.entry_price, 0.55);
+        assert_eq!(pb.decision_id, 42);
+        assert!(pb.end_price.is_none());
+    }
+
+    #[test]
+    fn test_pending_bet_clone() {
+        let bet = PendingBet {
+            side: "NO".to_string(),
+            bet_size: 5.0,
+            start_price: 78000.0,
+            end_price: Some(78100.0),
+            entry_price: 0.45,
+            decision_id: 99,
+        };
+        let cloned = bet.clone();
+        assert_eq!(cloned.side, "NO");
+        assert_eq!(cloned.bet_size, 5.0);
+        assert_eq!(cloned.end_price, Some(78100.0));
+        assert_eq!(cloned.decision_id, 99);
+    }
 }

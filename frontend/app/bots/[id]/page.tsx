@@ -158,7 +158,7 @@ function BotDetail({ id }: { id: string }) {
     try {
       const res = await apiFetch<{ success: boolean }>(`/bots/${id}/start`, {
         method: "POST",
-        body: JSON.stringify({ initial_balance: 100 }),
+        body: JSON.stringify({}),
       });
       if (res.success) {
         toast.success("Bot elindítva");

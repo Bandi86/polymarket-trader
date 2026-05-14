@@ -767,29 +767,35 @@ impl StrategyExecutor {
         // These are "cheap" and likely to revert to 50c
 
         // YES is cheap (< 42c) + BTC going UP = buy YES (will revert up)
-        if ctx.yes_price < 0.42 && ctx.yes_price >= 0.30 {
-            if change > 0.0005 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
-                let edge = 0.50 - ctx.yes_price; // How much discount from fair value
-                let confidence = (0.60_f64 + edge * 5.0 + change * 50.0).min(0.88_f64);
-                return Signal::Yes(confidence);
-            }
+        if ctx.yes_price < 0.42
+            && ctx.yes_price >= 0.30
+            && change > 0.0005
+            && self.check_price_limits("YES", ctx.yes_price, ctx.no_price)
+        {
+            let edge = 0.50 - ctx.yes_price; // How much discount from fair value
+            let confidence = (0.60_f64 + edge * 5.0 + change * 50.0).min(0.88_f64);
+            return Signal::Yes(confidence);
         }
 
         // NO is cheap (< 42c) + BTC going DOWN = buy NO (will revert up)
-        if ctx.no_price < 0.42 && ctx.no_price >= 0.30 {
-            if change < -0.0005 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
-                let edge = 0.50 - ctx.no_price;
-                let confidence = (0.60_f64 + edge * 5.0 + change.abs() * 50.0).min(0.88_f64);
-                return Signal::No(confidence);
-            }
+        if ctx.no_price < 0.42
+            && ctx.no_price >= 0.30
+            && change < -0.0005
+            && self.check_price_limits("NO", ctx.yes_price, ctx.no_price)
+        {
+            let edge = 0.50 - ctx.no_price;
+            let confidence = (0.60_f64 + edge * 5.0 + change.abs() * 50.0).min(0.88_f64);
+            return Signal::No(confidence);
         }
 
         // Also: YES > 58c = slightly expensive, BTC going DOWN = bet NO
-        if ctx.yes_price > 0.58 && ctx.yes_price <= 0.70 {
-            if change < -0.0005 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
-                let confidence = (0.58_f64 + change.abs() * 50.0).min(0.80_f64);
-                return Signal::No(confidence);
-            }
+        if ctx.yes_price > 0.58
+            && ctx.yes_price <= 0.70
+            && change < -0.0005
+            && self.check_price_limits("NO", ctx.yes_price, ctx.no_price)
+        {
+            let confidence = (0.58_f64 + change.abs() * 50.0).min(0.80_f64);
+            return Signal::No(confidence);
         }
 
         Signal::Hold(format!(
@@ -1315,14 +1321,14 @@ impl StrategyExecutor {
                 "STRICT_MOMENTUM: BTC +{:.3}% → YES conf={:.2}",
                 change_pct, confidence
             );
-            return Signal::Yes(confidence);
+            Signal::Yes(confidence)
         } else {
             let confidence = (0.65_f64 + abs_change * 1.5).min(0.88_f64);
             tracing::info!(
                 "STRICT_MOMENTUM: BTC {:.3}% → NO conf={:.2}",
                 change_pct, confidence
             );
-            return Signal::No(confidence);
+            Signal::No(confidence)
         }
     }
 
@@ -1331,7 +1337,7 @@ impl StrategyExecutor {
     /// Key insight: Don't trade just to trade. Wait for conditions where:
     /// 1. Odds are near 50% (maximum expected value zone)
     /// 2. BTC has moved enough to give directional conviction
-    /// Trades VERY infrequently but only when odds are in our favor
+    ///    Trades VERY infrequently but only when odds are in our favor
     fn evaluate_patient_waiter(&self, ctx: StrategyContext) -> Signal {
         // Time window: 30s to 270s
         if ctx.time_remaining < 30 {
@@ -1377,7 +1383,7 @@ impl StrategyExecutor {
                 ctx.yes_price * 100.0,
                 confidence
             );
-            return Signal::Yes(confidence);
+            Signal::Yes(confidence)
         } else {
             let confidence = (0.60_f64 + (-delta_pct) * 2.0).min(0.85_f64);
             tracing::info!(
@@ -1386,7 +1392,7 @@ impl StrategyExecutor {
                 ctx.no_price * 100.0,
                 confidence
             );
-            return Signal::No(confidence);
+            Signal::No(confidence)
         }
     }
 

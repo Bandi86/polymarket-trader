@@ -138,7 +138,7 @@ impl PaperExecutionAdapter {
             .map_err(|e| format!("Failed to update intent: {}", e))?;
 
         // 6. Update or create position
-        self.update_position(db, intent.bot_id, intent.user_id, &intent.market_id, &intent.side, filled_size, avg_fill_price).await?;
+        self.update_position(intent.bot_id, intent.user_id, &intent.market_id, &intent.side, filled_size, avg_fill_price).await?;
 
         // 7. Update portfolio balance
         self.update_balance(db, intent.bot_id, intent.user_id, filled_size, avg_fill_price, &intent.side).await?;
@@ -237,7 +237,6 @@ impl PaperExecutionAdapter {
     /// Update or create position after paper fill
     async fn update_position(
         &self,
-        db: &Db,
         bot_id: i64,
         user_id: i64,
         market_id: &str,
@@ -245,6 +244,7 @@ impl PaperExecutionAdapter {
         size: f64,
         price: f64,
     ) -> Result<(), String> {
+        let db = &self.db;
         // Check if position exists for this market
         let positions = queries::get_positions_by_user(db, user_id)
             .await

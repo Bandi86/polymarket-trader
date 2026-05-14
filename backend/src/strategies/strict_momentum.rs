@@ -85,19 +85,19 @@ impl Strategy for StrictMomentumStrategy {
         if delta_pct > 0.0 {
             // BTC going up
             let confidence = (0.65 + abs_delta * 1.5).min(0.88);
-            return StrategyDecision::trade(
+            StrategyDecision::trade(
                 Signal::Yes,
                 confidence,
                 &format!("STRONG UP: BTC +{:.3}% (>{}%)", delta_pct, self.params.min_delta),
-            );
+            )
         } else {
             // BTC going down
             let confidence = (0.65 + abs_delta * 1.5).min(0.88);
-            return StrategyDecision::trade(
+            StrategyDecision::trade(
                 Signal::No,
                 confidence,
                 &format!("STRONG DOWN: BTC {:.3}% (<-{}%)", delta_pct, self.params.min_delta),
-            );
+            )
         }
     }
 }

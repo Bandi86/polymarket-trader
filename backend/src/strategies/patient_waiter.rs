@@ -87,25 +87,25 @@ impl Strategy for PatientWaiterStrategy {
         if delta_pct > 0.0 {
             // BTC moving up, odds near 50% = good value on YES
             let confidence = (0.60 + delta_pct * 2.0).min(0.85);
-            return StrategyDecision::trade(
+            StrategyDecision::trade(
                 Signal::Yes,
                 confidence,
                 &format!(
                     "PERFECT: BTC +{:.3}%, YES@{:.1}% (sweet spot)",
                     delta_pct, pm_price * 100.0
                 ),
-            );
+            )
         } else {
             // BTC moving down, odds near 50% = good value on NO
             let confidence = (0.60 + (-delta_pct) * 2.0).min(0.85);
-            return StrategyDecision::trade(
+            StrategyDecision::trade(
                 Signal::No,
                 confidence,
                 &format!(
                     "PERFECT: BTC {:.3}%, NO@{:.1}% (sweet spot)",
                     delta_pct, (1.0 - pm_price) * 100.0
                 ),
-            );
+            )
         }
     }
 }

@@ -403,6 +403,7 @@ export function useSSE() {
     updateBot,
     setSystemStatus,
     setLatency,
+    setSSEHealth,
     addBotActivity,
   ]);
 

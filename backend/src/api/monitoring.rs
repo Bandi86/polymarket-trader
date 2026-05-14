@@ -200,19 +200,33 @@ pub async fn log_activity(
     }
 }
 
-/// Get bot status with detailed info
+/// Bot trading status — "why isn't it trading?" answer
 #[derive(Debug, Serialize, Deserialize)]
-pub struct BotDetailedStatus {
+pub struct BotTradingStatus {
     pub id: i64,
     pub name: String,
-    pub status: String,
     pub strategy: String,
-    pub market_id: String,
-    pub created_at: String,
-    pub last_error: Option<String>,
-    pub last_activity: Option<String>,
+    pub is_running: bool,
+    // Session info
+    pub session_id: Option<i64>,
+    pub current_balance: Option<f64>,
+    pub session_trades: i64,
+    pub session_wins: i64,
+    pub session_losses: i64,
+    pub session_pnl: f64,
+    pub max_drawdown: f64,
+    // Trading state
+    pub has_pending_bet: bool,
+    pub pending_bet_side: Option<String>,
+    pub pending_bet_size: Option<f64>,
+    pub last_market_slug: Option<String>,
+    pub last_btc_price: Option<f64>,
+    pub consecutive_errors: u32,
+    // Trading reasons
+    pub not_trading_reason: Option<String>,
 }
 
+/// Get bot status with detailed trading info
 pub async fn get_bot_status(
     Path((id,)): Path<(i64,)>,
     State(state): State<AppState>,
@@ -223,17 +237,44 @@ pub async fn get_bot_status(
 
     match queries::get_bot_by_id(&db, id, user_id).await {
         Ok(Some(bot)) => {
-            // Get recent logs for this bot
-            // For now, return basic info
-            Json(BotDetailedStatus {
+            let running_info = state.orchestrator.get_bot_trading_info(id).await;
+
+            let not_trading_reason = if bot.status != "running" {
+                Some("Bot is stopped".to_string())
+            } else if running_info.is_none() {
+                Some("Bot status is 'running' but not in active trading loop — may be starting".to_string())
+            } else {
+                let info = running_info.as_ref().unwrap();
+                if info.pending_bet.is_some() {
+                    Some("Waiting for current market to resolve before next trade".to_string())
+                } else if info.consecutive_errors > 10 {
+                    Some(format!("Too many consecutive errors ({}) — may be degraded", info.consecutive_errors))
+                } else if info.session_trades == 0 {
+                    Some("Bot started, scanning for first trading opportunity".to_string())
+                } else {
+                    Some("Monitoring market — waiting for signal threshold".to_string())
+                }
+            };
+
+            Json(BotTradingStatus {
                 id: bot.id,
                 name: bot.name,
-                status: bot.status,
                 strategy: bot.strategy_type,
-                market_id: bot.market_id,
-                created_at: bot.created_at,
-                last_error: None,
-                last_activity: None,
+                is_running: bot.status == "running",
+                session_id: running_info.as_ref().map(|r| r.session_id),
+                current_balance: running_info.as_ref().map(|r| r.current_balance),
+                session_trades: running_info.as_ref().map_or(0, |r| r.session_trades),
+                session_wins: running_info.as_ref().map_or(0, |r| r.session_wins),
+                session_losses: running_info.as_ref().map_or(0, |r| r.session_losses),
+                session_pnl: running_info.as_ref().map_or(0.0, |r| r.session_pnl),
+                max_drawdown: running_info.as_ref().map_or(0.0, |r| r.max_drawdown),
+                has_pending_bet: running_info.as_ref().is_some_and(|r| r.pending_bet.is_some()),
+                pending_bet_side: running_info.as_ref().and_then(|r| r.pending_bet.as_ref().map(|p| p.side.clone())),
+                pending_bet_size: running_info.as_ref().and_then(|r| r.pending_bet.as_ref().map(|p| p.bet_size)),
+                last_market_slug: running_info.as_ref().and_then(|r| r.last_market_slug.clone()),
+                last_btc_price: running_info.as_ref().and_then(|r| r.last_btc_price),
+                consecutive_errors: running_info.as_ref().map_or(0, |r| r.consecutive_errors),
+                not_trading_reason,
             }).into_response()
         }
         Ok(None) => Json(ErrorResponse {

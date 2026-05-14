@@ -152,7 +152,7 @@ impl LiveExecutionAdapter {
 
         // 7. Update position if filled
         if filled_size > 0.0 {
-            self.update_position(db, intent.bot_id, intent.user_id, &intent.market_id, &intent.side, filled_size, avg_fill_price).await?;
+            self.update_position(intent.bot_id, intent.user_id, &intent.market_id, &intent.side, filled_size, avg_fill_price).await?;
         }
 
         Ok(LiveExecutionResult {
@@ -251,7 +251,6 @@ impl LiveExecutionAdapter {
     /// Update or create position after live fill
     async fn update_position(
         &self,
-        db: &Db,
         bot_id: i64,
         user_id: i64,
         market_id: &str,
@@ -259,6 +258,7 @@ impl LiveExecutionAdapter {
         size: f64,
         price: f64,
     ) -> Result<(), String> {
+        let db = &self.db;
         let positions = crate::db::queries::get_positions_by_user(db, user_id)
             .await
             .map_err(|e| e.to_string())?;

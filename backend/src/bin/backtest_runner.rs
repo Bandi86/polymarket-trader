@@ -132,8 +132,10 @@ impl BacktestResult {
 
     fn print_trade_log(&self, limit: usize) {
         println!("\n--- Last {} Trades ---", limit.min(self.trades.len()));
-        println!("{:<12} {:<6} {:<8} {:<8} {:<8} {:<8} {}",
-            "Time", "Side", "Entry", "Exit", "P&L", "Conf%", "Reason");
+        println!(
+            "{:<12} {:<6} {:<8} {:<8} {:<8} {:<8} Reason",
+            "Time", "Side", "Entry", "Exit", "P&L", "Conf%"
+        );
         println!("{}", "-".repeat(70));
 
         let start = if self.trades.len() > limit {
@@ -286,7 +288,7 @@ impl BacktestEngine {
                         };
 
                         // Check price limits (30-70c range)
-                        if price >= 0.30 && price <= 0.70 {
+                        if (0.30..=0.70).contains(&price) {
                             current_trade = Some(CurrentTrade {
                                 entry_price: price,
                                 side: side.to_string(),
@@ -323,11 +325,9 @@ fn load_ticks_from_csv(path: &str) -> Result<Vec<MarketTick>, String> {
         let line = line.map_err(|e| format!("Failed to read line: {}", e))?;
 
         // Skip header
-        if !header_skipped {
-            if line.contains("timestamp") || line.contains("btc_price") {
-                header_skipped = true;
-                continue;
-            }
+        if !header_skipped && (line.contains("timestamp") || line.contains("btc_price")) {
+            header_skipped = true;
+            continue;
         }
         if line.trim().is_empty() {
             continue;
@@ -395,7 +395,7 @@ fn generate_sample_data(output_path: &str, num_markets: usize) -> Result<(), Str
             // Normal combined: $1.02 to $1.04
             // Arb opportunity: combined < $0.98 (spread unusually tight)
             // ~20% of time we get tighter spreads creating arb opportunities
-            let r = rand_simple(market_idx as i64 * 17 + second as i64);
+            let r = rand_simple(market_idx as i64 * 17 + second);
             let target_combined = if r < 0.20 { 0.96 + r * 0.02 } else { 1.02 + r * 0.02 };
             // Arb: 0.96-0.98 (~20%), Normal: 1.02-1.04 (~80%)
             let yes_price = fair_price.clamp(0.30, 0.70);

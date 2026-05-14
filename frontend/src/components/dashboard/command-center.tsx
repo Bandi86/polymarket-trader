@@ -269,7 +269,15 @@ function MarketBar() {
     const color = yesPrice > 0.55 ? "#22c55e" : yesPrice < 0.45 ? "#ef4444" : "#a855f7";
 
     return (
-      <svg width="44" height="24" viewBox="0 0 44 24" className="shrink-0">
+      <svg
+        width="44"
+        height="24"
+        viewBox="0 0 44 24"
+        className="shrink-0"
+        role="img"
+        aria-label="Probability arc"
+      >
+        <title>Probability</title>
         <path
           d="M 4 22 A 18 18 0 0 1 40 22"
           fill="none"

@@ -24,6 +24,7 @@ import {
   Wallet,
   WifiOff,
 } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -116,6 +117,7 @@ export default function BotsPage() {
   const [lastSync, setLastSync] = useState<Date>(new Date());
   const [isSyncing, setIsSyncing] = useState(false);
   const [serverOnline, setServerOnline] = useState(true);
+  const [authRequired, setAuthRequired] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -146,6 +148,7 @@ export default function BotsPage() {
   const [quickFilter, setQuickFilter] = useState<"none" | "best3" | "worst3">("none");
   const [expandedBot, setExpandedBot] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [sessionBalance, setSessionBalance] = useState("100");
 
   const prevBotsRef = useRef<Bot[]>([]);
 
@@ -162,6 +165,7 @@ export default function BotsPage() {
   const loadBots = useCallback(async () => {
     setIsSyncing(true);
     try {
+      setAuthRequired(false);
       const data = await apiFetch<Bot[]>("/bots");
       const withPortfolio = await Promise.all(
         data.map(async (bot) => {
@@ -219,14 +223,16 @@ export default function BotsPage() {
       setLastSync(new Date());
       setServerOnline(true);
     } catch (err) {
-      setServerOnline(false);
       const msg = err instanceof Error ? err.message : "";
       if (msg.includes("Nincs jogosultsága") || msg.includes("401")) {
+        setAuthRequired(true);
+        setServerOnline(true);
         localStorage.removeItem("token");
         clearInterval(loadBotsIntervalRef.current);
         router.push("/login");
         return;
       }
+      setServerOnline(false);
     } finally {
       setIsSyncing(false);
       setInitialLoadComplete(true);
@@ -236,6 +242,11 @@ export default function BotsPage() {
   const loadBotsIntervalRef = useRef<ReturnType<typeof setInterval>>(
     0 as unknown as ReturnType<typeof setInterval>
   );
+
+  const parsedSessionBalance = useMemo(() => {
+    const value = Number(sessionBalance);
+    return Number.isFinite(value) && value > 0 ? value : undefined;
+  }, [sessionBalance]);
 
   useEffect(() => {
     setMounted(true);
@@ -249,7 +260,9 @@ export default function BotsPage() {
     try {
       const res = await apiFetch<{ success: boolean; status: string }>(`/bots/${id}/start`, {
         method: "POST",
-        body: JSON.stringify({ initial_balance: 100 }),
+        body: JSON.stringify(
+          parsedSessionBalance !== undefined ? { initial_balance: parsedSessionBalance } : {}
+        ),
       });
       if (res.success) {
         toast.success(`${name} elindult`);
@@ -319,7 +332,14 @@ export default function BotsPage() {
     try {
       const res = await apiFetch<{ success: boolean; started?: number; stopped?: number }>(
         endpoint,
-        { method: "POST" }
+        {
+          method: "POST",
+          body: JSON.stringify(
+            action === "start" && parsedSessionBalance !== undefined
+              ? { initial_balance: parsedSessionBalance }
+              : {}
+          ),
+        }
       );
       if (res.success) {
         const count = action === "start" ? res.started : res.stopped;
@@ -629,6 +649,48 @@ export default function BotsPage() {
         </AnimatePresence>
       </div>
 
+      {/* Session Start Panel */}
+      <div className="rounded-xl border border-white/5 bg-zinc-900/50 p-4 backdrop-blur-sm">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-zinc-400">
+            <Play className="h-3.5 w-3.5 text-green-400" />
+            <span className="font-semibold uppercase tracking-wider">Session Start</span>
+          </div>
+          <span className="rounded-md bg-indigo-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-400">
+            demo
+          </span>
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="Balance"
+            value={sessionBalance}
+            onChange={(e) => setSessionBalance(e.target.value)}
+            className="w-20 rounded-lg border border-white/10 bg-zinc-800/50 px-2.5 py-1.5 text-xs text-white outline-none focus:border-indigo-500/50"
+          />
+          {parsedSessionBalance === undefined && (
+            <span className="text-xs text-red-400">Adj meg pozitív balance értéket.</span>
+          )}
+          <button
+            type="button"
+            onClick={() => handleBulkAction("start")}
+            disabled={bulkLoading || bots.length === 0 || parsedSessionBalance === undefined}
+            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
+          >
+            <Play className="h-3 w-3" />
+            Start All Eligible
+          </button>
+          <button
+            type="button"
+            onClick={() => handleBulkAction("stop")}
+            disabled={bulkLoading || totalStats.active === 0}
+            className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+          >
+            <Square className="h-3 w-3" />
+            Stop All
+          </button>
+        </div>
+      </div>
+
       {/* Bot Grid */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
         {filteredBots.map((bot) => (
@@ -665,9 +727,11 @@ export default function BotsPage() {
           <p className="text-sm text-zinc-600">
             {!serverOnline
               ? "A szerver nem elérhető. Ellenőrizd, hogy fut-e a backend."
-              : bots.length === 0
-                ? "Még nincs bot létrehozva. Kattints az 'Új bot' gombra!"
-                : "Próbáld módosítani a szűrőket"}
+              : authRequired
+                ? "Bejelentkezés szükséges a botok megtekintéséhez."
+                : bots.length === 0
+                  ? "Még nincs bot létrehozva. Kattints az 'Új bot' gombra!"
+                  : "Próbáld módosítani a szűrőket"}
           </p>
         </div>
       )}
@@ -827,20 +891,20 @@ function BotCard({
       />
 
       {/* Card Header */}
-      <button
-        onClick={onToggle}
-        type="button"
-        className="flex w-full items-center justify-between p-4 text-left"
-      >
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex w-full items-center justify-between gap-3 p-4">
+        <button
+          onClick={onToggle}
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-3 text-left"
+        >
           <div
-            className={`h-2.5 w-2.5 rounded-full flex-shrink-0 ${STATUS_COLORS[bot.status]} ${
+            className={`h-2.5 w-2.5 flex-shrink-0 rounded-full ${STATUS_COLORS[bot.status]} ${
               isRunning ? "animate-pulse shadow-lg shadow-green-500/50" : ""
             }`}
           />
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold text-white">{bot.name}</h3>
-            <div className="flex flex-wrap items-center gap-1 mt-0.5">
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
               <span
                 className="inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase"
                 style={{ color: strategyColor, backgroundColor: `${strategyColor}15` }}
@@ -858,7 +922,7 @@ function BotCard({
               </span>
             </div>
           </div>
-        </div>
+        </button>
 
         <div className="flex items-center gap-3 flex-shrink-0">
           <div className="text-right">
@@ -867,11 +931,26 @@ function BotCard({
             </p>
             <p className="text-xs text-zinc-500">${balance.toFixed(2)}</p>
           </div>
-          <ChevronDown
-            className={`h-4 w-4 text-zinc-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-          />
+          <Link
+            href={`/bots/${bot.id}`}
+            className="flex items-center justify-center rounded-lg bg-indigo-500/10 p-2 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
+            aria-label={`${bot.name} részletek`}
+            title="Bot részletek"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+          </Link>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="flex items-center justify-center rounded-lg p-1 text-zinc-500 transition-colors hover:bg-zinc-800/50 hover:text-zinc-300"
+            aria-label={isExpanded ? "Részletek bezárása" : "Részletek megnyitása"}
+          >
+            <ChevronDown
+              className={`h-4 w-4 text-zinc-500 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+            />
+          </button>
         </div>
-      </button>
+      </div>
 
       {/* Collapsed view: Quick stats row */}
       {!isExpanded && (totalTrades > 0 || winRate > 0) && (
@@ -890,6 +969,14 @@ function BotCard({
               {roi >= 0 ? "+" : ""}
               {roi.toFixed(1)}%
             </span>
+          </div>
+        </div>
+      )}
+      {!isExpanded && isRunning && totalTrades === 0 && (
+        <div className="px-4 pb-3">
+          <div className="flex items-center gap-1.5 rounded bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-400">
+            <AlertTriangle className="h-3 w-3" />
+            Waiting for first trading opportunity
           </div>
         </div>
       )}
@@ -926,6 +1013,28 @@ function BotCard({
                   <p className="font-semibold text-red-400">-{dd.toFixed(2)}%</p>
                 </div>
               </div>
+
+              {/* Session info for running bots */}
+              {isRunning && (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-lg bg-green-500/5 p-2.5 border border-green-500/10">
+                    <span className="text-green-400/70">Session Trades</span>
+                    <p className="font-semibold text-green-400">
+                      {bot.portfolio?.total_trades ?? 0}
+                      <span className="text-[10px] text-zinc-500 ml-1">
+                        (W: {bot.portfolio?.winning_trades ?? 0} / L:{" "}
+                        {bot.portfolio?.losing_trades ?? 0})
+                      </span>
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-indigo-500/5 p-2.5 border border-indigo-500/10">
+                    <span className="text-indigo-400/70">Time to next cycle</span>
+                    <p className="font-semibold text-indigo-400">
+                      {((bot.interval ?? 60000) / 1000).toFixed(0)}s
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {/* Win Rate Bar */}
               {(wins > 0 || losses > 0) && (
