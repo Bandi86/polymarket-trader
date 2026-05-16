@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Target, TrendingUp, TrendingDown, Clock, DollarSign, Zap, Activity } from "lucide-react";
-import { useAppStore } from "@/store";
+import { Activity, Clock, DollarSign, Target, TrendingUp, Zap } from "lucide-react";
 import { useMemo } from "react";
+import { useAppStore } from "@/store";
 
 interface PendingBet {
   botId: number;
@@ -15,7 +15,7 @@ interface PendingBet {
   timestamp: number;
 }
 
-const EMPTY_ACTIVITIES: never[] = [];
+const _EMPTY_ACTIVITIES: never[] = [];
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -57,7 +57,7 @@ export function PendingBetMonitor() {
   const botActivities = useAppStore((s) => s.botActivities);
   const btcPrice = useAppStore((s) => s.btcPrice);
   const startPrice = useAppStore((s) => s.startPrice);
-  const priceDelta = useAppStore((s) => s.priceDelta);
+  const _priceDelta = useAppStore((s) => s.priceDelta);
   const timeRemaining = useAppStore((s) => s.timeRemaining);
   const bots = useAppStore((s) => s.bots);
 
@@ -133,9 +133,7 @@ export function PendingBetMonitor() {
               />
             </div>
             <span className="text-sm text-zinc-500">No active bets</span>
-            <span className="text-xs text-zinc-600">
-              Waiting for bots to enter positions...
-            </span>
+            <span className="text-xs text-zinc-600">Waiting for bots to enter positions...</span>
           </motion.div>
         ) : (
           pendingBets.map((bet) => {
@@ -198,14 +196,10 @@ export function PendingBetMonitor() {
                     )}
                     <span className="ml-auto flex items-center gap-1 text-[10px] text-zinc-600">
                       <TrendingUp
-                        className={`h-3 w-3 ${
-                          btcDiff >= 0 ? "text-green-400" : "text-red-400"
-                        }`}
+                        className={`h-3 w-3 ${btcDiff >= 0 ? "text-green-400" : "text-red-400"}`}
                       />
                       <span
-                        className={`font-mono ${
-                          btcDiff >= 0 ? "text-green-400" : "text-red-400"
-                        }`}
+                        className={`font-mono ${btcDiff >= 0 ? "text-green-400" : "text-red-400"}`}
                       >
                         {btcDiff >= 0 ? "+" : ""}
                         {btcDiff.toFixed(1)}

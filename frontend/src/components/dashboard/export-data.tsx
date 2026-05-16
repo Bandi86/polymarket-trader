@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
 import { Download } from "lucide-react";
-import { useBots, useAggregatePortfolio } from "@/hooks";
+import { useMemo } from "react";
+import { useAggregatePortfolio, useBots } from "@/hooks";
 
 function downloadFile(content: string, filename: string, type: string) {
   const blob = new Blob([content], { type });
@@ -15,11 +15,11 @@ function downloadFile(content: string, filename: string, type: string) {
 }
 
 function toCSV(headers: string[], rows: (string | number)[][]): string {
-  const escape = (v: string | number) => {
+  const escapeCsv = (v: string | number) => {
     const s = String(v);
     return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  return [headers.join(","), ...rows.map((r) => r.map(escape).join(","))].join("\n");
+  return [headers.join(","), ...rows.map((r) => r.map(escapeCsv).join(","))].join("\n");
 }
 
 export function ExportData() {
@@ -115,6 +115,7 @@ export function ExportData() {
   return (
     <div className="flex items-center gap-2">
       <button
+        type="button"
         onClick={handleExportCSV}
         disabled={bots.length === 0}
         className="flex items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
@@ -123,6 +124,7 @@ export function ExportData() {
         Export CSV
       </button>
       <button
+        type="button"
         onClick={handleExportJSON}
         disabled={bots.length === 0}
         className="flex items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"

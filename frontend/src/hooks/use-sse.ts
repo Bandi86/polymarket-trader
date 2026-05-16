@@ -24,7 +24,7 @@ export function useSSE() {
     }
 
     // Grab fresh store functions at connection time
-    const store = storeRef.current();
+    const _store = storeRef.current();
 
     // Create new connection
     const eventSource = createSSEConnection((event: MessageEvent) => {

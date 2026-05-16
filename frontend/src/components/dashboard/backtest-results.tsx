@@ -1,18 +1,18 @@
 "use client";
 
-import { useState } from "react";
 import { motion } from "framer-motion";
 import {
+  Activity,
+  ArrowDown,
   BarChart3,
   Calendar,
-  PlayIcon,
-  TrendingUp,
-  TrendingDown,
-  Activity,
   DollarSign,
   Gauge,
-  ArrowDown,
+  PlayIcon,
+  TrendingDown,
+  TrendingUp,
 } from "lucide-react";
+import { useState } from "react";
 import { STRATEGY_LABELS } from "@/types";
 
 type StrategyKey = keyof typeof STRATEGY_LABELS;
@@ -46,10 +46,14 @@ export function BacktestResults() {
 
       <div className="flex flex-wrap items-end gap-3 mb-4">
         <div className="flex-1 min-w-[160px]">
-          <label className="mb-1 block text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
+          <label
+            htmlFor="backtest-strategy"
+            className="mb-1 block text-[10px] font-medium text-zinc-500 uppercase tracking-wider"
+          >
             Strategy
           </label>
           <select
+            id="backtest-strategy"
             value={selectedStrategy}
             onChange={(e) => setSelectedStrategy(e.target.value as StrategyKey)}
             className="w-full rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs text-zinc-300 outline-none transition-colors focus:border-indigo-500/40"
@@ -63,9 +67,9 @@ export function BacktestResults() {
         </div>
 
         <div className="flex-1 min-w-[140px]">
-          <label className="mb-1 block text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
+          <span className="mb-1 block text-[10px] font-medium text-zinc-500 uppercase tracking-wider">
             Date Range
-          </label>
+          </span>
           <div className="flex items-center gap-1.5 rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-2.5 py-1.5 text-xs text-zinc-600">
             <Calendar className="h-3 w-3" />
             <span>Select range</span>
@@ -73,6 +77,7 @@ export function BacktestResults() {
         </div>
 
         <button
+          type="button"
           disabled
           className="flex items-center gap-1.5 rounded-lg border border-white/8 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-zinc-600 cursor-not-allowed"
         >

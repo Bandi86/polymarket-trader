@@ -30,11 +30,25 @@ interface PerfStats {
   winRate: number;
 }
 
-function ChartTooltip({ active, payload, label }: any) {
+interface TooltipPayloadEntry {
+  dataKey: string;
+  value: number;
+  color: string;
+}
+
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string;
+}) {
   if (!active || !payload) return null;
-  const pnlItem = payload.find((p: any) => p.dataKey === "pnl");
-  const ddItem = payload.find((p: any) => p.dataKey === "drawdown");
-  const balItem = payload.find((p: any) => p.dataKey === "balance");
+  const pnlItem = payload.find((p) => p.dataKey === "pnl");
+  const ddItem = payload.find((p) => p.dataKey === "drawdown");
+  const balItem = payload.find((p) => p.dataKey === "balance");
   return (
     <div
       style={{
@@ -65,7 +79,15 @@ function ChartTooltip({ active, payload, label }: any) {
   );
 }
 
-function DDotip({ active, payload, label }: any) {
+function DDotip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: TooltipPayloadEntry[];
+  label?: string;
+}) {
   if (!active || !payload) return null;
   return (
     <div
@@ -78,7 +100,7 @@ function DDotip({ active, payload, label }: any) {
       }}
     >
       <div style={{ color: "#a1a1aa", marginBottom: "4px" }}>{label}</div>
-      {payload.map((entry: any) => (
+      {payload.map((entry) => (
         <div key={entry.dataKey} style={{ color: entry.color, fontWeight: "bold" }}>
           DD: {Number(entry.value).toFixed(1)}%
         </div>
@@ -144,19 +166,14 @@ export function EquityCurve() {
       returns.push(chartData[i].pnl - chartData[i - 1].pnl);
     }
     const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance =
-      returns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / returns.length;
+    const variance = returns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / returns.length;
     const stdDev = Math.sqrt(variance);
     stats.sharpe = stdDev > 0 ? Number((avgReturn / stdDev).toFixed(2)) : 0;
 
     const grossProfit = returns.filter((r) => r > 0).reduce((a, b) => a + b, 0);
     const grossLoss = Math.abs(returns.filter((r) => r < 0).reduce((a, b) => a + b, 0));
     stats.profitFactor =
-      grossLoss > 0
-        ? Number((grossProfit / grossLoss).toFixed(2))
-        : grossProfit > 0
-          ? Infinity
-          : 0;
+      grossLoss > 0 ? Number((grossProfit / grossLoss).toFixed(2)) : grossProfit > 0 ? Infinity : 0;
 
     return stats;
   }, [chartData, agg]);

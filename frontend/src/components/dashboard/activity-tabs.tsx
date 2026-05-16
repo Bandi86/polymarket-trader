@@ -16,8 +16,8 @@ export function ActivityTabs() {
 
   // Derive positions from botActivities (SSE) for paper trading
   const derivedPositions = Object.entries(botActivities).flatMap(([botId, activities]) => {
-    const positionUpdates = activities.filter(a => a.type === "position_update");
-    return positionUpdates.map(p => {
+    const positionUpdates = activities.filter((a) => a.type === "position_update");
+    return positionUpdates.map((p) => {
       const data = p.data as Record<string, unknown>;
       return {
         id: p.id,
@@ -34,8 +34,8 @@ export function ActivityTabs() {
   });
 
   // Helper to get bot name safely from either type
-  const getBotName = (position: typeof displayPositions[number]): string => {
-    if ('bot_name' in position) return position.bot_name as string;
+  const getBotName = (position: (typeof displayPositions)[number]): string => {
+    if ("bot_name" in position) return position.bot_name as string;
     if (position.bot_id) return `Bot ${position.bot_id}`;
     return "Unknown";
   };
@@ -147,7 +147,9 @@ export function ActivityTabs() {
                 <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                   <Activity className="h-8 w-8 mb-2 opacity-50" />
                   <div className="text-sm mb-1">No Active Positions</div>
-                  <div className="text-xs">Paper trading - positions appear here when bots trade</div>
+                  <div className="text-xs">
+                    Paper trading - positions appear here when bots trade
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -170,7 +172,9 @@ export function ActivityTabs() {
                           <span
                             className={`text-sm font-bold ${position.outcome === "YES" || position.outcome === "UP" ? "text-green-500" : "text-red-500"}`}
                           >
-                            {position.outcome === "YES" || position.outcome === "UP" ? "UP" : "DOWN"}
+                            {position.outcome === "YES" || position.outcome === "UP"
+                              ? "UP"
+                              : "DOWN"}
                           </span>
                           <span className="ml-2 text-xs text-zinc-500">
                             @ {(position.odds * 100).toFixed(0)}¢

@@ -1,11 +1,21 @@
 "use client";
 
-import { AlertTriangle, CheckSquare, Crosshair, Loader2, Play, RotateCcw, Sliders, Square, X } from "lucide-react";
-import { useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { useBots, useStartBot, useStopBot, useAggregatePortfolio } from "@/hooks";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  AlertTriangle,
+  CheckSquare,
+  Crosshair,
+  Loader2,
+  Play,
+  RotateCcw,
+  Sliders,
+  Square,
+  X,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { useBots, useStartBot, useStopBot } from "@/hooks";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import type { Bot as BotType } from "@/types";
@@ -72,7 +82,8 @@ function LiveModeConfirmDialog({
 
 export function BotSelector() {
   const { data: botsFromApi, isLoading, isFetching } = useBots();
-  const { selectedBotIds, setSelectedBotIds, addSelectedBot, removeSelectedBot, tradingMode } = useAppStore();
+  const { selectedBotIds, setSelectedBotIds, addSelectedBot, removeSelectedBot, tradingMode } =
+    useAppStore();
   const startBotMutation = useStartBot();
   const stopBotMutation = useStopBot();
   const queryClient = useQueryClient();
@@ -199,9 +210,7 @@ export function BotSelector() {
   const handleBatchReset = async () => {
     setBatchLoading("reset");
     const results = await Promise.allSettled(
-      selectedBotIds.map((id) =>
-        apiFetch(`/bots/${id}/reset`, { method: "POST" })
-      )
+      selectedBotIds.map((id) => apiFetch(`/bots/${id}/reset`, { method: "POST" }))
     );
     const succeeded = results.filter((r) => r.status === "fulfilled").length;
     const failed = results.filter((r) => r.status === "rejected").length;

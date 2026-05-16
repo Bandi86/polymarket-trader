@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowUpDown, BarChart3, TrendingUp, TrendingDown } from "lucide-react";
-import { useBots, useAggregatePortfolio } from "@/hooks";
+import { ArrowUpDown, BarChart3, TrendingDown, TrendingUp } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useAggregatePortfolio, useBots } from "@/hooks";
 import { STRATEGY_LABELS } from "@/types";
 
 interface StrategyRow {
@@ -34,7 +34,7 @@ type SortField = keyof Pick<
   | "roi"
 >;
 
-const SORT_LABELS: Record<SortField, string> = {
+const _SORT_LABELS: Record<SortField, string> = {
   name: "Strategy",
   category: "Category",
   botCount: "Bots",
@@ -122,7 +122,8 @@ export function StrategyComparisonTable() {
     return Array.from(map.values()).sort((a, b) => {
       const av = a[sortField];
       const bv = b[sortField];
-      const cmp = typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
+      const cmp =
+        typeof av === "string" ? av.localeCompare(bv as string) : (av as number) - (bv as number);
       return sortDir === "asc" ? cmp : -cmp;
     });
   }, [agg, bots, sortField, sortDir]);
@@ -215,9 +216,7 @@ export function StrategyComparisonTable() {
                   key={s.strategyType}
                   onClick={() => setSelected(isSelected ? null : s.strategyType)}
                   className={`border-b border-white/[0.04] transition-colors cursor-pointer ${
-                    isSelected
-                      ? "bg-indigo-500/[0.06]"
-                      : "hover:bg-white/[0.04]"
+                    isSelected ? "bg-indigo-500/[0.06]" : "hover:bg-white/[0.04]"
                   }`}
                 >
                   <td className="px-3 py-2.5">
@@ -237,9 +236,7 @@ export function StrategyComparisonTable() {
                     </div>
                   </td>
                   <td className="px-3 py-2.5 text-zinc-500">{s.category}</td>
-                  <td className="px-3 py-2.5 font-mono text-zinc-300 text-right">
-                    {s.botCount}
-                  </td>
+                  <td className="px-3 py-2.5 font-mono text-zinc-300 text-right">{s.botCount}</td>
                   <td
                     className={`px-3 py-2.5 font-mono font-semibold text-right ${
                       isPos ? "text-green-400" : "text-red-400"
@@ -250,12 +247,8 @@ export function StrategyComparisonTable() {
                   <td className="px-3 py-2.5 font-mono text-zinc-300 text-right">
                     {s.totalTrades}
                   </td>
-                  <td className="px-3 py-2.5 font-mono text-green-400 text-right">
-                    {s.totalWins}
-                  </td>
-                  <td className="px-3 py-2.5 font-mono text-red-400 text-right">
-                    {s.totalLosses}
-                  </td>
+                  <td className="px-3 py-2.5 font-mono text-green-400 text-right">{s.totalWins}</td>
+                  <td className="px-3 py-2.5 font-mono text-red-400 text-right">{s.totalLosses}</td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="flex items-center justify-end gap-2">
                       {s.totalTrades > 0 ? (
@@ -265,9 +258,10 @@ export function StrategyComparisonTable() {
                               className="h-full rounded-full transition-all"
                               style={{
                                 width: `${s.winRate}%`,
-                                background: s.winRate >= 50
-                                  ? "linear-gradient(90deg, #22c55e, #16a34a)"
-                                  : "linear-gradient(90deg, #ef4444, #dc2626)",
+                                background:
+                                  s.winRate >= 50
+                                    ? "linear-gradient(90deg, #22c55e, #16a34a)"
+                                    : "linear-gradient(90deg, #ef4444, #dc2626)",
                               }}
                             />
                           </div>
@@ -281,20 +275,12 @@ export function StrategyComparisonTable() {
                     </div>
                   </td>
                   <td className="px-3 py-2.5 font-mono text-right">
-                    <span
-                      className={
-                        s.avgPnl >= 0 ? "text-green-400/80" : "text-red-400/80"
-                      }
-                    >
+                    <span className={s.avgPnl >= 0 ? "text-green-400/80" : "text-red-400/80"}>
                       {s.avgPnl >= 0 ? "+" : ""}${s.avgPnl.toFixed(2)}
                     </span>
                   </td>
                   <td className="px-3 py-2.5 font-mono text-right">
-                    <span
-                      className={
-                        s.roi >= 0 ? "text-green-400" : "text-red-400"
-                      }
-                    >
+                    <span className={s.roi >= 0 ? "text-green-400" : "text-red-400"}>
                       {s.roi >= 0 ? "+" : ""}
                       {s.roi.toFixed(1)}%
                     </span>

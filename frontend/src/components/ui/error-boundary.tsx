@@ -1,7 +1,7 @@
 "use client";
 
-import React, { Component, type ErrorInfo, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
@@ -50,6 +50,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={this.handleReload}
               className="flex items-center gap-2 rounded-lg bg-indigo-500/20 px-4 py-2 text-sm font-medium text-indigo-400 border border-indigo-500/30 hover:bg-indigo-500/30 transition-colors"
             >

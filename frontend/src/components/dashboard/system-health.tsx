@@ -1,8 +1,19 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Activity, AlertTriangle, Clock, Database, Server, Shield, TrendingDown, TrendingUp, Wifi, Zap } from "lucide-react";
-import { useSystemStatus, useAggregatePortfolio } from "@/hooks";
+import {
+  Activity,
+  AlertTriangle,
+  Clock,
+  Database,
+  Server,
+  Shield,
+  TrendingDown,
+  TrendingUp,
+  Wifi,
+  Zap,
+} from "lucide-react";
+import { useAggregatePortfolio, useSystemStatus } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function SystemHealth() {
@@ -11,7 +22,7 @@ export function SystemHealth() {
   const latency = useAppStore((s) => s.latency);
   const sseHealth = useAppStore((s) => s.sseHealth);
   const systemStatus = useAppStore((s) => s.systemStatus);
-  const { btcPrice, startPrice, priceDelta, yesPrice, timeRemaining } = useAppStore();
+  const { btcPrice, priceDelta, yesPrice, timeRemaining } = useAppStore();
 
   // Uptime display
   const uptimeMs = sseHealth.connectedSince ? Date.now() - sseHealth.connectedSince : 0;
@@ -214,8 +225,10 @@ export function SystemHealth() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-zinc-500">Current Delta</span>
-              <span className={`text-xs font-mono font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {priceDelta >= 0 ? '+' : ''}${priceDelta.toFixed(2)}
+              <span
+                className={`text-xs font-mono font-bold ${priceDelta >= 0 ? "text-green-400" : "text-red-400"}`}
+              >
+                {priceDelta >= 0 ? "+" : ""}${priceDelta.toFixed(2)}
               </span>
             </div>
             <div className="flex items-center justify-between">
@@ -226,16 +239,23 @@ export function SystemHealth() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-zinc-500">Time Remaining</span>
-              <span className={`text-xs font-mono font-bold ${timeRemaining < 60 ? 'text-red-400' : 'text-zinc-100'}`}>
-                {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
+              <span
+                className={`text-xs font-mono font-bold ${timeRemaining < 60 ? "text-red-400" : "text-zinc-100"}`}
+              >
+                {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, "0")}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-[10px] text-zinc-500">Volatility Level</span>
               {(() => {
                 const absDelta = Math.abs(priceDelta);
-                const level = absDelta < 5 ? 'Low' : absDelta < 20 ? 'Moderate' : 'High';
-                const color = absDelta < 5 ? 'text-zinc-400' : absDelta < 20 ? 'text-amber-400' : 'text-green-400';
+                const level = absDelta < 5 ? "Low" : absDelta < 20 ? "Moderate" : "High";
+                const color =
+                  absDelta < 5
+                    ? "text-zinc-400"
+                    : absDelta < 20
+                      ? "text-amber-400"
+                      : "text-green-400";
                 return <span className={`text-xs font-bold font-mono ${color}`}>{level}</span>;
               })()}
             </div>
@@ -244,9 +264,10 @@ export function SystemHealth() {
                 className="h-full rounded-full transition-all duration-500"
                 style={{
                   width: `${Math.min(Math.abs(priceDelta) * 5, 100)}%`,
-                  background: priceDelta >= 0
-                    ? 'linear-gradient(90deg, #22c55e, #16a34a)'
-                    : 'linear-gradient(90deg, #ef4444, #dc2626)'
+                  background:
+                    priceDelta >= 0
+                      ? "linear-gradient(90deg, #22c55e, #16a34a)"
+                      : "linear-gradient(90deg, #ef4444, #dc2626)",
                 }}
               />
             </div>
@@ -264,14 +285,19 @@ export function SystemHealth() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className="text-[10px] text-zinc-500">Total PnL</div>
-              <div className={`text-base font-extrabold font-mono ${agg.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {agg.total_pnl >= 0 ? '+' : ''}${agg.total_pnl.toFixed(2)}
+              <div
+                className={`text-base font-extrabold font-mono ${agg.total_pnl >= 0 ? "text-green-400" : "text-red-400"}`}
+              >
+                {agg.total_pnl >= 0 ? "+" : ""}${agg.total_pnl.toFixed(2)}
               </div>
             </div>
             <div>
               <div className="text-[10px] text-zinc-500">ROI</div>
-              <div className={`text-base font-extrabold font-mono ${agg.overall_roi_percent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {agg.overall_roi_percent >= 0 ? '+' : ''}{agg.overall_roi_percent.toFixed(2)}%
+              <div
+                className={`text-base font-extrabold font-mono ${agg.overall_roi_percent >= 0 ? "text-green-400" : "text-red-400"}`}
+              >
+                {agg.overall_roi_percent >= 0 ? "+" : ""}
+                {agg.overall_roi_percent.toFixed(2)}%
               </div>
             </div>
             <div>

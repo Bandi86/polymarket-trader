@@ -92,11 +92,7 @@ function BotRowInner({
         } ${isRunning ? "opacity-30 cursor-default" : "cursor-pointer"}`}
         title={isSelected ? "Kijelölés törlése" : "Kijelölés"}
       >
-        {isSelected ? (
-          <CheckSquare className="h-4 w-4" />
-        ) : (
-          <Square className="h-4 w-4" />
-        )}
+        {isSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
       </button>
 
       {/* Status dot */}

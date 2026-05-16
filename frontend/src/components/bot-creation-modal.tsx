@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion";
 import {
-  AlertCircle,
   AlertTriangle,
   Bot as BotIcon,
   ChevronDown,
@@ -121,17 +120,25 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
   const [strategyParams, setStrategyParams] = useState({
     min_delta: 0.05,
     max_delta: 3.0,
-    min_price: 0.10,
-    max_price: 0.80,
+    min_price: 0.1,
+    max_price: 0.8,
   });
 
-  const conservativePct = ((0.25 * kellyFraction) * maxBetPercent).toFixed(1);
-  const moderatePct = ((0.50 * kellyFraction) * maxBetPercent).toFixed(1);
-  const aggressivePct = ((0.75 * kellyFraction) * maxBetPercent).toFixed(1);
+  const conservativePct = (0.25 * kellyFraction * maxBetPercent).toFixed(1);
+  const moderatePct = (0.5 * kellyFraction * maxBetPercent).toFixed(1);
+  const aggressivePct = (0.75 * kellyFraction * maxBetPercent).toFixed(1);
 
   const riskLevel = Math.round(kellyFraction * (RISK_COLORS.length - 1));
-  const riskColor = RISK_COLORS[riskLevel];
-  const riskLabels = ["Very Low", "Low", "Moderate", "Moderate", "High", "Very High", "Extreme", "Max"];
+  const riskLabels = [
+    "Very Low",
+    "Low",
+    "Moderate",
+    "Moderate",
+    "High",
+    "Very High",
+    "Extreme",
+    "Max",
+  ];
   const riskLabel = riskLabels[riskLevel];
 
   // Apply prefill from Strategy Lab or Markets page
@@ -380,9 +387,7 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                   </div>
 
                   {/* Best for hint */}
-                  <p className="mt-2 text-xs text-zinc-600 italic">
-                    {categoryHint}
-                  </p>
+                  <p className="mt-2 text-xs text-zinc-600 italic">{categoryHint}</p>
                 </div>
 
                 {/* Bet size */}
@@ -513,27 +518,21 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                       <p className="text-[10px] text-emerald-400 font-medium uppercase tracking-wider">
                         Conservative
                       </p>
-                      <p className="text-sm font-bold text-emerald-300">
-                        {conservativePct}%
-                      </p>
+                      <p className="text-sm font-bold text-emerald-300">{conservativePct}%</p>
                       <p className="text-[10px] text-zinc-600">0.25 fraction</p>
                     </div>
                     <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-2 text-center">
                       <p className="text-[10px] text-amber-400 font-medium uppercase tracking-wider">
                         Moderate
                       </p>
-                      <p className="text-sm font-bold text-amber-300">
-                        {moderatePct}%
-                      </p>
+                      <p className="text-sm font-bold text-amber-300">{moderatePct}%</p>
                       <p className="text-[10px] text-zinc-600">0.50 fraction</p>
                     </div>
                     <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-2 text-center">
                       <p className="text-[10px] text-red-400 font-medium uppercase tracking-wider">
                         Aggressive
                       </p>
-                      <p className="text-sm font-bold text-red-300">
-                        {aggressivePct}%
-                      </p>
+                      <p className="text-sm font-bold text-red-300">{aggressivePct}%</p>
                       <p className="text-[10px] text-zinc-600">0.75 fraction</p>
                     </div>
                   </div>
@@ -541,13 +540,15 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                   {/* Risk meter */}
                   <div className="space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">Risk Level</span>
+                      <span className="text-[10px] text-zinc-500 uppercase tracking-wider">
+                        Risk Level
+                      </span>
                       <span className="text-[10px] font-semibold text-zinc-400">{riskLabel}</span>
                     </div>
                     <div className="h-2 rounded-full bg-zinc-700 overflow-hidden flex">
                       {RISK_COLORS.map((color, i) => (
                         <div
-                          key={i}
+                          key={color}
                           className={`flex-1 transition-all duration-300 ${
                             i <= riskLevel ? color : "bg-zinc-700"
                           } ${i > 0 ? "ml-0.5" : ""}`}
@@ -587,7 +588,9 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                         className="text-xs text-zinc-400 mb-1.5 flex items-center justify-between"
                       >
                         <span>Min Delta</span>
-                        <span className="font-bold text-zinc-300">{strategyParams.min_delta.toFixed(2)}</span>
+                        <span className="font-bold text-zinc-300">
+                          {strategyParams.min_delta.toFixed(2)}
+                        </span>
                       </label>
                       <input
                         id="min-delta-range"
@@ -597,7 +600,10 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                         step={0.01}
                         value={strategyParams.min_delta}
                         onChange={(e) =>
-                          setStrategyParams({ ...strategyParams, min_delta: Number(e.target.value) })
+                          setStrategyParams({
+                            ...strategyParams,
+                            min_delta: Number(e.target.value),
+                          })
                         }
                         className="w-full accent-indigo-500"
                       />
@@ -613,7 +619,9 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                         className="text-xs text-zinc-400 mb-1.5 flex items-center justify-between"
                       >
                         <span>Max Delta</span>
-                        <span className="font-bold text-zinc-300">{strategyParams.max_delta.toFixed(1)}</span>
+                        <span className="font-bold text-zinc-300">
+                          {strategyParams.max_delta.toFixed(1)}
+                        </span>
                       </label>
                       <input
                         id="max-delta-range"
@@ -623,7 +631,10 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                         step={0.5}
                         value={strategyParams.max_delta}
                         onChange={(e) =>
-                          setStrategyParams({ ...strategyParams, max_delta: Number(e.target.value) })
+                          setStrategyParams({
+                            ...strategyParams,
+                            max_delta: Number(e.target.value),
+                          })
                         }
                         className="w-full accent-indigo-500"
                       />
@@ -639,17 +650,22 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                         className="text-xs text-zinc-400 mb-1.5 flex items-center justify-between"
                       >
                         <span>Min Price</span>
-                        <span className="font-bold text-zinc-300">{strategyParams.min_price.toFixed(2)}</span>
+                        <span className="font-bold text-zinc-300">
+                          {strategyParams.min_price.toFixed(2)}
+                        </span>
                       </label>
                       <input
                         id="min-price-range"
                         type="range"
                         min={0.05}
-                        max={0.50}
+                        max={0.5}
                         step={0.05}
                         value={strategyParams.min_price}
                         onChange={(e) =>
-                          setStrategyParams({ ...strategyParams, min_price: Number(e.target.value) })
+                          setStrategyParams({
+                            ...strategyParams,
+                            min_price: Number(e.target.value),
+                          })
                         }
                         className="w-full accent-indigo-500"
                       />
@@ -665,17 +681,22 @@ export function CreateBotModal({ onClose, onSuccess, prefill }: CreateBotModalPr
                         className="text-xs text-zinc-400 mb-1.5 flex items-center justify-between"
                       >
                         <span>Max Price</span>
-                        <span className="font-bold text-zinc-300">{strategyParams.max_price.toFixed(2)}</span>
+                        <span className="font-bold text-zinc-300">
+                          {strategyParams.max_price.toFixed(2)}
+                        </span>
                       </label>
                       <input
                         id="max-price-range"
                         type="range"
-                        min={0.50}
+                        min={0.5}
                         max={0.95}
                         step={0.05}
                         value={strategyParams.max_price}
                         onChange={(e) =>
-                          setStrategyParams({ ...strategyParams, max_price: Number(e.target.value) })
+                          setStrategyParams({
+                            ...strategyParams,
+                            max_price: Number(e.target.value),
+                          })
                         }
                         className="w-full accent-indigo-500"
                       />

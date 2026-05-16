@@ -1,7 +1,7 @@
 "use client";
-import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect, useRef } from "react";
-import { TrendingUp, TrendingDown, Clock, Target, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Clock, Target, TrendingDown, TrendingUp, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "@/store";
 
 interface Notification {
@@ -65,7 +65,7 @@ export function MarketTransitionAlert() {
       return () => clearTimeout(timer);
     }
     prevLengthRef.current = marketHistory.length;
-  }, [marketHistory.length]);
+  }, [marketHistory.length, marketHistory]);
 
   const dismiss = (id: number) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
@@ -127,9 +127,7 @@ export function MarketTransitionAlert() {
                   ) : (
                     <TrendingDown className="h-4 w-4 text-red-400" />
                   )}
-                  <span
-                    className={`text-xs font-bold ${isUp ? "text-green-400" : "text-red-400"}`}
-                  >
+                  <span className={`text-xs font-bold ${isUp ? "text-green-400" : "text-red-400"}`}>
                     Market {isUp ? "UP" : "DOWN"}
                   </span>
                   <span className="text-[10px] text-zinc-500">{timeAgo(n.timestamp)}</span>
@@ -192,9 +190,7 @@ export function MarketTransitionAlert() {
 
         <div className="flex flex-col gap-1.5">
           {reversed.length === 0 ? (
-            <div className="py-6 text-center text-xs text-zinc-600">
-              No completed markets yet
-            </div>
+            <div className="py-6 text-center text-xs text-zinc-600">No completed markets yet</div>
           ) : (
             reversed.map((result, i) => {
               const isUp = result.delta >= 0;
@@ -227,7 +223,9 @@ export function MarketTransitionAlert() {
                     <span className="text-zinc-500">
                       ${formatBTC(result.targetPrice)} → ${formatBTC(result.finalPrice)}
                     </span>
-                    <span className={`font-mono font-bold ${isUp ? "text-green-400" : "text-red-400"}`}>
+                    <span
+                      className={`font-mono font-bold ${isUp ? "text-green-400" : "text-red-400"}`}
+                    >
                       {isUp ? "+" : ""}
                       {formatBTC(absDelta)}
                     </span>
