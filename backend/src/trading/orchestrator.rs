@@ -40,7 +40,7 @@ pub enum BotEvent {
     Error { bot_id: i64, message: String },
     Scanning { bot_id: i64, market_slug: String },
     Evaluating { bot_id: i64, strategy: String, confidence: f64 },
-    PositionUpdate { bot_id: i64, side: String, size: f64, price: f64, unrealized_pnl: f64 },
+    PositionUpdate { bot_id: i64, bot_name: String, side: String, size: f64, price: f64, unrealized_pnl: f64 },
     TradeResult { bot_id: i64, won: bool, pnl: f64 },
 }
 
@@ -57,6 +57,7 @@ pub struct PendingBet {
 #[derive(Debug, Clone)]
 pub struct RunningBot {
     pub bot_id: i64,
+    pub bot_name: String,
     pub session_id: i64,
     pub user_id: i64,
     pub strategy: StrategyExecutor,
@@ -136,6 +137,7 @@ pub async fn restore_running_bots(orchestrator: Arc<BotOrchestrator>, user_id: i
         // Recreate running bot state
         let running_bot = RunningBot {
             bot_id: bot.id,
+            bot_name: bot.name.clone(),
             session_id: session.id,
             user_id: session.user_id,
             strategy,
@@ -215,7 +217,7 @@ impl BotOrchestrator {
         // Sessions are managed by restore_running_bots which uses existing DB sessions.
         // resume_bot only populates the in-memory running_bots map.
         running.insert(bot.id, RunningBot {
-            bot_id: bot.id, session_id: 0, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
+            bot_id: bot.id, bot_name: bot.name.clone(), session_id: 0, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
             last_market_slug: None, consecutive_errors: 0, last_btc_price: None, btc_window_open: None, current_balance,
             pending_bet: None, btc_price_history: Vec::new(),
             session_trades: 0, session_wins: 0, session_losses: 0, session_pnl: 0.0,
@@ -232,7 +234,7 @@ impl BotOrchestrator {
         let session_id = queries::create_session(&self.db, bot.id, bot.user_id, initial_balance, Some(bot.params.as_str()), &bot.trading_mode).await.map_err(|e| e.to_string())?;
         let mut running = self.running_bots.write().await;
         running.insert(bot.id, RunningBot {
-            bot_id: bot.id, session_id, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
+            bot_id: bot.id, bot_name: bot.name.clone(), session_id, user_id: bot.user_id, strategy: StrategyExecutor::new(&bot.strategy_type, &bot.params),
             last_market_slug: None, consecutive_errors: 0, last_btc_price: None, btc_window_open: None,
             current_balance: initial_balance, pending_bet: None, btc_price_history: Vec::new(),
             session_trades: 0, session_wins: 0, session_losses: 0, session_pnl: 0.0,
@@ -302,11 +304,12 @@ impl BotOrchestrator {
 
         eprintln!("[DEBUG] Bot {} cycle: portfolio.balance={}, trading_mode={}", bot_id, portfolio.balance, bot.trading_mode);
 
-        // --- STOP LOSS 30% (DISABLED FOR TESTING) ---
-        // if portfolio.balance <= portfolio.initial_balance * 0.7 {
-        //     self.stop_bot(bot_id, user_id).await?;
-        //     return Ok(());
-        // }
+        // --- STOP LOSS: stop if balance drops below 50% of initial ---
+        if rb.current_balance <= portfolio.initial_balance * 0.5 {
+            tracing::warn!("[STOP-LOSS] Bot {} balance {:.2} <= 50% of initial {:.2}, stopping", bot_id, rb.current_balance, portfolio.initial_balance);
+            self.stop_bot(bot_id, user_id).await?;
+            return Ok(());
+        }
 
         let all_markets = fetch_active_markets("5").await;
         let market = if let Some(m) = all_markets.first() { m.clone() } else { return Ok(()); };
@@ -343,9 +346,9 @@ impl BotOrchestrator {
                     btc_acceleration = Some(0.0);
                 }
             } else {
-                // Fallback to last_btc_price
+                // Fallback to last_btc_price (velocity = change / 5sec interval assumption)
                 btc_change = rb.last_btc_price.map(|last| (btc_price - last) / last);
-                btc_velocity = btc_change;
+                btc_velocity = btc_change.map(|c| c / 5.0); // 5 second assumed interval
                 btc_acceleration = Some(0.0);
             }
         }
@@ -376,16 +379,16 @@ impl BotOrchestrator {
                     diff < 0.0
                 };
                 
-                // PnL: if won, you get back your bet_size + profit; if lost, you lose your bet_size
-                // profit = bet_size * (1.0 - entry_price) for YES, or bet_size * entry_price for NO
-                let profit = if won { 
-                    if bet.side == "YES" {
-                        bet.bet_size * (1.0 - bet.entry_price)
-                    } else {
-                        bet.bet_size * bet.entry_price
-                    }
-                } else { 
-                    -bet.bet_size 
+                // PnL calculation for Polymarket binary options:
+                // You spend `bet_size` dollars buying tokens at `entry_price`
+                // You get bet_size/entry_price shares
+                // If you win: each share pays $1 → payout = bet_size/entry_price
+                // Profit = payout - stake = bet_size/entry_price - bet_size
+                //        = bet_size * (1.0 - entry_price) / entry_price
+                let profit = if won {
+                    bet.bet_size * (1.0 - bet.entry_price) / bet.entry_price
+                } else {
+                    -bet.bet_size
                 };
                 queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, profit, bet.bet_size).await.ok();
                 self.event_sender.send(BotEvent::TradeResult { bot_id, won, pnl: profit }).ok();
@@ -438,7 +441,7 @@ impl BotOrchestrator {
             btc_window_open: rb.btc_window_open,
             yes_price: market.yes_price,
             no_price: market.no_price,
-            time_remaining: market.time_remaining,
+            time_remaining: market.time_remaining * 1000, // Convert seconds to milliseconds
             btc_velocity,
             btc_acceleration,
             btc_volatility: btc_acceleration.map(|a| a.abs()),
@@ -457,50 +460,111 @@ impl BotOrchestrator {
         // Javítva: Signal enum mintaillesztés és eseményküldés
         if let Signal::Yes(conf) | Signal::No(conf) = signal {
             tracing::info!("Bot {} generated signal: {:?} (confidence: {})", bot_id, signal, conf);
-            
-            if rb.pending_bet.is_none() {
-                // Javítva: Signal::Yes(_) használata a matches!-ben
-                let outcome = if matches!(signal, Signal::Yes(_)) { "YES" } else { "NO" };
-                let price = if outcome == "YES" { market.yes_price } else { market.no_price };
-                
-                self.event_sender.send(BotEvent::TradeDecision { bot_id, outcome: outcome.to_string(), confidence: conf, bet_size: bot.bet_size, reason: "Signal detected".into() }).ok();
-                
-                if bot.trading_mode == "live" {
-                    if let Some(ref cache) = credential_cache {
-                        let c = cache.read().await;
-                        if let Some(creds) = c.get(&user_id) {
-                            match Self::place_order(&market, outcome, bot.bet_size, creds).await {
-                                Ok(order_id) => {
-                                    tracing::info!("[LIVE] Bot {} order executed: {} ({} @ {})", bot_id, order_id, outcome, price);
-                                    // Log trade decision to DB
-                                    let d_id = queries::log_trade_decision(
-                                        &self.db, bot_id, rb.session_id, user_id, &market_slug,
-                                        &market.condition_id, outcome, &bot.strategy_type, conf,
-                                        Some(btc_price), btc_change, Some(market.yes_price),
-                                        Some(market.no_price), Some(market.time_remaining), "live"
-                                    ).await.unwrap_or(0);
-                                    // Update portfolio balance
-                                    queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - bot.bet_size).await.ok();
-                                    // Send order executed event
-                                    self.event_sender.send(BotEvent::OrderExecuted { bot_id, order_id: order_id.clone() }).ok();
-                                    // Send position update
-                                    self.event_sender.send(BotEvent::PositionUpdate { bot_id, side: outcome.to_string(), size: bot.bet_size, price, unrealized_pnl: 0.0 }).ok();
-                                    // Store pending bet for tracking
-                                    rb.pending_bet = Some(PendingBet { side: outcome.to_string(), bet_size: bot.bet_size, start_price: btc_price, end_price: None, entry_price: price, decision_id: d_id });
-                                }
-                                Err(e) => {
-                                    tracing::error!("[LIVE] Bot {} order failed: {}", bot_id, e);
-                                }
-                            }
-                        } else {
-                            tracing::warn!("[LIVE] Bot {} no credentials found for user_id {}", bot_id, user_id);
-                        }
+
+            let outcome = if matches!(signal, Signal::Yes(_)) { "YES" } else { "NO" };
+            let price = if outcome == "YES" { market.yes_price } else { market.no_price };
+
+            // ATOMIC: claim trade slot under write lock — prevents duplicate trades from race condition
+            let trade_claimed = {
+                let mut running = self.running_bots.write().await;
+                if let Some(existing) = running.get(&bot_id) {
+                    if existing.pending_bet.is_some() {
+                        false
+                    } else {
+                        let pb = PendingBet {
+                            side: outcome.to_string(), bet_size: bot.bet_size,
+                            start_price: btc_price, end_price: None, entry_price: price, decision_id: 0,
+                        };
+                        running.get_mut(&bot_id).unwrap().pending_bet = Some(pb.clone());
+                        // Also update cloned rb so final save doesn't overwrite
+                        rb.pending_bet = Some(pb);
+                        true
                     }
                 } else {
-                    let d_id = queries::log_trade_decision(&self.db, bot_id, rb.session_id, user_id, &market_slug, &market.condition_id, outcome, &bot.strategy_type, conf, Some(btc_price), btc_change, Some(market.yes_price), Some(market.no_price), Some(market.time_remaining), "paper trade").await.unwrap_or(0);
-                    queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - bot.bet_size).await.ok();
-                    rb.pending_bet = Some(PendingBet { side: outcome.to_string(), bet_size: bot.bet_size, start_price: btc_price, end_price: None, entry_price: price, decision_id: d_id });
-                    self.event_sender.send(BotEvent::PositionUpdate { bot_id, side: outcome.to_string(), size: bot.bet_size, price, unrealized_pnl: 0.0 }).ok();
+                    false
+                }
+            };
+
+            if trade_claimed {
+                // --- RISK MANAGER: check if trade is allowed, Kelly-adjusted bet size ---
+                let (risk_allowed, risk_reason, actual_bet_size) = {
+                    let mut rm = self.risk_manager.write().await;
+                    let (can_open, reason) = rm.can_open_position(
+                        bot_id, bot.bet_size, conf, rb.current_balance, portfolio.initial_balance,
+                    );
+                    if !can_open {
+                        (false, reason.unwrap_or_default(), bot.bet_size)
+                    } else {
+                        let (kelly_size, _method) = rm.get_suggested_bet_size(
+                            bot_id, conf, price, rb.current_balance,
+                        );
+                        let size = kelly_size.max(bot.bet_size * 0.25).min(bot.bet_size * 2.0);
+                        (true, String::new(), size)
+                    }
+                };
+
+                if !risk_allowed {
+                    tracing::info!("Bot {} trade rejected by risk manager: {}", bot_id, risk_reason);
+                    let mut running = self.running_bots.write().await;
+                    if let Some(existing) = running.get_mut(&bot_id) {
+                        existing.pending_bet = None;
+                    }
+                } else {
+                    self.event_sender.send(BotEvent::TradeDecision { bot_id, outcome: outcome.to_string(), confidence: conf, bet_size: actual_bet_size, reason: "Signal detected".into() }).ok();
+
+                    if bot.trading_mode == "live" {
+                        if let Some(ref cache) = credential_cache {
+                            let c = cache.read().await;
+                            if let Some(creds) = c.get(&user_id) {
+                                match Self::place_order(&market, outcome, actual_bet_size, creds).await {
+                                    Ok(order_id) => {
+                                        tracing::info!("[LIVE] Bot {} order executed: {} ({} @ {})", bot_id, order_id, outcome, price);
+                                        let _d_id = queries::log_trade_decision(
+                                            &self.db, bot_id, rb.session_id, user_id, &market_slug,
+                                            &market.condition_id, outcome, &bot.strategy_type, conf,
+                                            Some(btc_price), btc_change, Some(market.yes_price),
+                                            Some(market.no_price), Some(market.time_remaining), "live"
+                                        ).await.unwrap_or(0);
+                                        queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - actual_bet_size).await.ok();
+                                        self.event_sender.send(BotEvent::OrderExecuted { bot_id, order_id }).ok();
+                                        self.event_sender.send(BotEvent::PositionUpdate { bot_id, bot_name: rb.bot_name.clone(), side: outcome.to_string(), size: actual_bet_size, price, unrealized_pnl: 0.0 }).ok();
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("[LIVE] Bot {} order failed: {}", bot_id, e);
+                                        let mut running = self.running_bots.write().await;
+                                        if let Some(existing) = running.get_mut(&bot_id) {
+                                            existing.pending_bet = None;
+                                        }
+                                    }
+                                }
+                            } else {
+                                tracing::warn!("[LIVE] Bot {} no credentials for user_id {}", bot_id, user_id);
+                                let mut running = self.running_bots.write().await;
+                                if let Some(existing) = running.get_mut(&bot_id) {
+                                    existing.pending_bet = None;
+                                }
+                            }
+                        }
+                    } else {
+                        let d_id = queries::log_trade_decision(&self.db, bot_id, rb.session_id, user_id, &market_slug, &market.condition_id, outcome, &bot.strategy_type, conf, Some(btc_price), btc_change, Some(market.yes_price), Some(market.no_price), Some(market.time_remaining), "paper trade").await.unwrap_or(0);
+                        if d_id == 0 {
+                            tracing::warn!("Bot {} duplicate trade prevented for market {}", bot_id, market_slug);
+                            let mut running = self.running_bots.write().await;
+                            if let Some(existing) = running.get_mut(&bot_id) {
+                                existing.pending_bet = None;
+                            }
+                        } else {
+                            queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - actual_bet_size).await.ok();
+                            let mut running = self.running_bots.write().await;
+                            if let Some(existing) = running.get_mut(&bot_id) {
+                                if let Some(ref mut pb) = existing.pending_bet {
+                                    pb.decision_id = d_id;
+                                    pb.bet_size = actual_bet_size;
+                                }
+                            }
+                            self.event_sender.send(BotEvent::PositionUpdate { bot_id, bot_name: rb.bot_name.clone(), side: outcome.to_string(), size: actual_bet_size, price, unrealized_pnl: 0.0 }).ok();
+                        }
+                    }
                 }
             }
         }

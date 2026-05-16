@@ -50,30 +50,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    // === AUTO-LOAD RUNNING BOTS ON STARTUP (bandi user only) ===
-    {
-        const BANDI_USER_ID: i64 = 5; // Only load bandi's bots
-        let pool = db.as_ref();
-        let active_bots = sqlx::query("SELECT id, user_id FROM bot_configs WHERE status = 'running' AND user_id = ?")
-            .bind(BANDI_USER_ID)
-            .fetch_all(pool).await.unwrap_or_default();
-
-        for bot_row in active_bots {
-            let bot_id: i64 = bot_row.get("id");
-            let user_id: i64 = bot_row.get("user_id");
-            
-            if let Ok(Some(bot_rec)) = db::queries::get_bot_by_id(&db, bot_id, user_id).await {
-                if let Ok(Some(portfolio)) = db::queries::get_portfolio(&db, bot_id, user_id).await {
-                    let _ = app_state.orchestrator.resume_bot(&bot_rec, portfolio.balance).await;
-                    let orch = app_state.orchestrator.clone();
-                    let cache = Some(app_state.credential_cache.clone());
-                    tokio::spawn(async move {
-                        trading::orchestrator::start_orchestrator_loop(orch, bot_id, user_id, 5, cache).await;
-                    });
-                }
-            }
-        }
-    }
+    // // === AUTO-LOAD RUNNING BOTS ON STARTUP (bandi user only) ===
+// // DISABLED - Bots must be started manually via POST /api/bots/:id/start
+// {
+//     const BANDI_USER_ID: i64 = 22; // bandi user_id in database
+//     let pool = db.as_ref();
+//     let active_bots = sqlx::query("SELECT id, user_id FROM bot_configs WHERE status = 'running' AND user_id = ?")
+//         .bind(BANDI_USER_ID)
+//         .fetch_all(pool).await.unwrap_or_default();
+//
+//     for bot_row in active_bots {
+//         let bot_id: i64 = bot_row.get("id");
+//         let user_id: i64 = bot_row.get("user_id");
+//         
+//         if let Ok(Some(bot_rec)) = db::queries::get_bot_by_id(&db, bot_id, user_id).await {
+//             if let Ok(Some(portfolio)) = db::queries::get_portfolio(&db, bot_id, user_id).await {
+//                 let _ = app_state.orchestrator.resume_bot(&bot_rec, portfolio.balance).await;
+//                 let orch = app_state.orchestrator.clone();
+//                 let cache = Some(app_state.credential_cache.clone());
+//                 tokio::spawn(async move {
+//                     trading::orchestrator::start_orchestrator_loop(orch, bot_id, user_id, 5, cache).await;
+//                 });
+//             }
+//         }
+//     }
+// }
 
     // Event broadcaster
     let event_receiver = app_state.event_receiver.clone();
@@ -83,12 +84,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = rx.recv().await { let _ = broadcaster.send(event); }
     });
 
-// Restore any running bots from previous session
+// Bot restore on startup - restore active bot sessions from DB
     let restore_orchestrator = app_state.orchestrator.clone();
     tokio::spawn(async move {
-        // Try to restore for bandi (5) and testuser (19)
-        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 5).await;
-        trading::orchestrator::restore_running_bots(restore_orchestrator, 19).await;
+        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 22).await;
+        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 19).await;
+        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 25).await;
+        trading::orchestrator::restore_running_bots(restore_orchestrator, 26).await;
     });
     tracing::info!("Bot restore from database started");
 

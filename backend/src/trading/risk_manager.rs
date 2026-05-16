@@ -149,7 +149,9 @@ impl RiskManager {
     }
 
     pub fn new_paper() -> Self {
-        Self::new(RiskSettings::paper_mode())
+        let mut rm = Self::new(RiskSettings::paper_mode());
+        rm.portfolio_start_balance = 10.0;
+        rm
     }
 
     pub fn new_live() -> Self {

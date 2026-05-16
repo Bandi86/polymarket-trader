@@ -1,15 +1,17 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Activity, Clock, Database, Server, Shield, Wifi, Zap } from "lucide-react";
-import { useSystemStatus } from "@/hooks";
+import { Activity, AlertTriangle, Clock, Database, Server, Shield, TrendingDown, TrendingUp, Wifi, Zap } from "lucide-react";
+import { useSystemStatus, useAggregatePortfolio } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function SystemHealth() {
   const { data: sys, isLoading } = useSystemStatus();
+  const { data: agg } = useAggregatePortfolio();
   const latency = useAppStore((s) => s.latency);
   const sseHealth = useAppStore((s) => s.sseHealth);
   const systemStatus = useAppStore((s) => s.systemStatus);
+  const { btcPrice, startPrice, priceDelta, yesPrice, timeRemaining } = useAppStore();
 
   // Uptime display
   const uptimeMs = sseHealth.connectedSince ? Date.now() - sseHealth.connectedSince : 0;
@@ -195,6 +197,96 @@ export function SystemHealth() {
               );
             })()}
           </svg>
+        </div>
+      )}
+
+      {/* BTC Volatility Indicator */}
+      {btcPrice > 0 && (
+        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+          <div className="flex items-center gap-2 mb-2">
+            {priceDelta >= 0 ? (
+              <TrendingUp className="h-3.5 w-3.5 text-green-500" />
+            ) : (
+              <TrendingDown className="h-3.5 w-3.5 text-red-500" />
+            )}
+            <span className="text-xs font-semibold text-zinc-300">BTC Volatility</span>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Current Delta</span>
+              <span className={`text-xs font-mono font-bold ${priceDelta >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {priceDelta >= 0 ? '+' : ''}${priceDelta.toFixed(2)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Market Odds</span>
+              <span className="text-xs font-mono font-bold text-zinc-100">
+                YES {(yesPrice * 100).toFixed(1)}% / NO {((1 - yesPrice) * 100).toFixed(1)}%
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Time Remaining</span>
+              <span className={`text-xs font-mono font-bold ${timeRemaining < 60 ? 'text-red-400' : 'text-zinc-100'}`}>
+                {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-zinc-500">Volatility Level</span>
+              {(() => {
+                const absDelta = Math.abs(priceDelta);
+                const level = absDelta < 5 ? 'Low' : absDelta < 20 ? 'Moderate' : 'High';
+                const color = absDelta < 5 ? 'text-zinc-400' : absDelta < 20 ? 'text-amber-400' : 'text-green-400';
+                return <span className={`text-xs font-bold font-mono ${color}`}>{level}</span>;
+              })()}
+            </div>
+            <div className="mt-2 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${Math.min(Math.abs(priceDelta) * 5, 100)}%`,
+                  background: priceDelta >= 0
+                    ? 'linear-gradient(90deg, #22c55e, #16a34a)'
+                    : 'linear-gradient(90deg, #ef4444, #dc2626)'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Risk Summary */}
+      {agg && (
+        <div className="rounded-lg border border-white/5 bg-white/[0.02] p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+            <span className="text-xs font-semibold text-zinc-300">Risk Summary</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-[10px] text-zinc-500">Total PnL</div>
+              <div className={`text-base font-extrabold font-mono ${agg.total_pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {agg.total_pnl >= 0 ? '+' : ''}${agg.total_pnl.toFixed(2)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-zinc-500">ROI</div>
+              <div className={`text-base font-extrabold font-mono ${agg.overall_roi_percent >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {agg.overall_roi_percent >= 0 ? '+' : ''}{agg.overall_roi_percent.toFixed(2)}%
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-zinc-500">Trades</div>
+              <div className="text-base font-extrabold font-mono text-zinc-100">
+                {agg.total_trades}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] text-zinc-500">Win Rate</div>
+              <div className="text-base font-extrabold font-mono text-zinc-100">
+                {agg.overall_win_rate.toFixed(1)}%
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

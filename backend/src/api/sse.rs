@@ -424,10 +424,11 @@ pub async fn bot_events_stream(
                                         "seq": current_seq
                                     })
                                 }
-                                BotEvent::PositionUpdate { bot_id, side, size, price, unrealized_pnl } => {
+                                BotEvent::PositionUpdate { bot_id, bot_name, side, size, price, unrealized_pnl } => {
                                     serde_json::json!({
                                         "type": "position_update",
                                         "bot_id": bot_id,
+                                        "bot_name": bot_name,
                                         "side": side,
                                         "size": size,
                                         "price": price,

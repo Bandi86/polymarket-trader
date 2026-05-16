@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { Header } from "@/components/layout/header";
 import { Sidebar } from "@/components/layout/sidebar";
 import { AmbientGlow } from "@/components/ui/ambient-glow";
-import { useSSE } from "@/hooks";
 import { useAppStore } from "@/store";
 
 interface AppShellProps {
@@ -14,8 +13,7 @@ interface AppShellProps {
 export function AppShell({ children }: AppShellProps) {
   const { sidebarCollapsed } = useAppStore();
 
-  // SSE connection for real-time data
-  useSSE();
+  // SSE is managed by AppLayout wrapper — do not duplicate here
 
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppLayout } from "@/components/layout/app-layout";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { Providers } from "./providers";
 
 export const metadata: Metadata = {
@@ -26,9 +27,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <link rel="apple-touch-icon" href="/icon.svg" />
       </head>
       <body className="bg-zinc-950 font-sans text-zinc-200 antialiased">
-        <Providers>
-          <AppLayout>{children}</AppLayout>
-        </Providers>
+        <ErrorBoundary>
+          <Providers>
+            <AppLayout>{children}</AppLayout>
+          </Providers>
+        </ErrorBoundary>
       </body>
     </html>
   );

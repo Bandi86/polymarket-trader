@@ -271,11 +271,11 @@ export const useAppStore = create<AppState>()(
           if (!next.connected) {
             next.status = "connecting";
           } else if (
-            next.errorCount > 10 ||
+            next.errorCount > 50 ||
             (next.lastMessageAt && Date.now() - next.lastMessageAt > 30_000)
           ) {
             next.status = "unhealthy";
-          } else if (next.reconnectCount > 3 || state.latency.avg > 500) {
+          } else if (next.reconnectCount > 5 || state.latency.avg > 500) {
             next.status = "degraded";
           } else {
             next.status = "healthy";

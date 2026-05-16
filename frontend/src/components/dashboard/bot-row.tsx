@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Loader2, Play, Square, Trash2 } from "lucide-react";
+import { CheckSquare, Loader2, Play, Square, Trash2 } from "lucide-react";
 import { usePortfolio } from "@/hooks";
 import { getStrategyColor, strategyAbbr } from "@/lib/utils";
 import type { Bot as BotType } from "@/types";
@@ -83,29 +83,19 @@ function BotRowInner({
             : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
       }`}
     >
-      {/* Selection dot */}
+      {/* Selection checkbox */}
       <button
         type="button"
         onClick={isRunning ? undefined : onToggle}
-        className={`shrink-0 flex h-4 w-4 items-center justify-center rounded-full border transition-all ${
-          isSelected ? "border-indigo-400 bg-indigo-400" : "border-zinc-600 hover:border-zinc-400"
+        className={`shrink-0 flex h-5 w-5 items-center justify-center rounded transition-all ${
+          isSelected ? "text-indigo-400" : "text-zinc-600 hover:text-zinc-400"
         } ${isRunning ? "opacity-30 cursor-default" : "cursor-pointer"}`}
         title={isSelected ? "Kijelölés törlése" : "Kijelölés"}
       >
-        {isSelected && (
-          <svg
-            width="8"
-            height="8"
-            viewBox="0 0 8 8"
-            fill="none"
-            stroke="white"
-            strokeWidth="1.5"
-            role="img"
-            aria-label="Selected"
-          >
-            <title>Selected</title>
-            <path d="M1.5 4l1.5 1.5 3.5-3.5" />
-          </svg>
+        {isSelected ? (
+          <CheckSquare className="h-4 w-4" />
+        ) : (
+          <Square className="h-4 w-4" />
         )}
       </button>
 

@@ -11,8 +11,34 @@ type TabType = "positions" | "terminal";
 
 export function ActivityTabs() {
   const [activeTab, setActiveTab] = useState<TabType>("positions");
-  const { positions, logs, clearLogs } = useAppStore();
+  const { positions, logs, clearLogs, botActivities } = useAppStore();
   const cancelOrder = useCancelOrder();
+
+  // Derive positions from botActivities (SSE) for paper trading
+  const derivedPositions = Object.entries(botActivities).flatMap(([botId, activities]) => {
+    const positionUpdates = activities.filter(a => a.type === "position_update");
+    return positionUpdates.map(p => {
+      const data = p.data as Record<string, unknown>;
+      return {
+        id: p.id,
+        botId: Number(botId),
+        bot_name: (data.bot_name as string) || `Bot ${botId}`,
+        outcome: (data.side as string) || "UNKNOWN",
+        odds: 0.5, // Paper trades don't have odds tracking
+        amount: (data.size as number) || 0,
+        stake: (data.size as number) || 0,
+        pnl: (data.unrealizedPnl as number) || 0,
+        timestamp: p.timestamp,
+      };
+    });
+  });
+
+  // Helper to get bot name safely from either type
+  const getBotName = (position: typeof displayPositions[number]): string => {
+    if ('bot_name' in position) return position.bot_name as string;
+    if (position.bot_id) return `Bot ${position.bot_id}`;
+    return "Unknown";
+  };
 
   const formatPnl = (pnl?: number) => {
     if (pnl === undefined) return "---";
@@ -49,6 +75,9 @@ export function ActivityTabs() {
     });
   };
 
+  // Use REST positions if available (live trading), otherwise use derived from SSE (paper trading)
+  const displayPositions = positions.length > 0 ? positions : derivedPositions;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -71,9 +100,9 @@ export function ActivityTabs() {
           <Layers className="h-4 w-4" />
           <span>Positions</span>
           <span
-            className={`rounded px-2 py-0.5 text-xs ${positions.length > 0 ? "bg-indigo-500/20" : "bg-white/10"}`}
+            className={`rounded px-2 py-0.5 text-xs ${displayPositions.length > 0 ? "bg-indigo-500/20" : "bg-white/10"}`}
           >
-            {positions.length}
+            {displayPositions.length}
           </span>
         </button>
 
@@ -114,15 +143,15 @@ export function ActivityTabs() {
               exit={{ opacity: 0, x: 10 }}
               transition={{ duration: 0.2 }}
             >
-              {positions.length === 0 ? (
+              {displayPositions.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-8 text-zinc-500">
                   <Activity className="h-8 w-8 mb-2 opacity-50" />
                   <div className="text-sm mb-1">No Active Positions</div>
-                  <div className="text-xs">Use Quick Trade to place a bet</div>
+                  <div className="text-xs">Paper trading - positions appear here when bots trade</div>
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
-                  {positions.map((position) => (
+                  {displayPositions.map((position) => (
                     <motion.div
                       key={position.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -132,15 +161,16 @@ export function ActivityTabs() {
                       {/* Position Header */}
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
-                          {position.outcome === "YES" ? (
+                          <span className="text-xs text-zinc-500">{getBotName(position)}</span>
+                          {position.outcome === "YES" || position.outcome === "UP" ? (
                             <TrendingUp className="h-4 w-4 text-green-500" />
                           ) : (
                             <TrendingDown className="h-4 w-4 text-red-500" />
                           )}
                           <span
-                            className={`text-sm font-bold ${position.outcome === "YES" ? "text-green-500" : "text-red-500"}`}
+                            className={`text-sm font-bold ${position.outcome === "YES" || position.outcome === "UP" ? "text-green-500" : "text-red-500"}`}
                           >
-                            {position.outcome === "YES" ? "UP" : "DOWN"}
+                            {position.outcome === "YES" || position.outcome === "UP" ? "UP" : "DOWN"}
                           </span>
                           <span className="ml-2 text-xs text-zinc-500">
                             @ {(position.odds * 100).toFixed(0)}¢

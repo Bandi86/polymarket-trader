@@ -359,8 +359,8 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         CREATE TABLE IF NOT EXISTS bot_portfolios (
             bot_id INTEGER PRIMARY KEY,
             user_id INTEGER NOT NULL,
-            balance REAL DEFAULT 100,
-            initial_balance REAL DEFAULT 100,
+            balance REAL DEFAULT 10,
+            initial_balance REAL DEFAULT 10,
             open_positions INTEGER DEFAULT 0,
             total_trades INTEGER DEFAULT 0,
             winning_trades INTEGER DEFAULT 0,
@@ -391,6 +391,11 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_decisions_bot ON trade_decisions(bot_id)")
         .execute(pool)
         .await?;
+    sqlx::query(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_trade_decisions_bot_market ON trade_decisions(bot_id, market_slug, condition_id)"
+    )
+        .execute(pool)
+        .await.ok();
 
     // Add new columns to bot_configs (for existing tables)
     // SQLite ignores errors if column already exists
@@ -490,7 +495,7 @@ pub async fn seed_default_bots(pool: &sqlx::SqlitePool, user_id: i64) -> Result<
                 bet_size, use_kelly, kelly_fraction, max_bet, interval,
                 stop_loss, take_profit, trading_mode
             ) VALUES (?, ?, 'auto', ?, '{}',
-                10.0, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
+                2.50, 1, 0.25, 0.25, 60000, 0.1, 0.2, 'paper')
             "#,
         )
         .bind(user_id)
@@ -1263,7 +1268,7 @@ pub async fn create_session(
     ) -> Result<i64, sqlx::Error> {
         let result = sqlx::query(
             r#"
-            INSERT INTO trade_decisions (
+            INSERT OR IGNORE INTO trade_decisions (
                 bot_id, session_id, user_id, market_slug, condition_id, outcome,
                 signal_type, signal_confidence, btc_price, btc_change,
                 market_yes_price, market_no_price, time_remaining, decision_reason
@@ -1287,7 +1292,12 @@ pub async fn create_session(
         .execute(db.as_ref())
         .await?;
 
-        Ok(result.last_insert_rowid())
+        // Return 0 if insert was ignored (duplicate), otherwise return the new row id
+        if result.rows_affected() == 0 {
+            Ok(0)
+        } else {
+            Ok(result.last_insert_rowid())
+        }
     }
 
     /// Mark decision as executed

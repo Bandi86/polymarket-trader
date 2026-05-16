@@ -11,27 +11,10 @@ let listenerCount = 0;
 export function useSSE() {
   const prevEventStartTimeRef = useRef<number>(0);
   const lastConfirmedStartPriceRef = useRef<number>(0);
-  // Use a ref to avoid re-creating setupConnection when systemStatus changes
-  const systemStatusRef = useRef(useAppStore.getState().systemStatus);
 
-  const {
-    setMarketData,
-    addMarketResult,
-    addLog,
-    updateBot,
-    setSystemStatus,
-    setLatency,
-    setSSEHealth,
-    addBotActivity,
-  } = useAppStore();
-
-  // Keep ref in sync
-  useEffect(() => {
-    const unsub = useAppStore.subscribe((s) => {
-      systemStatusRef.current = s.systemStatus;
-    });
-    return unsub;
-  }, []);
+  // Store ref for accessing state inside callbacks (avoids stale closures)
+  const storeRef = useRef(useAppStore.getState);
+  storeRef.current = useAppStore.getState;
 
   const setupConnection = useCallback(() => {
     // Singleton: reuse existing connection
@@ -39,6 +22,9 @@ export function useSSE() {
       listenerCount++;
       return sharedEventSource;
     }
+
+    // Grab fresh store functions at connection time
+    const store = storeRef.current();
 
     // Create new connection
     const eventSource = createSSEConnection((event: MessageEvent) => {
@@ -54,11 +40,16 @@ export function useSSE() {
 
     eventSource.addEventListener("connected", () => {
       console.log("SSE connected event received");
-      const wasConnected = useAppStore.getState().sseHealth.connected;
-      setSSEHealth({
+      const state = useAppStore.getState();
+      const health = state.sseHealth;
+      state.setSSEHealth({
         connected: true,
-        connectedSince: wasConnected ? useAppStore.getState().sseHealth.connectedSince : Date.now(),
-        reconnectCount: wasConnected ? useAppStore.getState().sseHealth.reconnectCount + 1 : 0,
+        connectedSince: health.connected ? health.connectedSince : Date.now(),
+        reconnectCount: health.connected ? health.reconnectCount + 1 : 0,
+        messageCount: health.messageCount,
+        errorCount: health.errorCount,
+        lastMessageAt: health.lastMessageAt,
+        status: health.status,
       });
     });
 
@@ -67,6 +58,8 @@ export function useSSE() {
         // Measure SSE event processing latency: from event arrival to state update
         const t0 = performance.now();
         const data = JSON.parse(e.data);
+        const store = storeRef.current();
+
         // Check if start_price is explicitly present in the event (backend sends it only when captured)
         const hasStartPrice = data.start_price !== undefined || data.price_to_beat !== undefined;
         const newStartPrice = data.start_price || data.price_to_beat || 0;
@@ -78,7 +71,7 @@ export function useSSE() {
           prevEventStartTimeRef.current > 0 &&
           eventStartTime !== prevEventStartTimeRef.current
         ) {
-          addMarketResult({
+          store.addMarketResult({
             endTime: Date.now(),
             targetPrice: lastConfirmedStartPriceRef.current,
             finalPrice: data.btc_price,
@@ -126,7 +119,7 @@ export function useSSE() {
         if (data.api_latency !== undefined) updates.apiLatency = data.api_latency;
 
         if (Object.keys(updates).length > 0) {
-          setMarketData(updates);
+          store.setMarketData(updates);
         }
 
         // Measure SSE event processing latency (event arrival → state update scheduled)
@@ -136,9 +129,9 @@ export function useSSE() {
         const t1 = performance.now();
         const latencyMs = t1 - t0;
         if (latencyMs >= 0.01) {
-          setLatency(latencyMs);
+          store.setLatency(latencyMs);
         }
-        setSSEHealth({
+        store.setSSEHealth({
           messageCount: useAppStore.getState().sseHealth.messageCount + 1,
           lastMessageAt: Date.now(),
         });
@@ -150,8 +143,9 @@ export function useSSE() {
     eventSource.addEventListener("status", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
-        const current = systemStatusRef.current;
-        setSystemStatus({
+        const store = storeRef.current();
+        const current = store.systemStatus;
+        store.setSystemStatus({
           bots_running: data.running_bots,
           bots_total: current?.bots_total ?? data.running_bots,
           total_pnl: data.total_pnl,
@@ -168,17 +162,18 @@ export function useSSE() {
     eventSource.addEventListener("bot", (e: MessageEvent) => {
       try {
         const data = JSON.parse(e.data);
+        const store = storeRef.current();
 
         switch (data.type) {
           case "session_started": {
-            addLog({
+            store.addLog({
               bot_id: data.bot_id,
               bot_name: data.bot_name || `Bot ${data.bot_id}`,
               message: `Session started (ID: ${data.session_id})`,
               timestamp: Date.now(),
               level: "success",
             });
-            updateBot(data.bot_id, { status: "running" });
+            store.updateBot(data.bot_id, { status: "running" });
             dispatchNotification(
               "info",
               `${data.bot_name || `Bot ${data.bot_id}`} started`,
@@ -191,14 +186,14 @@ export function useSSE() {
           }
 
           case "session_ended": {
-            addLog({
+            store.addLog({
               bot_id: data.bot_id,
               bot_name: `Bot ${data.bot_id}`,
               message: `Session ended. PnL: $${data.total_pnl.toFixed(2)} | ${data.session_trades} trades (${data.session_wins}W/${data.session_losses}L) | DD: ${((data.max_drawdown || 0) * 100).toFixed(1)}%`,
               timestamp: Date.now(),
               level: "info",
             });
-            updateBot(data.bot_id, {
+            store.updateBot(data.bot_id, {
               status: "stopped",
               stats: {
                 trades: data.session_trades || 0,
@@ -230,14 +225,14 @@ export function useSSE() {
           case "trade_decision": {
             const outcomeText = data.outcome === "YES" ? "UP" : "DOWN";
             const confidencePct = (data.confidence * 100).toFixed(0);
-            addLog({
+            store.addLog({
               bot_id: data.bot_id,
               bot_name: `Bot ${data.bot_id}`,
               message: `Decision: ${outcomeText} @ $${data.bet_size.toFixed(2)} (confidence: ${confidencePct}%). ${data.reason}`,
               timestamp: Date.now(),
               level: data.confidence > 0.7 ? "success" : "info",
             });
-            addBotActivity(data.bot_id, {
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "trade_decision",
               timestamp: Date.now(),
@@ -266,14 +261,14 @@ export function useSSE() {
           }
 
           case "order_executed": {
-            addLog({
+            store.addLog({
               bot_id: data.bot_id,
               bot_name: `Bot ${data.bot_id}`,
               message: `Order placed: ${data.order_id}`,
               timestamp: Date.now(),
               level: "success",
             });
-            addBotActivity(data.bot_id, {
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "order_executed",
               timestamp: Date.now(),
@@ -295,15 +290,15 @@ export function useSSE() {
           }
 
           case "error": {
-            addLog({
+            store.addLog({
               bot_id: data.bot_id,
               bot_name: `Bot ${data.bot_id}`,
               message: data.message,
               timestamp: Date.now(),
               level: "error",
             });
-            updateBot(data.bot_id, { status: "error" });
-            addBotActivity(data.bot_id, {
+            store.updateBot(data.bot_id, { status: "error" });
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "error",
               timestamp: Date.now(),
@@ -321,7 +316,7 @@ export function useSSE() {
           }
 
           case "market_transition": {
-            addLog({
+            store.addLog({
               bot_id: 0,
               bot_name: "System",
               message: `Market transition: ${data.new_market_slug}`,
@@ -332,7 +327,7 @@ export function useSSE() {
           }
 
           case "scanning": {
-            addBotActivity(data.bot_id, {
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "scanning",
               timestamp: Date.now(),
@@ -342,7 +337,7 @@ export function useSSE() {
           }
 
           case "evaluating": {
-            addBotActivity(data.bot_id, {
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "evaluating",
               timestamp: Date.now(),
@@ -352,7 +347,7 @@ export function useSSE() {
           }
 
           case "position_update": {
-            addBotActivity(data.bot_id, {
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "position_update",
               timestamp: Date.now(),
@@ -360,6 +355,7 @@ export function useSSE() {
                 side: data.side,
                 size: data.size,
                 price: data.price,
+                bot_name: data.bot_name,
                 unrealizedPnl: data.unrealized_pnl,
               },
             });
@@ -367,7 +363,7 @@ export function useSSE() {
           }
 
           case "trade_result": {
-            addBotActivity(data.bot_id, {
+            store.addBotActivity(data.bot_id, {
               botId: data.bot_id,
               type: "trade_result",
               timestamp: Date.now(),
@@ -390,22 +386,27 @@ export function useSSE() {
     });
 
     eventSource.onerror = () => {
-      console.warn("SSE connection error, reconnecting...");
+      // SSE onerror fires during normal reconnection cycles - this is expected behavior
+      // Only log as warning, don't increment errorCount since connection recovers automatically
+      console.warn("SSE connection dropped, reconnecting...");
+      // Update reconnect count but NOT error count - reconnections are normal for SSE
+      const state = useAppStore.getState();
+      const health = state.sseHealth;
+      state.setSSEHealth({
+        connected: false, // Mark as disconnected during reconnection
+        reconnectCount: health.reconnectCount + 1,
+        messageCount: health.messageCount,
+        errorCount: health.errorCount, // Don't increment - reconnects are normal
+        lastMessageAt: health.lastMessageAt,
+        connectedSince: health.connectedSince,
+        status: "connecting", // Mark as connecting during reconnection
+      });
     };
 
     sharedEventSource = eventSource;
     listenerCount = 1;
     return eventSource;
-  }, [
-    setMarketData,
-    addMarketResult,
-    addLog,
-    updateBot,
-    setSystemStatus,
-    setLatency,
-    setSSEHealth,
-    addBotActivity,
-  ]);
+  }, []); // Empty deps - setupConnection is stable and only created once
 
   const disconnect = useCallback(() => {
     listenerCount--;

@@ -105,11 +105,11 @@ pub struct StrategyParams {
 impl Default for StrategyParams {
     fn default() -> Self {
         Self {
-            min_delta: 0.0007,
-            min_price: 0.30,
-            max_price: 0.70,
-            min_time_remaining: 3,
-            max_time_remaining: 270,
+            min_delta: 0.0002,
+            min_price: 0.25,
+            max_price: 0.75,
+            min_time_remaining: 3000,
+            max_time_remaining: 280000,
         }
     }
 }
@@ -198,20 +198,20 @@ impl StrategyExecutor {
             0.0
         };
 
-        if delta_pct > 0.12 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
-            let confidence = (0.70_f64 + (delta_pct - 0.12) * 3.0).min(0.92_f64);
+        if delta_pct > 0.05 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
+            let confidence = (0.70_f64 + (delta_pct - 0.05) * 3.0).min(0.92_f64);
             return Signal::Yes(confidence);
         }
-        if delta_pct < -0.12 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
-            let confidence = (0.70_f64 + (-delta_pct - 0.12) * 3.0).min(0.92_f64);
+        if delta_pct < -0.05 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
+            let confidence = (0.70_f64 + (-delta_pct - 0.05) * 3.0).min(0.92_f64);
             return Signal::No(confidence);
         }
-        if delta_pct > 0.07 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
-            let confidence = (0.55_f64 + (delta_pct - 0.07) * 4.0).min(0.78_f64);
+        if delta_pct > 0.03 && self.check_price_limits("YES", ctx.yes_price, ctx.no_price) {
+            let confidence = (0.55_f64 + (delta_pct - 0.03) * 4.0).min(0.78_f64);
             return Signal::Yes(confidence);
         }
-        if delta_pct < -0.07 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
-            let confidence = (0.55_f64 + (-delta_pct - 0.07) * 4.0).min(0.78_f64);
+        if delta_pct < -0.03 && self.check_price_limits("NO", ctx.yes_price, ctx.no_price) {
+            let confidence = (0.55_f64 + (-delta_pct - 0.03) * 4.0).min(0.78_f64);
             return Signal::No(confidence);
         }
 
@@ -244,7 +244,7 @@ impl StrategyExecutor {
 
     /// #3 LAST_SECONDS_SCALP - T-10 Sniper, only active in last 30 seconds
     fn evaluate_last_seconds_scalp(&self, ctx: StrategyContext) -> Signal {
-        if ctx.time_remaining > 30 || ctx.time_remaining < 4 {
+        if ctx.time_remaining > 30000 || ctx.time_remaining < 4000 {
             return Signal::Hold("Outside T-10 window".to_string());
         }
         if ctx.btc_price == 0.0 {
@@ -442,9 +442,10 @@ impl StrategyExecutor {
             return Signal::Hold("High volatility - market unpredictable".to_string());
         }
 
-        // Minimum velocity threshold: 0.015% per second
-        let min_velocity: f64 = 0.00015;
-        let min_acceleration: f64 = 0.00008;
+        // Minimum velocity threshold: 0.001% per second (BTC typically moves ~0.0017%/sec)
+        // Lowered from 0.015% to allow trading during normal BTC volatility
+        let min_velocity: f64 = 0.00001;
+        let min_acceleration: f64 = 0.000008;
 
         if velocity.abs() < min_velocity {
             return Signal::Hold(format!("Velocity too low: {:.4}%/s (choppy)", velocity * 100.0));
@@ -709,7 +710,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < self.params.min_time_remaining {
             return Signal::Hold("Too late".to_string());
         }
-        if ctx.time_remaining > 240 {
+        if ctx.time_remaining > 240000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -754,7 +755,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < self.params.min_time_remaining {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 240 {
+        if ctx.time_remaining > 240000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -812,7 +813,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < self.params.min_time_remaining {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 240 {
+        if ctx.time_remaining > 240000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -865,7 +866,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 20 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 270 {
+        if ctx.time_remaining > 270000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -945,7 +946,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 30 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 280 {
+        if ctx.time_remaining > 280000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1003,7 +1004,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 20 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 260 {
+        if ctx.time_remaining > 260000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1077,7 +1078,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 30 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 270 {
+        if ctx.time_remaining > 270000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1181,7 +1182,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 20 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 250 {
+        if ctx.time_remaining > 250000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1284,7 +1285,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 20 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 260 {
+        if ctx.time_remaining > 260000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1343,7 +1344,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 30 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 270 {
+        if ctx.time_remaining > 270000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1414,7 +1415,7 @@ impl StrategyExecutor {
         if ctx.time_remaining < 30 {
             return Signal::Hold("Too close to close".to_string());
         }
-        if ctx.time_remaining > 250 {
+        if ctx.time_remaining > 250000 {
             return Signal::Hold("Window just opened".to_string());
         }
 
@@ -1445,9 +1446,9 @@ impl StrategyExecutor {
         }
 
         // Calculate time decay factor (0.9 to 1.0)
-        let time_factor = if ctx.time_remaining > 150 {
+        let time_factor = if ctx.time_remaining > 150000 {
             1.0  // Plenty of time
-        } else if ctx.time_remaining > 60 {
+        } else if ctx.time_remaining > 60000 {
             0.95  // Getting close
         } else {
             0.90  // Very close to close

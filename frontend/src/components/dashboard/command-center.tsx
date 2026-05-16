@@ -27,8 +27,13 @@ import { MarketHistory } from "@/components/dashboard/market-history";
 import { QuickStart } from "@/components/dashboard/quick-start";
 import { QuickTradePanel } from "@/components/dashboard/quick-trade-panel";
 import { StrategyPerformance } from "@/components/dashboard/strategy-performance";
+import { StrategyComparisonTable } from "@/components/dashboard/strategy-comparison-table";
 import { SystemHealth } from "@/components/dashboard/system-health";
 import { TradeFeed } from "@/components/dashboard/trade-feed";
+import { PendingBetMonitor } from "@/components/dashboard/pending-bet-monitor";
+import { MarketTransitionAlert } from "@/components/dashboard/market-transition-alert";
+import { ExportData } from "@/components/dashboard/export-data";
+import { BacktestResults } from "@/components/dashboard/backtest-results";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { useAggregatePortfolio, useSettings, useUserBalance } from "@/hooks";
 import { useAppStore } from "@/store";
@@ -530,6 +535,7 @@ export function CommandCenter() {
           <div className="flex-1 min-w-0">
             <AccountInfoBar />
           </div>
+          <ExportData />
           <button
             type="button"
             onClick={() => setEmergencyStop(!emergencyStopActive)}
@@ -598,7 +604,20 @@ export function CommandCenter() {
         </div>
       </CollapsiblePanel>
 
-      {/* 5. History */}
+      {/* 5. Active Bets */}
+      <CollapsiblePanel
+        title="Active Bets"
+        icon={<Target className="h-4 w-4" />}
+        isOpen={true}
+        onToggle={() => {}}
+        bodyClassName="p-0"
+      >
+        <div className="p-4">
+          <PendingBetMonitor />
+        </div>
+      </CollapsiblePanel>
+
+      {/* 5.5 History */}
       <CollapsiblePanel
         title="Market History"
         icon={<History className="h-4 w-4" />}
@@ -608,6 +627,9 @@ export function CommandCenter() {
       >
         <div className="p-4">
           <MarketHistory />
+          <div className="mt-4">
+            <MarketTransitionAlert />
+          </div>
         </div>
       </CollapsiblePanel>
 
@@ -635,6 +657,17 @@ export function CommandCenter() {
         <StrategyPerformance />
       </CollapsiblePanel>
 
+      {/* 6.5 Strategy Comparison Table */}
+      <CollapsiblePanel
+        title="Strategy Comparison"
+        icon={<BarChart3 className="h-4 w-4" />}
+        isOpen={true}
+        onToggle={() => {}}
+        bodyClassName="p-0"
+      >
+        <StrategyComparisonTable />
+      </CollapsiblePanel>
+
       {/* 7. Trade Feed */}
       <CollapsiblePanel
         title="Trade Feed"
@@ -655,6 +688,17 @@ export function CommandCenter() {
         bodyClassName="p-0"
       >
         <SystemHealth />
+      </CollapsiblePanel>
+
+      {/* 9. Backtest */}
+      <CollapsiblePanel
+        title="Backtest"
+        icon={<History className="h-4 w-4" />}
+        isOpen={true}
+        onToggle={() => {}}
+        bodyClassName="p-0"
+      >
+        <BacktestResults />
       </CollapsiblePanel>
     </div>
   );

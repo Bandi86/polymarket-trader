@@ -118,7 +118,7 @@ impl BotInstance {
             btc_window_open,
             yes_price,
             no_price,
-            time_remaining,
+            time_remaining: time_remaining * 1000, // Convert seconds to milliseconds
             btc_velocity: None,
             btc_acceleration: None,
             btc_volatility: None,

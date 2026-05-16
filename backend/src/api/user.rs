@@ -210,16 +210,23 @@ async fn fetch_balance_with_creds(creds: crate::api::CachedCredentials) -> Respo
         .into_response();
     }
 
-    let client = PolymarketClient::new(&creds.private_key)
+    let client = match PolymarketClient::new(&creds.private_key)
         .map(|c| c.with_creds(crate::trading::polymarket::ApiKeyCreds {
             key: creds.api_key,
             secret: creds.api_secret,
             passphrase: creds.api_passphrase,
-        }))
-        .unwrap_or_else(|_| {
-            // If private key is invalid, create a dummy client with zero balance
-            panic!("Invalid private key in legacy credentials")
-        });
+        })) {
+        Ok(c) => c,
+        Err(_) => {
+            return Json(UserBalanceResponse {
+                balance: 0.0,
+                wallet_address: creds.wallet_address,
+                has_credentials: true,
+                error: Some("Invalid private key. Please update your credentials in Settings.".to_string()),
+            })
+            .into_response();
+        }
+    };
 
     match client.get_balance().await {
         Ok(usdc_balance) => Json(UserBalanceResponse {

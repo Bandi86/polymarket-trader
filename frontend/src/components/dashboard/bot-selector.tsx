@@ -1,9 +1,11 @@
 "use client";
 
-import { AlertTriangle, Crosshair, Loader2, Play, Square, X } from "lucide-react";
+import { AlertTriangle, CheckSquare, Crosshair, Loader2, Play, RotateCcw, Sliders, Square, X } from "lucide-react";
 import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
-import { useBots, useStartBot, useStopBot } from "@/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+import { useBots, useStartBot, useStopBot, useAggregatePortfolio } from "@/hooks";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
 import type { Bot as BotType } from "@/types";
@@ -70,18 +72,22 @@ function LiveModeConfirmDialog({
 
 export function BotSelector() {
   const { data: botsFromApi, isLoading, isFetching } = useBots();
-  const { selectedBotIds, setSelectedBotIds, tradingMode } = useAppStore();
+  const { selectedBotIds, setSelectedBotIds, addSelectedBot, removeSelectedBot, tradingMode } = useAppStore();
   const startBotMutation = useStartBot();
   const stopBotMutation = useStopBot();
+  const queryClient = useQueryClient();
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmBot, setConfirmBot] = useState<{ id: number; name: string } | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [betSizeValue, setBetSizeValue] = useState(1.0);
+  const [batchLoading, setBatchLoading] = useState<string | null>(null);
 
   const botList = botsFromApi ?? [];
   const isMutating = startBotMutation.isPending || stopBotMutation.isPending;
 
   // Filter bots by trading mode
   const filteredBots = botList;
+  const allSelected = filteredBots.length > 0 && selectedBotIds.length === filteredBots.length;
 
   const startBot = (id: number) => {
     const bot = botList.find((b) => b.id === id);
@@ -127,12 +133,109 @@ export function BotSelector() {
 
   const handleToggle = (id: number) => {
     if (selectedBotIds.includes(id)) {
-      setSelectedBotIds(selectedBotIds.filter((bid) => bid !== id));
-    } else if (selectedBotIds.length < 2) {
-      setSelectedBotIds([...selectedBotIds, id]);
+      removeSelectedBot(id);
     } else {
-      toast.error("Maximum 2 bot választható ki egyszerre");
+      addSelectedBot(id);
     }
+  };
+
+  const handleSelectAll = () => {
+    if (allSelected) {
+      setSelectedBotIds([]);
+    } else {
+      setSelectedBotIds(filteredBots.map((b) => b.id));
+    }
+  };
+
+  const handleClearSelection = () => {
+    setSelectedBotIds([]);
+  };
+
+  const handleBatchStart = async () => {
+    setBatchLoading("start");
+    const results = await Promise.allSettled(
+      selectedBotIds.map((id) =>
+        apiFetch(`/bots/${id}/start`, {
+          method: "POST",
+          body: JSON.stringify({ initial_balance: tradingMode === "live" ? 0 : 100 }),
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (succeeded > 0) {
+      toast.success(`${succeeded}/${selectedBotIds.length} bot(s) started`);
+      queryClient.invalidateQueries({ queryKey: ["bots"] });
+    }
+    if (failed > 0) {
+      toast.error(`Failed to start ${failed} bot(s)`);
+    }
+    setBatchLoading(null);
+  };
+
+  const handleBatchStop = async () => {
+    setBatchLoading("stop");
+    const results = await Promise.allSettled(
+      selectedBotIds.map((id) =>
+        apiFetch(`/bots/${id}/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (succeeded > 0) {
+      toast.success(`${succeeded}/${selectedBotIds.length} bot(s) stopped`);
+      queryClient.invalidateQueries({ queryKey: ["bots"] });
+    }
+    if (failed > 0) {
+      toast.error(`Failed to stop ${failed} bot(s)`);
+    }
+    setBatchLoading(null);
+  };
+
+  const handleBatchReset = async () => {
+    setBatchLoading("reset");
+    const results = await Promise.allSettled(
+      selectedBotIds.map((id) =>
+        apiFetch(`/bots/${id}/reset`, { method: "POST" })
+      )
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (succeeded > 0) {
+      toast.success(`Reset ${succeeded}/${selectedBotIds.length} bot(s)`);
+      queryClient.invalidateQueries({ queryKey: ["bots"] });
+    }
+    if (failed > 0) {
+      toast.error(`Failed to reset ${failed} bot(s)`);
+    }
+    setBatchLoading(null);
+  };
+
+  const handleBatchBetSize = async () => {
+    setBatchLoading("betSize");
+    const results = await Promise.allSettled(
+      selectedBotIds.map((id) =>
+        apiFetch(`/bots/${id}`, {
+          method: "PUT",
+          body: JSON.stringify({ bet_size: betSizeValue }),
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (succeeded > 0) {
+      toast.success(`Bet size set to $${betSizeValue.toFixed(2)} for ${succeeded} bot(s)`);
+      queryClient.invalidateQueries({ queryKey: ["bots"] });
+    }
+    if (failed > 0) {
+      toast.error(`Failed to update ${failed} bot(s)`);
+    }
+    setBatchLoading(null);
   };
 
   const deleteBot = async (id: number) => {
@@ -291,6 +394,126 @@ export function BotSelector() {
             )}
           </div>
         </div>
+
+        {/* Batch toolbar */}
+        <AnimatePresence>
+          {selectedBotIds.length > 0 && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="mx-2 overflow-hidden"
+            >
+              <div className="flex items-center gap-2 rounded-lg border border-indigo-500/20 bg-indigo-500/10 px-3 py-2 mb-2">
+                {/* Count badge */}
+                <span className="text-xs font-bold text-indigo-300 whitespace-nowrap">
+                  {selectedBotIds.length} selected
+                </span>
+
+                <div className="h-4 w-px bg-indigo-500/20 shrink-0" />
+
+                {/* Start Selected */}
+                <button
+                  type="button"
+                  onClick={handleBatchStart}
+                  disabled={batchLoading === "start"}
+                  className="flex items-center gap-1 rounded-md bg-green-500/20 border border-green-500/30 px-2 py-1 text-xs font-bold text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  {batchLoading === "start" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Play className="h-3 w-3" />
+                  )}
+                  Start
+                </button>
+
+                {/* Stop Selected */}
+                <button
+                  type="button"
+                  onClick={handleBatchStop}
+                  disabled={batchLoading === "stop"}
+                  className="flex items-center gap-1 rounded-md bg-red-500/20 border border-red-500/30 px-2 py-1 text-xs font-bold text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  {batchLoading === "stop" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Square className="h-3 w-3" />
+                  )}
+                  Stop
+                </button>
+
+                {/* Reset Selected */}
+                <button
+                  type="button"
+                  onClick={handleBatchReset}
+                  disabled={batchLoading === "reset"}
+                  className="flex items-center gap-1 rounded-md bg-amber-500/20 border border-amber-500/30 px-2 py-1 text-xs font-bold text-amber-400 hover:bg-amber-500/30 transition-colors disabled:opacity-50 whitespace-nowrap"
+                >
+                  {batchLoading === "reset" ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-3 w-3" />
+                  )}
+                  Reset
+                </button>
+
+                <div className="h-4 w-px bg-indigo-500/20 shrink-0" />
+
+                {/* Bet Size slider */}
+                <div className="flex items-center gap-1.5">
+                  <Sliders className="h-3 w-3 text-zinc-400 shrink-0" />
+                  <input
+                    type="range"
+                    min="0.5"
+                    max="10"
+                    step="0.5"
+                    value={betSizeValue}
+                    onChange={(e) => setBetSizeValue(parseFloat(e.target.value))}
+                    className="w-16 h-1 accent-indigo-500 cursor-pointer"
+                  />
+                  <span className="text-xs font-mono text-zinc-300 w-10 text-right">
+                    ${betSizeValue.toFixed(2)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleBatchBetSize}
+                    disabled={batchLoading === "betSize"}
+                    className="flex items-center gap-1 rounded-md bg-indigo-500/20 border border-indigo-500/30 px-2 py-1 text-xs font-bold text-indigo-400 hover:bg-indigo-500/30 transition-colors disabled:opacity-50 whitespace-nowrap"
+                  >
+                    {batchLoading === "betSize" ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Sliders className="h-3 w-3" />
+                    )}
+                    Apply
+                  </button>
+                </div>
+
+                <div className="h-4 w-px bg-indigo-500/20 shrink-0" />
+
+                {/* Select All / Deselect All */}
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold text-indigo-400 hover:bg-indigo-500/10 transition-colors whitespace-nowrap"
+                >
+                  <CheckSquare className="h-3 w-3" />
+                  {allSelected ? "Deselect All" : "Select All"}
+                </button>
+
+                {/* Clear Selection */}
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="flex items-center justify-center rounded-md p-1 text-zinc-500 hover:text-zinc-300 hover:bg-white/5 transition-colors"
+                  title="Clear selection"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Live mode warning */}
         {tradingMode === "live" && (

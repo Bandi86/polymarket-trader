@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AuthLanding } from "@/components/dashboard/auth-landing";
 import { CommandCenter } from "@/components/dashboard/command-center";
-import { useBtcPrice, useSSE, useUser } from "@/hooks";
+import { useBtcPrice, useUser } from "@/hooks";
 import { useAppStore } from "@/store";
 
 export function Dashboard() {
@@ -28,8 +28,8 @@ export function Dashboard() {
     }
   }, [userData, token, clearAuth]);
 
-  // SSE connection
-  useSSE();
+  // SSE is managed by AppLayout wrapper — do not duplicate here
+  // (AppLayout already calls useSSE and holds the singleton)
 
   // Sync BTC price to store
   useEffect(() => {

@@ -105,12 +105,9 @@ impl SettlementService {
 
         for (pos_id, bot_id, side, _market_id, size, avg_price) in positions {
             let pnl = if side == outcome {
-                // Winning position: profit = size * (1 - avg_price) for YES, size * avg_price for NO
-                if side == "YES" {
-                    size * (1.0 - avg_price)
-                } else {
-                    size * avg_price
-                }
+                // Winning position: payout = size * 1.0, cost = size * avg_price
+                // profit = payout - cost = size * (1.0 - avg_price)
+                size * (1.0 - avg_price)
             } else {
                 // Losing position: lose the cost
                 -(size * avg_price)
