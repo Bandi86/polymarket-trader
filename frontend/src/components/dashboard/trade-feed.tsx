@@ -1,7 +1,20 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowDownRight, ArrowUpRight, Clock, Filter, Flame, Pause, Play } from "lucide-react";
+import {
+  Activity,
+  ArrowDownRight,
+  ArrowUpRight,
+  Bot,
+  Clock,
+  DollarSign,
+  Filter,
+  Flame,
+  Pause,
+  Play,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBots } from "@/hooks";
 import { useNotificationStore } from "@/lib/notifications";
@@ -153,67 +166,114 @@ export function TradeFeed() {
       second: "2-digit",
     });
 
+  // Summary stats
+  const totalWins = sseTrades.filter((t) => t.won === true).length;
+  const totalLosses = sseTrades.filter((t) => t.won === false).length;
+  const totalPnL = sseTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+  const winRate = sseTrades.filter((t) => t.won !== undefined).length > 0
+    ? (totalWins / sseTrades.filter((t) => t.won !== undefined).length) * 100
+    : 0;
+
   return (
-    <div className="flex flex-col gap-3 p-4">
-      {/* Header: filter + controls */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          {/* Live indicator */}
-          <div className="flex items-center gap-1.5 mr-2">
-            <motion.span
-              animate={paused ? {} : { scale: [1, 1.2, 1], opacity: [1, 0.7, 1] }}
-              transition={paused ? {} : { duration: 2, repeat: Infinity }}
-              className={`w-2 h-2 rounded-full ${paused ? "bg-amber-500" : "bg-green-500"}`}
-            />
-            <span
-              className={`text-[10px] font-semibold ${
-                paused ? "text-amber-500" : "text-green-500"
-              }`}
-            >
-              {paused ? "PAUSED" : "LIVE"}
-            </span>
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 }}
+      className="flex flex-col gap-3 rounded-2xl border border-white/8 bg-white/[0.03] overflow-hidden"
+    >
+      {/* Enhanced Header */}
+      <div className="flex flex-col gap-2 border-b border-white/8 px-4 pt-3 pb-2">
+        {/* Row 1: Title + Live indicator */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity className="h-4 w-4 text-indigo-400" />
+            <span className="text-sm font-semibold text-zinc-200">Trade Feed</span>
           </div>
-          <Filter className="h-3.5 w-3.5 text-zinc-500" />
-          {(["ALL", "UP", "DOWN", "WIN", "LOSS"] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase cursor-pointer transition-colors ${
-                filter === f
-                  ? "bg-indigo-500/20 border border-indigo-500/40 text-indigo-300"
-                  : "bg-zinc-900/60 border border-white/10 text-zinc-500 hover:text-zinc-400"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+          <div className="flex items-center gap-3">
+            {/* Live/Paused badge */}
+            <div className="flex items-center gap-1.5">
+              <motion.span
+                animate={paused ? {} : { scale: [1, 1.2, 1], opacity: [1, 0.6, 1] }}
+                transition={paused ? {} : { duration: 1.5, repeat: Infinity }}
+                className={`w-2 h-2 rounded-full ${paused ? "bg-amber-500" : "bg-emerald-400"}`}
+              />
+              <span className={`text-[10px] font-bold uppercase ${paused ? "text-amber-500" : "text-emerald-400"}`}>
+                {paused ? "Paused" : "Live"}
+              </span>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-zinc-600">{filtered.length} entries</span>
-          <button
-            type="button"
-            onClick={() => {
-              setPaused(!paused);
-              if (!paused) setAutoScroll(false);
-              else setAutoScroll(true);
-            }}
-            className="rounded-md p-1.5 cursor-pointer bg-zinc-900/60 border border-white/10 text-zinc-500 hover:text-zinc-300 transition-colors"
-          >
-            {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setAutoScroll(true);
-              setPaused(false);
-            }}
-            className="rounded-md p-1.5 cursor-pointer bg-zinc-900/60 border border-white/10 text-zinc-500 hover:text-zinc-300 transition-colors"
-            title="Auto-scroll"
-          >
-            <span className="text-[10px]">↓</span>
-          </button>
+        {/* Row 2: Stats bar */}
+        <div className="grid grid-cols-4 gap-2">
+          <div className="flex flex-col items-center rounded-lg bg-zinc-900/60 px-2 py-1.5">
+            <span className="text-[9px] text-zinc-500 uppercase tracking-wider">Trades</span>
+            <span className="text-sm font-bold font-mono text-zinc-200">{sseTrades.length}</span>
+          </div>
+          <div className="flex flex-col items-center rounded-lg bg-green-500/5 border border-green-500/20 px-2 py-1.5">
+            <span className="text-[9px] text-green-400 uppercase tracking-wider">Wins</span>
+            <span className="text-sm font-bold font-mono text-green-400">{totalWins}</span>
+          </div>
+          <div className="flex flex-col items-center rounded-lg bg-red-500/5 border border-red-500/20 px-2 py-1.5">
+            <span className="text-[9px] text-red-400 uppercase tracking-wider">Losses</span>
+            <span className="text-sm font-bold font-mono text-red-400">{totalLosses}</span>
+          </div>
+          <div className="flex flex-col items-center rounded-lg bg-violet-500/5 border border-violet-500/20 px-2 py-1.5">
+            <span className="text-[9px] text-violet-400 uppercase tracking-wider">Win Rate</span>
+            <span className="text-sm font-bold font-mono text-violet-400">{winRate.toFixed(0)}%</span>
+          </div>
+        </div>
+
+        {/* Row 3: Filter + Controls */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Filter className="h-3 w-3 text-zinc-500" />
+            {(["ALL", "UP", "DOWN", "WIN", "LOSS"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase cursor-pointer transition-all ${
+                  filter === f
+                    ? "bg-indigo-500/20 border border-indigo-500/40 text-indigo-300"
+                    : "bg-zinc-900/60 border border-white/10 text-zinc-500 hover:text-zinc-400 hover:border-white/20"
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-zinc-600">{filtered.length} entries</span>
+            <button
+              type="button"
+              onClick={() => {
+                setPaused(!paused);
+                if (!paused) setAutoScroll(false);
+                else setAutoScroll(true);
+              }}
+              className="rounded-md p-1.5 cursor-pointer bg-zinc-900/60 border border-white/10 text-zinc-500 hover:text-zinc-300 transition-colors"
+              title={paused ? "Resume" : "Pause"}
+            >
+              {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAutoScroll(true);
+                setPaused(false);
+              }}
+              className={`rounded-md p-1.5 cursor-pointer border transition-colors ${
+                autoScroll
+                  ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-400"
+                  : "bg-zinc-900/60 border-white/10 text-zinc-500 hover:text-zinc-300"
+              }`}
+              title="Auto-scroll"
+            >
+              <TrendingUp className="h-3 w-3" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -222,7 +282,7 @@ export function TradeFeed() {
         ref={scrollRef}
         role="log"
         aria-live="polite"
-        className="max-h-96 overflow-y-auto space-y-1"
+        className="max-h-80 overflow-y-auto space-y-1 px-4 pb-3"
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => {
           if (!autoScroll) setPaused(false);
@@ -359,6 +419,6 @@ export function TradeFeed() {
           })
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }

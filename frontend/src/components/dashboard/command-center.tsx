@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { ActivityTabs } from "@/components/dashboard/activity-tabs";
 import { BacktestResults } from "@/components/dashboard/backtest-results";
 import { BotSelector } from "@/components/dashboard/bot-selector";
+import { BotThoughts } from "@/components/dashboard/bot-thoughts";
 import { ChartPanel } from "@/components/dashboard/chart-panel";
 import { EquityCurve } from "@/components/dashboard/equity-curve";
 import { ExportData } from "@/components/dashboard/export-data";
@@ -678,6 +679,9 @@ export function CommandCenter() {
       >
         <TradeFeed />
       </CollapsiblePanel>
+
+      {/* 7.5 Bot Thoughts */}
+      <BotThoughts />
 
       {/* 8. System Health */}
       <CollapsiblePanel

@@ -1,9 +1,12 @@
 export { ActivityTabs } from "./activity-tabs";
 export { AuthLanding } from "./auth-landing";
 export { BotSelector } from "./bot-selector";
+export { BotThoughts } from "./bot-thoughts";
 export { ChartPanel } from "./chart-panel";
 export { CommandCenter } from "./command-center";
 export { EquityCurve } from "./equity-curve";
 export { Dashboard } from "./main";
 export { MarketHistory } from "./market-history";
+export { MiniEquityCurve } from "./mini-equity-curve";
+export { QuickActionsToolbar } from "./quick-actions-toolbar";
 export { QuickTradePanel } from "./quick-trade-panel";

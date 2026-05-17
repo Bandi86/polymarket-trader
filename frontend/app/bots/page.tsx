@@ -29,6 +29,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CreateBotModal } from "@/components/bot-creation-modal";
+import { MiniEquityCurve } from "@/components/dashboard";
 import { apiFetch } from "@/lib/utils";
 import type { PortfolioResponse } from "@/types";
 
@@ -1013,6 +1014,14 @@ function BotCard({
                   <p className="font-semibold text-red-400">-{dd.toFixed(2)}%</p>
                 </div>
               </div>
+
+              {/* Mini Equity Curve */}
+              {totalTrades > 0 && (
+                <div>
+                  <span className="mb-1.5 block text-[10px] text-zinc-500 uppercase tracking-wider">Equity Curve</span>
+                  <MiniEquityCurve botId={Number(bot.id)} compact />
+                </div>
+              )}
 
               {/* Session info for running bots */}
               {isRunning && (
