@@ -615,6 +615,8 @@ impl BotOrchestrator {
         };
 
         // Build order request - always BUY
+        // NOTE: size is in USDC. The client must multiply by 1e6 before sending to the Polymarket API.
+        // e.g. a 10 USDC bet is passed as 10.0 here, and the API call encodes it as 10000000 (10 * 1e6).
         let order_request = OrderRequest {
             token_id,
             price,
@@ -755,6 +757,11 @@ pub fn start_competition_loop(orchestrator: Arc<BotOrchestrator>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+    use crate::db::Db;
+    use crate::db::queries;
+    use crate::trading::risk_manager::RiskSettings;
+    use crate::trading::strategy_coordinator::CoordinatorConfig;
 
     #[test]
     fn test_running_bot_info_fields() {
@@ -831,5 +838,280 @@ mod tests {
         assert_eq!(cloned.bet_size, 5.0);
         assert_eq!(cloned.end_price, Some(78100.0));
         assert_eq!(cloned.decision_id, 99);
+    }
+
+    /// Test that a paper trade cycle + settlement produces exactly one trade_decision record.
+    /// The signal phase calls `log_trade_decision` (INSERT OR IGNORE) which creates the record
+    /// with a non-zero d_id. The subsequent settlement phase calls `record_paper_settlement`
+    /// which updates that same record — it does NOT call `log_trade_decision` again, so no
+    /// duplicate is created.
+    #[tokio::test]
+    async fn test_paper_trade_no_duplicate_decision() {
+        // Create in-memory SQLite DB for test isolation
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(":memory:")
+            .await
+            .expect("failed to create in-memory DB");
+
+        // Run migrations (same schema as init_db)
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS bot_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                market_id TEXT NOT NULL,
+                strategy_type TEXT NOT NULL DEFAULT 'btc_5min',
+                params TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'stopped',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                bet_size REAL DEFAULT 1.0,
+                max_position_size REAL DEFAULT 10.0,
+                trading_mode TEXT NOT NULL DEFAULT 'paper'
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("migrate bot_configs");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS bot_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                start_time TEXT NOT NULL DEFAULT (datetime('now')),
+                end_time TEXT,
+                start_balance REAL NOT NULL DEFAULT 100,
+                end_balance REAL,
+                total_trades INTEGER DEFAULT 0,
+                winning_trades INTEGER DEFAULT 0,
+                losing_trades INTEGER DEFAULT 0,
+                total_pnl REAL DEFAULT 0,
+                status TEXT DEFAULT 'running',
+                max_drawdown REAL DEFAULT 0,
+                strategy_config TEXT,
+                mode TEXT NOT NULL DEFAULT 'demo',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("migrate bot_sessions");
+
+        // Migration: add mode column if it doesn't exist
+        sqlx::query("ALTER TABLE bot_sessions ADD COLUMN mode TEXT NOT NULL DEFAULT 'demo'")
+            .execute(&pool)
+            .await
+            .ok();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS trade_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bot_id INTEGER NOT NULL,
+                session_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                market_slug TEXT NOT NULL,
+                condition_id TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                signal_confidence REAL NOT NULL,
+                btc_price REAL,
+                btc_change REAL,
+                market_yes_price REAL,
+                market_no_price REAL,
+                time_remaining INTEGER,
+                decision_reason TEXT NOT NULL,
+                executed INTEGER DEFAULT 0,
+                order_id TEXT,
+                pnl REAL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(bot_id, market_slug)
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("migrate trade_decisions");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS bot_portfolios (
+                bot_id INTEGER PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                balance REAL DEFAULT 10,
+                initial_balance REAL DEFAULT 10,
+                open_positions INTEGER DEFAULT 0,
+                total_trades INTEGER DEFAULT 0,
+                winning_trades INTEGER DEFAULT 0,
+                losing_trades INTEGER DEFAULT 0,
+                total_pnl REAL DEFAULT 0,
+                peak_balance REAL DEFAULT 100,
+                last_trade_time TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("migrate bot_portfolios");
+
+        // Insert test bot, session, and portfolio
+        sqlx::query(
+            r#"INSERT INTO bot_configs (id, user_id, name, market_id, strategy_type, params, status, bet_size, trading_mode)
+               VALUES (1, 10, 'TestBot', 'btc-updown-5m-123', 'momentum', '{}', 'running', 5.0, 'paper')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert bot");
+
+        sqlx::query(
+            r#"INSERT INTO bot_sessions (id, bot_id, user_id, start_balance, status)
+               VALUES (1, 1, 10, 100.0, 'running')"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert session");
+
+        sqlx::query(
+            r#"INSERT INTO bot_portfolios (bot_id, user_id, balance, initial_balance)
+               VALUES (1, 10, 100.0, 100.0)"#,
+        )
+        .execute(&pool)
+        .await
+        .expect("insert portfolio");
+
+        let db: Db = Arc::new(pool);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+
+        // We need a minimal orchestrator to call execute_cycle.
+        // Build it piece by piece so we don't need every dependency wired up.
+        let orchestrator = Arc::new(BotOrchestrator {
+            db: db.clone(),
+            running_bots: Arc::new(RwLock::new(HashMap::new())),
+            event_sender: tx,
+            auto_save_interval: Duration::from_secs(30),
+            risk_manager: Arc::new(RwLock::new(RiskManager::new(RiskSettings::default()))),
+            loss_tracker: Arc::new(RwLock::new(BotLossTrackerManager::new())),
+            coordinator: Arc::new(RwLock::new(StrategyCoordinator::new(CoordinatorConfig::default()))),
+            competition_manager: Arc::new(RwLock::new(CompetitionManager::new())),
+        });
+
+        // Insert a RunningBot into the orchestrator's map with a pending_bet
+        // that has decision_id=1 (simulating a prior signal that placed this bet).
+        let market_slug = "btc-updown-5m-123";
+        {
+            let mut running = orchestrator.running_bots.write().await;
+            running.insert(
+                1i64,
+                RunningBot {
+                    bot_id: 1,
+                    bot_name: "TestBot".to_string(),
+                    session_id: 1,
+                    user_id: 10,
+                    strategy: StrategyExecutor::new("momentum", "{}"),
+                    last_market_slug: Some(market_slug.to_string()),
+                    consecutive_errors: 0,
+                    last_btc_price: Some(78000.0),
+                    btc_window_open: Some(77950.0),
+                    current_balance: 95.0, // lost $5 from bet
+                    pending_bet: Some(PendingBet {
+                        side: "YES".to_string(),
+                        bet_size: 5.0,
+                        start_price: 77950.0,
+                        end_price: None,
+                        entry_price: 0.55,
+                        decision_id: 1, // existing decision in DB
+                    }),
+                    btc_price_history: vec![],
+                    session_trades: 1,
+                    session_wins: 0,
+                    session_losses: 0,
+                    session_pnl: -5.0,
+                    peak_balance: 100.0,
+                    max_drawdown: 0.05,
+                },
+            );
+        }
+
+        // Phase 1: SIGNAL — log_trade_decision is called via execute_cycle when a new signal fires.
+        // We simulate this by directly calling log_trade_decision for a NEW market slug.
+        let signal_market_slug = "btc-updown-5m-456";
+        let d_id_signal = queries::log_trade_decision(
+            &db,
+            1,
+            1,
+            10,
+            signal_market_slug,
+            "cond_456",
+            "YES",
+            "momentum",
+            0.75,
+            Some(78100.0),
+            Some(0.002),
+            Some(0.55),
+            Some(0.45),
+            Some(120),
+            "paper trade",
+        )
+        .await
+        .expect("log_trade_decision should succeed");
+        assert!(
+            d_id_signal > 0,
+            "signal phase should return a non-zero decision_id, got {}",
+            d_id_signal
+        );
+
+        // Count trade_decisions after signal — should be exactly 1
+        let count_after_signal: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM trade_decisions WHERE bot_id = 1",
+        )
+        .fetch_one(db.as_ref())
+        .await
+        .expect("count query");
+        assert_eq!(
+            count_after_signal.0, 1,
+            "after signal: expected 1 decision, got {}",
+            count_after_signal.0
+        );
+
+        // Phase 2: SETTLEMENT — record_paper_settlement updates the existing decision (id=1).
+        // It does NOT call log_trade_decision, so no new record is created.
+        queries::record_paper_settlement(&db, 1, 1, true, 2.27, 5.0)
+            .await
+            .expect("record_paper_settlement should succeed");
+
+        // Count trade_decisions after settlement — must still be exactly 1
+        let count_after_settle: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM trade_decisions WHERE bot_id = 1",
+        )
+        .fetch_one(db.as_ref())
+        .await
+        .expect("count query after settlement");
+        assert_eq!(
+            count_after_settle.0, 1,
+            "after settlement: expected 1 decision (no duplicate), got {}",
+            count_after_settle.0
+        );
+
+        // Also verify the decision_id did not change (it's still d_id_signal = same record)
+        let final_id: (i64,) = sqlx::query_as(
+            "SELECT id FROM trade_decisions WHERE bot_id = 1",
+        )
+        .fetch_one(db.as_ref())
+        .await
+        .expect("get id");
+        assert_eq!(
+            final_id.0, d_id_signal,
+            "decision_id should remain {} (same record updated), got {}",
+            d_id_signal,
+            final_id.0
+        );
     }
 }
