@@ -1,20 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import {
-  Activity,
-  AlertCircle,
-  Bot,
-  CheckCircle2,
-  Clock,
-  Database,
-  Globe,
-  Loader2,
-  Server,
-  Wifi,
-  WifiOff,
-  XCircle,
-} from "lucide-react";
+import { AlertCircle, Bot, Globe, Server, Wifi } from "lucide-react";
 import { useAppStore } from "@/store";
 
 interface HealthIndicatorProps {
@@ -26,7 +13,14 @@ interface HealthIndicatorProps {
   subLabel?: string;
 }
 
-function HealthIndicator({ label, status, icon, detail, latency, subLabel }: HealthIndicatorProps) {
+function HealthIndicator({
+  label,
+  status,
+  icon,
+  detail: _detail,
+  latency,
+  subLabel,
+}: HealthIndicatorProps) {
   const statusConfig = {
     healthy: {
       color: "text-emerald-400",
@@ -89,9 +83,10 @@ function HealthIndicator({ label, status, icon, detail, latency, subLabel }: Hea
 export function SystemHealth() {
   const { sseHealth, latency, systemStatus, apiLatency } = useAppStore();
 
-  const uptime = sseHealth.connected && sseHealth.connectedSince
-    ? Math.floor((Date.now() - sseHealth.connectedSince) / 1000)
-    : 0;
+  const uptime =
+    sseHealth.connected && sseHealth.connectedSince
+      ? Math.floor((Date.now() - sseHealth.connectedSince) / 1000)
+      : 0;
 
   const formatUptime = (seconds: number) => {
     if (seconds === 0) return "--";
@@ -125,15 +120,13 @@ export function SystemHealth() {
               overallStatus === "healthy"
                 ? "bg-emerald-400"
                 : overallStatus === "degraded"
-                ? "bg-amber-400"
-                : overallStatus === "unhealthy"
-                ? "bg-red-400"
-                : "bg-blue-400 animate-pulse"
+                  ? "bg-amber-400"
+                  : overallStatus === "unhealthy"
+                    ? "bg-red-400"
+                    : "bg-blue-400 animate-pulse"
             }`}
           />
-          <span className="text-[10px] font-medium text-zinc-500 uppercase">
-            {overallStatus}
-          </span>
+          <span className="text-[10px] font-medium text-zinc-500 uppercase">{overallStatus}</span>
         </div>
       </div>
 
@@ -147,13 +140,21 @@ export function SystemHealth() {
         />
         <HealthIndicator
           label="API"
-          status={apiLatency > 0 && apiLatency < 500 ? "healthy" : apiLatency > 0 ? "degraded" : "unknown"}
+          status={
+            apiLatency > 0 && apiLatency < 500 ? "healthy" : apiLatency > 0 ? "degraded" : "unknown"
+          }
           icon={<Globe className="h-3.5 w-3.5" />}
           latency={apiLatency > 0 ? apiLatency : undefined}
         />
         <HealthIndicator
           label="Bots"
-          status={systemStatus && systemStatus.bots_running > 0 ? "healthy" : systemStatus ? "degraded" : "unknown"}
+          status={
+            systemStatus && systemStatus.bots_running > 0
+              ? "healthy"
+              : systemStatus
+                ? "degraded"
+                : "unknown"
+          }
           icon={<Bot className="h-3.5 w-3.5" />}
           subLabel={`${systemStatus?.bots_running ?? 0}/${systemStatus?.bots_total ?? 0}`}
         />
@@ -200,10 +201,15 @@ export function SystemHealth() {
             {latency.samples.slice(-20).map((sample, i) => {
               const height = Math.min((sample / (latency.max || 100)) * 24, 24);
               const color =
-                sample > 500 ? "bg-red-500/60" : sample > 200 ? "bg-amber-500/60" : "bg-emerald-500/60";
+                sample > 500
+                  ? "bg-red-500/60"
+                  : sample > 200
+                    ? "bg-amber-500/60"
+                    : "bg-emerald-500/60";
+              const uniqueId = `latency-${sample}-${i}`;
               return (
                 <div
-                  key={i}
+                  key={uniqueId}
                   className={`flex-1 rounded-sm ${color} transition-all`}
                   style={{ height: `${Math.max(height, 2)}px` }}
                 />

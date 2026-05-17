@@ -1,14 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { TrendingUp, TrendingDown, Zap } from "lucide-react";
+import { TrendingDown, TrendingUp, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
-import {
-  Area,
-  AreaChart,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
+import { Area, AreaChart, ResponsiveContainer, Tooltip } from "recharts";
 import { useAggregatePortfolio, usePortfolioHistory } from "@/hooks";
 
 interface MiniCurveProps {
@@ -19,7 +14,7 @@ interface MiniCurveProps {
 export function MiniEquityCurve({ botId, compact = false }: MiniCurveProps) {
   const { data: historyData } = usePortfolioHistory();
   const { data: agg } = useAggregatePortfolio();
-  const [hovered, setHovered] = useState(false);
+  const [_hovered, setHovered] = useState(false);
 
   const initialBalance = agg?.total_initial ?? 100;
 
@@ -50,7 +45,9 @@ export function MiniEquityCurve({ botId, compact = false }: MiniCurveProps) {
 
   if (chartData.length === 0) {
     return (
-      <div className={`flex items-center justify-center rounded-lg bg-zinc-900/40 ${compact ? "h-16" : "h-20"}`}>
+      <div
+        className={`flex items-center justify-center rounded-lg bg-zinc-900/40 ${compact ? "h-16" : "h-20"}`}
+      >
         <span className="text-[10px] text-zinc-600">Nincs adat</span>
       </div>
     );
@@ -60,7 +57,7 @@ export function MiniEquityCurve({ botId, compact = false }: MiniCurveProps) {
   const lastPnl = chartData[chartData.length - 1]?.pnl ?? 0;
   const isPositive = lastPnl >= 0;
   const color = isPositive ? "#22c55e" : "#ef4444";
-  const colorAlpha = isPositive ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)";
+  const _colorAlpha = isPositive ? "rgba(34,197,94,0.3)" : "rgba(239,68,68,0.3)";
 
   if (compact) {
     return (
@@ -96,9 +93,14 @@ export function MiniEquityCurve({ botId, compact = false }: MiniCurveProps) {
             isPositive ? "text-green-400" : "text-red-400"
           }`}
         >
-          {isPositive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+          {isPositive ? (
+            <TrendingUp className="h-2.5 w-2.5" />
+          ) : (
+            <TrendingDown className="h-2.5 w-2.5" />
+          )}
           <span className="text-[9px] font-bold font-mono">
-            {isPositive ? "+" : ""}{lastPnl.toFixed(1)}
+            {isPositive ? "+" : ""}
+            {lastPnl.toFixed(1)}
           </span>
         </div>
       </motion.div>
@@ -126,7 +128,8 @@ export function MiniEquityCurve({ botId, compact = false }: MiniCurveProps) {
             }`}
           >
             {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {isPositive ? "+" : ""}{lastPnl.toFixed(2)}
+            {isPositive ? "+" : ""}
+            {lastPnl.toFixed(2)}
           </span>
         </div>
       </div>
@@ -172,14 +175,19 @@ export function MiniEquityCurve({ botId, compact = false }: MiniCurveProps) {
         </div>
         <div className="flex flex-col items-center rounded-lg bg-zinc-900/60 px-2 py-1.5">
           <span className="text-[9px] text-zinc-500 uppercase tracking-wider">Current</span>
-          <span className={`text-xs font-bold font-mono ${isPositive ? "text-green-400" : "text-red-400"}`}>
+          <span
+            className={`text-xs font-bold font-mono ${isPositive ? "text-green-400" : "text-red-400"}`}
+          >
             ${lastPnl.toFixed(2)}
           </span>
         </div>
         <div className="flex flex-col items-center rounded-lg bg-zinc-900/60 px-2 py-1.5">
           <span className="text-[9px] text-zinc-500 uppercase tracking-wider">Change</span>
-          <span className={`text-xs font-bold font-mono ${isPositive ? "text-green-400" : "text-red-400"}`}>
-            {isPositive ? "+" : ""}{(lastPnl - firstPnl).toFixed(2)}
+          <span
+            className={`text-xs font-bold font-mono ${isPositive ? "text-green-400" : "text-red-400"}`}
+          >
+            {isPositive ? "+" : ""}
+            {(lastPnl - firstPnl).toFixed(2)}
           </span>
         </div>
       </div>

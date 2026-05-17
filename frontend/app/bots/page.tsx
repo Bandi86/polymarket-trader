@@ -1018,7 +1018,9 @@ function BotCard({
               {/* Mini Equity Curve */}
               {totalTrades > 0 && (
                 <div>
-                  <span className="mb-1.5 block text-[10px] text-zinc-500 uppercase tracking-wider">Equity Curve</span>
+                  <span className="mb-1.5 block text-[10px] text-zinc-500 uppercase tracking-wider">
+                    Equity Curve
+                  </span>
                   <MiniEquityCurve botId={Number(bot.id)} compact />
                 </div>
               )}

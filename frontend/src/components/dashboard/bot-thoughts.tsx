@@ -1,18 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import {
-  Brain,
-  Bot,
-  ChevronDown,
-  ChevronRight,
-  Clock,
-  Filter,
-  Lightbulb,
-  MessageSquare,
-  TrendingUp,
-  X,
-} from "lucide-react";
+import { Bot, Brain, ChevronDown, ChevronRight, Filter, MessageSquare } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBots } from "@/hooks";
 import { useAppStore } from "@/store";
@@ -32,7 +21,7 @@ interface BotThought {
 export function BotThoughts() {
   const { data: bots = [] } = useBots();
   const botActivities = useAppStore((s) => s.botActivities);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLUListElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
   const [collapsed, setCollapsed] = useState(false);
@@ -93,9 +82,8 @@ export function BotThoughts() {
   const totalThoughts = thoughts.length;
   const buyCount = thoughts.filter((t) => t.action === "buy").length;
   const sellCount = thoughts.filter((t) => t.action === "sell").length;
-  const avgConfidence = totalThoughts > 0
-    ? thoughts.reduce((sum, t) => sum + t.confidence, 0) / totalThoughts
-    : 0;
+  const avgConfidence =
+    totalThoughts > 0 ? thoughts.reduce((sum, t) => sum + t.confidence, 0) / totalThoughts : 0;
 
   if (collapsed) {
     return (
@@ -133,6 +121,7 @@ export function BotThoughts() {
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-zinc-500">{totalThoughts} thoughts</span>
             <button
+              type="button"
               onClick={() => setCollapsed(true)}
               className="rounded-md p-1 text-zinc-500 hover:text-zinc-300 cursor-pointer"
             >
@@ -157,7 +146,9 @@ export function BotThoughts() {
           </div>
           <div className="flex flex-col items-center rounded-lg bg-violet-500/5 border border-violet-500/20 px-2 py-1.5">
             <span className="text-[9px] text-violet-400 uppercase tracking-wider">Avg Conf</span>
-            <span className="text-sm font-bold font-mono text-violet-400">{(avgConfidence * 100).toFixed(0)}%</span>
+            <span className="text-sm font-bold font-mono text-violet-400">
+              {(avgConfidence * 100).toFixed(0)}%
+            </span>
           </div>
         </div>
 
@@ -166,6 +157,7 @@ export function BotThoughts() {
           <Filter className="h-3 w-3 text-zinc-500" />
           {(["ALL", "BUY", "SELL"] as const).map((f) => (
             <button
+              type="button"
               key={f}
               onClick={() => setFilter(f)}
               className={`rounded-md px-2 py-1 text-[10px] font-bold uppercase cursor-pointer transition-all ${
@@ -181,21 +173,21 @@ export function BotThoughts() {
       </div>
 
       {/* Thoughts list */}
-      <div
+      <ul
         ref={scrollRef}
         className="max-h-64 overflow-y-auto space-y-1 px-4 pb-3"
         onMouseEnter={() => setAutoScroll(false)}
         onMouseLeave={() => setAutoScroll(true)}
       >
         {filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+          <li className="flex flex-col items-center justify-center gap-2 py-8 text-center">
             <MessageSquare className="h-6 w-6 text-zinc-700" />
             <span className="text-sm text-zinc-500">Nincs gondolat</span>
             <span className="text-xs text-zinc-600">A botok gondolatai itt jelennek meg</span>
-          </div>
+          </li>
         ) : (
           filtered.map((thought) => (
-            <motion.div
+            <motion.li
               key={thought.id}
               initial={{ opacity: 0, x: -4 }}
               animate={{ opacity: 1, x: 0 }}
@@ -207,8 +199,12 @@ export function BotThoughts() {
               {/* Content */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-semibold text-zinc-300 truncate">{thought.botName}</span>
-                  <span className="text-[9px] font-mono text-zinc-600 shrink-0">{formatTime(thought.timestamp)}</span>
+                  <span className="text-[10px] font-semibold text-zinc-300 truncate">
+                    {thought.botName}
+                  </span>
+                  <span className="text-[9px] font-mono text-zinc-600 shrink-0">
+                    {formatTime(thought.timestamp)}
+                  </span>
                 </div>
                 <p className="text-[11px] text-zinc-400 leading-relaxed">{thought.thought}</p>
                 {thought.reason && (
@@ -222,8 +218,8 @@ export function BotThoughts() {
                   thought.confidence >= 0.7
                     ? "bg-green-500/10 text-green-400 border border-green-500/20"
                     : thought.confidence >= 0.5
-                    ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                    : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"
+                      ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                      : "bg-zinc-500/10 text-zinc-400 border border-zinc-500/20"
                 }`}
               >
                 {(thought.confidence * 100).toFixed(0)}%
@@ -241,10 +237,10 @@ export function BotThoughts() {
                   {thought.action}
                 </span>
               )}
-            </motion.div>
+            </motion.li>
           ))
         )}
-      </div>
+      </ul>
     </motion.div>
   );
 }

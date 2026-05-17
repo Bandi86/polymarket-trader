@@ -5,15 +5,12 @@ import {
   Activity,
   ArrowDownRight,
   ArrowUpRight,
-  Bot,
   Clock,
-  DollarSign,
   Filter,
   Flame,
   Pause,
   Play,
   TrendingUp,
-  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBots } from "@/hooks";
@@ -169,10 +166,11 @@ export function TradeFeed() {
   // Summary stats
   const totalWins = sseTrades.filter((t) => t.won === true).length;
   const totalLosses = sseTrades.filter((t) => t.won === false).length;
-  const totalPnL = sseTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
-  const winRate = sseTrades.filter((t) => t.won !== undefined).length > 0
-    ? (totalWins / sseTrades.filter((t) => t.won !== undefined).length) * 100
-    : 0;
+  const _totalPnL = sseTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+  const winRate =
+    sseTrades.filter((t) => t.won !== undefined).length > 0
+      ? (totalWins / sseTrades.filter((t) => t.won !== undefined).length) * 100
+      : 0;
 
   return (
     <motion.div
@@ -197,7 +195,9 @@ export function TradeFeed() {
                 transition={paused ? {} : { duration: 1.5, repeat: Infinity }}
                 className={`w-2 h-2 rounded-full ${paused ? "bg-amber-500" : "bg-emerald-400"}`}
               />
-              <span className={`text-[10px] font-bold uppercase ${paused ? "text-amber-500" : "text-emerald-400"}`}>
+              <span
+                className={`text-[10px] font-bold uppercase ${paused ? "text-amber-500" : "text-emerald-400"}`}
+              >
                 {paused ? "Paused" : "Live"}
               </span>
             </div>
@@ -220,7 +220,9 @@ export function TradeFeed() {
           </div>
           <div className="flex flex-col items-center rounded-lg bg-violet-500/5 border border-violet-500/20 px-2 py-1.5">
             <span className="text-[9px] text-violet-400 uppercase tracking-wider">Win Rate</span>
-            <span className="text-sm font-bold font-mono text-violet-400">{winRate.toFixed(0)}%</span>
+            <span className="text-sm font-bold font-mono text-violet-400">
+              {winRate.toFixed(0)}%
+            </span>
           </div>
         </div>
 

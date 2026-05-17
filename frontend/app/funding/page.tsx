@@ -26,15 +26,15 @@ interface EthereumProvider {
 // Type guard to check if an object is a valid Ethereum provider
 function isEthereumProvider(provider: unknown): provider is EthereumProvider {
   return (
-    typeof provider === 'object' &&
+    typeof provider === "object" &&
     provider !== null &&
-    typeof (provider as EthereumProvider).request === 'function'
+    typeof (provider as EthereumProvider).request === "function"
   );
 }
 
 // Type guard for RPC errors (EIP-1193 error responses)
 function isRpcError(err: unknown): err is { code?: number; message?: string } {
-  return typeof err === 'object' && err !== null;
+  return typeof err === "object" && err !== null;
 }
 
 function getEthereumProvider(): EthereumProvider | undefined {
