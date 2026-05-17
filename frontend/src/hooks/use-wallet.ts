@@ -23,20 +23,33 @@ const TOKENS = {
 // ERC-20 balanceOf(address) function selector
 const BALANCE_OF_SELECTOR = "0x70a08231";
 
-// Minimal EIP-1193 provider type
-interface EIP1193Provider {
+// Minimal EIP-1193 Ethereum provider interface
+interface EthereumProvider {
   isMetaMask?: boolean;
-  request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
-  on: (event: string, callback: (payload: unknown) => void) => void;
-  removeListener: (event: string, callback: (payload: unknown) => void) => void;
+  request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
+  on(event: string, callback: (payload: unknown) => void): void;
+  removeListener(event: string, callback: (payload: unknown) => void): void;
 }
 
-function getEthereumProvider(): EIP1193Provider | undefined {
-  return (window as { ethereum?: EIP1193Provider }).ethereum;
+// Type guard to check if an object is a valid Ethereum provider
+function isEthereumProvider(provider: unknown): provider is EthereumProvider {
+  return (
+    typeof provider === 'object' &&
+    provider !== null &&
+    typeof (provider as EthereumProvider).request === 'function' &&
+    typeof (provider as EthereumProvider).on === 'function' &&
+    typeof (provider as EthereumProvider).removeListener === 'function'
+  );
 }
 
+// Type guard for RPC errors (EIP-1193 error responses)
 function isRpcError(err: unknown): err is { code?: number; message?: string } {
-  return typeof err === "object" && err !== null;
+  return typeof err === 'object' && err !== null;
+}
+
+function getEthereumProvider(): EthereumProvider | undefined {
+  const provider = (window as { ethereum?: EthereumProvider }).ethereum;
+  return provider && isEthereumProvider(provider) ? provider : undefined;
 }
 
 interface WalletState {
@@ -57,11 +70,11 @@ function encodeAddressParam(addr: string): string {
   return addr.toLowerCase().replace("0x", "").padStart(64, "0");
 }
 
-async function getChainId(provider: EIP1193Provider): Promise<string> {
+async function getChainId(provider: EthereumProvider): Promise<string> {
   return (await provider.request({ method: "eth_chainId" })) as string;
 }
 
-async function switchToPolygon(provider: EIP1193Provider): Promise<boolean> {
+async function switchToPolygon(provider: EthereumProvider): Promise<boolean> {
   try {
     await provider.request({
       method: "wallet_switchEthereumChain",
@@ -89,7 +102,7 @@ async function switchToPolygon(provider: EIP1193Provider): Promise<boolean> {
   }
 }
 
-async function fetchBalance(provider: EIP1193Provider, address: string): Promise<Balances> {
+async function fetchBalance(provider: EthereumProvider, address: string): Promise<Balances> {
   // MATIC (native balance) — use BigInt to avoid precision loss
   const maticHex = (await provider.request({
     method: "eth_getBalance",

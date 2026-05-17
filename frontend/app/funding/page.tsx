@@ -18,17 +18,28 @@ import { useWallet } from "@/hooks/use-wallet";
 import { apiFetch } from "@/lib/utils";
 import { useAppStore } from "@/store";
 
-// Minimal EIP-1193 provider type
-interface EIP1193Provider {
-  request: (args: { method: string; params?: unknown[] | object }) => Promise<unknown>;
+// Minimal EIP-1193 Ethereum provider interface
+interface EthereumProvider {
+  request(args: { method: string; params?: unknown[] | object }): Promise<unknown>;
 }
 
-function getEthereumProvider(): EIP1193Provider | undefined {
-  return (window as { ethereum?: EIP1193Provider }).ethereum;
+// Type guard to check if an object is a valid Ethereum provider
+function isEthereumProvider(provider: unknown): provider is EthereumProvider {
+  return (
+    typeof provider === 'object' &&
+    provider !== null &&
+    typeof (provider as EthereumProvider).request === 'function'
+  );
 }
 
+// Type guard for RPC errors (EIP-1193 error responses)
 function isRpcError(err: unknown): err is { code?: number; message?: string } {
-  return typeof err === "object" && err !== null;
+  return typeof err === 'object' && err !== null;
+}
+
+function getEthereumProvider(): EthereumProvider | undefined {
+  const provider = (window as { ethereum?: EthereumProvider }).ethereum;
+  return provider && isEthereumProvider(provider) ? provider : undefined;
 }
 
 // Polygon contract for pUSD wrap
