@@ -12,12 +12,12 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
-import { useAppStore } from "@/store";
+import { useEffect, useState } from "react";
 import { usePortfolio } from "@/hooks";
 import { getStrategyColor } from "@/lib/utils";
+import { useAppStore } from "@/store";
 import type { Bot as BotType } from "@/types";
 import { LiveBotActivityCard } from "./live-bot-activity-card";
-import { useEffect, useState } from "react";
 
 // ── Detailed Bot Card ──
 

@@ -57,7 +57,7 @@ export function PendingBetMonitor() {
   const botActivities = useAppStore((s) => s.botActivities);
   const startPrice = useAppStore((s) => s.startPrice);
   const btcPrice = useAppStore((s) => s.btcPrice);
-  const priceDelta = useAppStore((s) => s.priceDelta);
+  const _priceDelta = useAppStore((s) => s.priceDelta);
   const timeRemaining = useAppStore((s) => s.timeRemaining);
   const bots = useAppStore((s) => s.bots);
   const btcDiff = (btcPrice || 0) - (startPrice || 0);
