@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import {
   Bot,
+  Clock,
   DollarSign,
   Loader2,
   Play,
@@ -11,10 +12,12 @@ import {
   TrendingUp,
   Zap,
 } from "lucide-react";
+import { useAppStore } from "@/store";
 import { usePortfolio } from "@/hooks";
 import { getStrategyColor } from "@/lib/utils";
 import type { Bot as BotType } from "@/types";
 import { LiveBotActivityCard } from "./live-bot-activity-card";
+import { useEffect, useState } from "react";
 
 // ── Detailed Bot Card ──
 
@@ -33,6 +36,32 @@ export function BotDetailCard({
 }) {
   const { data: portfolio } = usePortfolio(bot.id);
   const color = getStrategyColor(bot.strategy_type);
+  const botSessionStart = useAppStore((s) => s.botSessionStart);
+  const [runningSeconds, setRunningSeconds] = useState(0);
+
+  // Update running time every second
+  useEffect(() => {
+    if (!isRunning) {
+      setRunningSeconds(0);
+      return;
+    }
+    const startTs = botSessionStart[bot.id];
+    if (!startTs) return;
+
+    const update = () => {
+      setRunningSeconds(Math.floor((Date.now() - startTs) / 1000));
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [isRunning, bot.id, botSessionStart]);
+
+  // Format running time as MM:SS or HH:MM:SS
+  const formatRunning = (secs: number) => {
+    if (secs < 60) return `${secs}s`;
+    if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+    return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
+  };
 
   return (
     <motion.div
@@ -52,6 +81,12 @@ export function BotDetailCard({
           <span className="text-[10px] font-semibold text-green-400 uppercase tracking-wider">
             Trading Active
           </span>
+          {runningSeconds > 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-zinc-400">
+              <Clock className="h-3 w-3" />
+              {formatRunning(runningSeconds)}
+            </span>
+          )}
           <span className="text-[10px] text-zinc-500 ml-auto">
             {bot.trading_mode === "live" ? "Live" : "Paper"}
           </span>

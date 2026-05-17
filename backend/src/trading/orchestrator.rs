@@ -33,7 +33,7 @@ pub enum BotEvent {
         session_losses: i64,
         max_drawdown: f64,
     },
-    TradeDecision { bot_id: i64, outcome: String, confidence: f64, bet_size: f64, reason: String },
+    TradeDecision { bot_id: i64, outcome: String, confidence: f64, bet_size: f64, entry_price: f64, reason: String },
     OrderExecuted { bot_id: i64, order_id: String },
     BalanceUpdated { bot_id: i64, balance: f64 },
     MarketTransition { new_market_slug: String },
@@ -510,7 +510,7 @@ impl BotOrchestrator {
                         existing.pending_bet = None;
                     }
                 } else {
-                    self.event_sender.send(BotEvent::TradeDecision { bot_id, outcome: outcome.to_string(), confidence: conf, bet_size: actual_bet_size, reason: "Signal detected".into() }).ok();
+                    self.event_sender.send(BotEvent::TradeDecision { bot_id, outcome: outcome.to_string(), confidence: conf, bet_size: actual_bet_size, entry_price: price, reason: "Signal detected".into() }).ok();
 
                     if bot.trading_mode == "live" {
                         if let Some(ref cache) = credential_cache {

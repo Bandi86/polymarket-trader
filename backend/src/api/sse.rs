@@ -358,13 +358,14 @@ pub async fn bot_events_stream(
                                         "seq": current_seq
                                     })
                                 }
-                                BotEvent::TradeDecision { bot_id, outcome, confidence, bet_size, reason } => {
+                                BotEvent::TradeDecision { bot_id, outcome, confidence, bet_size, entry_price, reason } => {
                                     serde_json::json!({
                                         "type": "trade_decision",
                                         "bot_id": bot_id,
                                         "outcome": outcome,
                                         "confidence": confidence,
                                         "bet_size": bet_size,
+                                        "entry_price": entry_price,
                                         "reason": reason,
                                         "server_timestamp": chrono::Utc::now().timestamp_millis(),
                                         "seq": current_seq
@@ -599,7 +600,7 @@ pub async fn bot_events_stream(
                                 "yes": yes,
                                 "no": no,
                                 "time_remaining": time_remaining,
-                                "market_duration": 300,
+                                "market_duration": time_remaining, // Actual time until market end (seconds)
                                 "volume": volume,
                                 "market_question": question,
                                 "sentiment": sentiment,
@@ -616,7 +617,7 @@ pub async fn bot_events_stream(
                                 "yes": yes,
                                 "no": no,
                                 "time_remaining": time_remaining,
-                                "market_duration": 300,
+                                "market_duration": time_remaining, // Actual time until market end (seconds)
                                 "volume": volume,
                                 "market_question": question,
                                 "sentiment": sentiment,

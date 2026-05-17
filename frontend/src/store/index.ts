@@ -23,6 +23,10 @@ interface AppState {
   removeSelectedBot: (id: number) => void;
   updateBot: (id: number, updates: Partial<Bot>) => void;
 
+  // Bot session start timestamps (for calculating running time)
+  botSessionStart: Record<number, number>;
+  setBotSessionStart: (botId: number, timestamp: number) => void;
+
   // Market Data
   btcPrice: number;
   startPrice: number;
@@ -179,6 +183,10 @@ export const useAppStore = create<AppState>()(
         set((state) => ({
           bots: state.bots.map((bot) => (bot.id === id ? { ...bot, ...updates } : bot)),
         })),
+      // Bot session start timestamps (for calculating running time)
+      botSessionStart: {} as Record<number, number>,
+      setBotSessionStart: (botId, timestamp) =>
+        set((state) => ({ botSessionStart: { ...state.botSessionStart, [botId]: timestamp } })),
 
       // Market Data
       btcPrice: 0,

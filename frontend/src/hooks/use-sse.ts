@@ -174,6 +174,7 @@ export function useSSE() {
               level: "success",
             });
             store.updateBot(data.bot_id, { status: "running" });
+            store.setBotSessionStart(data.bot_id, Date.now());
             dispatchNotification(
               "info",
               `${data.bot_name || `Bot ${data.bot_id}`} started`,
@@ -240,6 +241,7 @@ export function useSSE() {
                 outcome: data.outcome,
                 betSize: data.bet_size,
                 confidence: data.confidence,
+                entryPrice: data.entry_price ?? 0,
                 reason: data.reason,
               },
             });

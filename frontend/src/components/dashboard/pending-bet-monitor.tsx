@@ -39,8 +39,8 @@ function ProgressBar({ remaining, total }: { remaining: number; total: number })
   );
 }
 
-function PnlDisplay({ pnl, delta }: { pnl?: number; delta: number }) {
-  const value = pnl ?? delta;
+function PnlDisplay({ pnl }: { pnl?: number }) {
+  const value = pnl ?? 0;
   const isPositive = value >= 0;
   return (
     <span
@@ -55,11 +55,12 @@ function PnlDisplay({ pnl, delta }: { pnl?: number; delta: number }) {
 
 export function PendingBetMonitor() {
   const botActivities = useAppStore((s) => s.botActivities);
-  const btcPrice = useAppStore((s) => s.btcPrice);
   const startPrice = useAppStore((s) => s.startPrice);
-  const _priceDelta = useAppStore((s) => s.priceDelta);
+  const btcPrice = useAppStore((s) => s.btcPrice);
+  const priceDelta = useAppStore((s) => s.priceDelta);
   const timeRemaining = useAppStore((s) => s.timeRemaining);
   const bots = useAppStore((s) => s.bots);
+  const btcDiff = (btcPrice || 0) - (startPrice || 0);
 
   const pendingBets = useMemo(() => {
     const bets: PendingBet[] = [];
@@ -138,8 +139,10 @@ export function PendingBetMonitor() {
         ) : (
           pendingBets.map((bet) => {
             const isYes = bet.side === "YES";
-            const btcDiff = btcPrice - startPrice;
-            const estimatedPnl = isYes ? btcDiff : -btcDiff;
+            // Polymarket expected winnings: YES = size * (1/price - 1), NO = size * (price/(1-price))
+            const expectedWinnings = isYes
+              ? bet.size * (1 / bet.price - 1)
+              : bet.size * (bet.price / (1 - bet.price));
 
             return (
               <motion.div
@@ -170,7 +173,7 @@ export function PendingBetMonitor() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Zap className="h-3 w-3 text-indigo-400/60" />
-                      <PnlDisplay pnl={bet.unrealizedPnl || estimatedPnl} delta={btcDiff} />
+                      <PnlDisplay pnl={bet.unrealizedPnl || expectedWinnings} />
                     </div>
                   </div>
 

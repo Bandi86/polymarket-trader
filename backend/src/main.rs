@@ -84,15 +84,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         while let Some(event) = rx.recv().await { let _ = broadcaster.send(event); }
     });
 
-// Bot restore on startup - restore active bot sessions from DB
-    let restore_orchestrator = app_state.orchestrator.clone();
-    tokio::spawn(async move {
-        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 22).await;
-        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 19).await;
-        trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 25).await;
-        trading::orchestrator::restore_running_bots(restore_orchestrator, 26).await;
-    });
-    tracing::info!("Bot restore from database started");
+// Bot restore on startup - DISABLED 2026-05-17
+// Bots must be started manually via POST /api/bots/:id/start
+// Auto-restart on server crash caused confusion and duplicate sessions
+//     let restore_orchestrator = app_state.orchestrator.clone();
+//     tokio::spawn(async move {
+//         trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 22).await;
+//         trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 19).await;
+//         trading::orchestrator::restore_running_bots(restore_orchestrator.clone(), 25).await;
+//         trading::orchestrator::restore_running_bots(restore_orchestrator, 26).await;
+//     });
+//     tracing::info!("Bot restore from database started");
 
     // Auto-save loop
     let orch_save = app_state.orchestrator.clone();
