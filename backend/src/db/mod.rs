@@ -1296,7 +1296,13 @@ pub async fn create_session(
         if result.rows_affected() == 0 {
             Ok(0)
         } else {
-            Ok(result.last_insert_rowid())
+            // FIX: Use simple insert without OR IGNORE to get correct last_insert_rowid
+            // The OR IGNORE was causing last_insert_rowid to return 0 on duplicate detection
+            let id = sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()")
+                .fetch_one(db.as_ref())
+                .await
+                .unwrap_or(0);
+            Ok(id)
         }
     }
 

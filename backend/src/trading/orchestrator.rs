@@ -361,6 +361,10 @@ impl BotOrchestrator {
         // The diff is calculated against the CLOSING price (btc_price at settlement time = when market ended)
         // We track end_price in pending_bet so we use the actual closing price, not a mid-market price
         let market_ended = market.time_remaining <= 5;
+        if market_ended || rb.pending_bet.is_some() {
+            eprintln!("[DEBUG_SETTLE] Bot {}: time_remaining={}, market_ended={}, pending_bet={:?}, market_slug={}, btc_price={:.2}, yes_price={}, no_price={}", 
+                bot_id, market.time_remaining, market_ended, rb.pending_bet.is_some(), market_slug, btc_price, market.yes_price, market.no_price);
+        }
         
         if market_ended {
             // Market ended - settle the pending bet using CURRENT btc_price as closing price
@@ -435,6 +439,48 @@ impl BotOrchestrator {
             tracing::info!("[MARKET] Bot {} new market: {} (time_remaining={}s)", bot_id, market_slug, market.time_remaining);
         }
 
+        // NEW: Also settle on market transition if we have a pending bet with end_price (previous market closed)
+        if market_changed && rb.pending_bet.is_some() {
+            if let Some(ref bet) = rb.pending_bet {
+                if bet.end_price.is_some() {
+                    // Settlement using saved end_price (closing price of previous market)
+                    let settle_price = bet.end_price.unwrap();
+                    let diff = (settle_price - bet.start_price) / bet.start_price;
+
+                    let diff_threshold = 0.0001;
+                    let won = if diff.abs() < diff_threshold {
+                        false
+                    } else if bet.side == "YES" {
+                        diff > 0.0
+                    } else {
+                        diff < 0.0
+                    };
+
+                    let profit = if won {
+                        bet.bet_size * (1.0 - bet.entry_price) / bet.entry_price
+                    } else {
+                        -bet.bet_size
+                    };
+                    queries::record_paper_settlement(&self.db, bot_id, bet.decision_id, won, profit, bet.bet_size).await.ok();
+                    self.event_sender.send(BotEvent::TradeResult { bot_id, won, pnl: profit }).ok();
+                    eprintln!("[SETTLE_MARKET_CHANGE] Bot {}: {} won={} profit={:.4} diff={:.6} close={:.2}", bot_id, bet.side, won, profit, diff, settle_price);
+
+                    rb.session_trades += 1;
+                    rb.session_pnl += profit;
+                    if won { rb.session_wins += 1; } else { rb.session_losses += 1; }
+
+                    rb.current_balance += profit;
+                    if rb.current_balance > rb.peak_balance { rb.peak_balance = rb.current_balance; }
+                    let drawdown = (rb.peak_balance - rb.current_balance) / rb.peak_balance;
+                    if drawdown > rb.max_drawdown { rb.max_drawdown = drawdown; }
+
+                    rb.pending_bet = None;
+                    queries::update_portfolio_balance(&self.db, bot_id, rb.current_balance).await.ok();
+                    eprintln!("[SETTLE_MARKET_CHANGE] Bot {} settled on market transition, new balance={:.4}", bot_id, rb.current_balance);
+                }
+            }
+        }
+
         let ctx = StrategyContext {
             btc_price,
             btc_change,
@@ -461,6 +507,9 @@ impl BotOrchestrator {
         if let Signal::Yes(conf) | Signal::No(conf) = signal {
             tracing::info!("Bot {} generated signal: {:?} (confidence: {})", bot_id, signal, conf);
 
+            // DEBUG: Log the pending_bet state before trade decision
+            eprintln!("[DEBUG_TRADE] Bot {} checking trade. pending_bet={:?}, balance={}", bot_id, rb.pending_bet.is_some(), rb.current_balance);
+
             let outcome = if matches!(signal, Signal::Yes(_)) { "YES" } else { "NO" };
             let price = if outcome == "YES" { market.yes_price } else { market.no_price };
 
@@ -469,6 +518,7 @@ impl BotOrchestrator {
                 let mut running = self.running_bots.write().await;
                 if let Some(existing) = running.get(&bot_id) {
                     if existing.pending_bet.is_some() {
+                        eprintln!("[DEBUG_TRADE] Bot {} REJECTED: pending_bet already exists", bot_id);
                         false
                     } else {
                         let pb = PendingBet {
