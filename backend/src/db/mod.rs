@@ -233,6 +233,26 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .await
         .ok(); // Ignore error if column already exists
 
+    // Session timers - timed session tracking for the fleet
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS session_timers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            duration_secs INTEGER NOT NULL,
+            started_at TEXT NOT NULL DEFAULT (datetime('now')),
+            ends_at TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            auto_stopped INTEGER DEFAULT 0,
+            summary_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
     // bot_runs - complete run tracking with mode and balance
     sqlx::query(
         r#"
@@ -433,6 +453,9 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .execute(pool)
         .await.ok();
     sqlx::query("ALTER TABLE bot_configs ADD COLUMN trading_mode TEXT DEFAULT 'paper'")
+        .execute(pool)
+        .await.ok();
+    sqlx::query("ALTER TABLE executions ADD COLUMN decision_id INTEGER")
         .execute(pool)
         .await.ok();
 
@@ -1245,6 +1268,85 @@ pub async fn create_session(
         Ok(result)
     }
 
+    // === Session timer queries ===
+
+    /// Create a new session timer
+    pub async fn create_session_timer(
+        db: &Db,
+        user_id: i64,
+        duration_secs: i64,
+        ends_at: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO session_timers (user_id, duration_secs, ends_at, status)
+            VALUES (?, ?, ?, 'active')
+            "#
+        )
+        .bind(user_id)
+        .bind(duration_secs)
+        .bind(ends_at)
+        .execute(db.as_ref())
+        .await?;
+
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Get active session timer for a user
+    pub async fn get_active_session_timer(
+        db: &Db,
+        user_id: i64,
+    ) -> Result<Option<SessionTimerRecord>, sqlx::Error> {
+        let result = sqlx::query_as::<_, SessionTimerRecord>(
+            "SELECT * FROM session_timers WHERE user_id = ? AND status = 'active' ORDER BY id DESC LIMIT 1"
+        )
+        .bind(user_id)
+        .fetch_optional(db.as_ref())
+        .await?;
+
+        Ok(result)
+    }
+
+    /// Mark session timer as expired
+    pub async fn expire_session_timer(
+        db: &Db,
+        timer_id: i64,
+        summary_json: &str,
+        auto_stopped: bool,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE session_timers SET
+                status = 'expired',
+                summary_json = ?,
+                auto_stopped = ?
+            WHERE id = ?
+            "#
+        )
+        .bind(summary_json)
+        .bind(if auto_stopped { 1 } else { 0 })
+        .bind(timer_id)
+        .execute(db.as_ref())
+        .await?;
+
+        Ok(())
+    }
+
+    /// Cancel an active session timer
+    pub async fn cancel_session_timer(
+        db: &Db,
+        user_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE session_timers SET status = 'cancelled' WHERE user_id = ? AND status = 'active'"
+        )
+        .bind(user_id)
+        .execute(db.as_ref())
+        .await?;
+
+        Ok(())
+    }
+
     // === Trade decision queries ===
 
     /// Log a trade decision
@@ -1266,9 +1368,12 @@ pub async fn create_session(
         time_remaining: Option<i64>,
         decision_reason: &str,
     ) -> Result<i64, sqlx::Error> {
-        let result = sqlx::query(
+        let pool = db.as_ref();
+
+        // Try INSERT first - if it fails due to duplicate, fetch the existing ID
+        let insert_result = sqlx::query(
             r#"
-            INSERT OR IGNORE INTO trade_decisions (
+            INSERT INTO trade_decisions (
                 bot_id, session_id, user_id, market_slug, condition_id, outcome,
                 signal_type, signal_confidence, btc_price, btc_change,
                 market_yes_price, market_no_price, time_remaining, decision_reason
@@ -1289,20 +1394,31 @@ pub async fn create_session(
         .bind(market_no_price)
         .bind(time_remaining)
         .bind(decision_reason)
-        .execute(db.as_ref())
-        .await?;
+        .execute(pool)
+        .await;
 
-        // Return 0 if insert was ignored (duplicate), otherwise return the new row id
-        if result.rows_affected() == 0 {
-            Ok(0)
-        } else {
-            // FIX: Use simple insert without OR IGNORE to get correct last_insert_rowid
-            // The OR IGNORE was causing last_insert_rowid to return 0 on duplicate detection
-            let id = sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()")
-                .fetch_one(db.as_ref())
-                .await
-                .unwrap_or(0);
-            Ok(id)
+        match insert_result {
+            Ok(result) => {
+                // Successful insert - return the new row ID
+                Ok(result.last_insert_rowid())
+            }
+            Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {
+                // Duplicate detected - fetch the existing decision ID
+                let existing = sqlx::query_scalar::<_, i64>(
+                    r#"
+                    SELECT id FROM trade_decisions
+                    WHERE bot_id = ? AND market_slug = ? AND condition_id = ?
+                    "#
+                )
+                .bind(bot_id)
+                .bind(market_slug)
+                .bind(condition_id)
+                .fetch_optional(pool)
+                .await?;
+
+                Ok(existing.unwrap_or(0))
+            }
+            Err(e) => Err(e),
         }
     }
 
@@ -1579,7 +1695,7 @@ pub async fn create_session(
         decision_id: i64,
         won: bool,
         pnl: f64,
-        bet_size: f64,
+        _bet_size: f64,
     ) -> Result<(), sqlx::Error> {
         let pool = db.as_ref();
 
@@ -1591,14 +1707,12 @@ pub async fn create_session(
             .await?;
 
         // Update portfolio stats
-        // WIN case: balance += bet_size (returned) + pnl (profit). So total += bet_size + pnl
-        // LOSE case: balance -= bet_size (the stake is already deducted at entry, so just record the loss)
-        // PNL here is ALREADY the net profit (won: +bet_size*(1-entry), lost: -bet_size)
-        // For won: balance was already deducted at entry (-bet_size), now we add back stake+profit = bet_size + pnl
-        // For lost: balance was already deducted at entry (-bet_size), pnl is already -bet_size, so net change is 0
+        // Balance was already deducted at entry (-bet_size), so:
+        // - On win: add only the profit (pnl), NOT the stake (bet_size) — stake is not returned separately
+        // - On loss: pnl is already -bet_size, just update stats (balance already deducted at entry)
         if won {
-            // Balance change = stake returned + profit = bet_size + pnl (pnl is already the profit part)
-            let win_amount = bet_size + pnl;
+            // pnl is the NET profit: bet_size * (1-entry)/entry
+            // Balance change = only the profit portion, NOT stake (stake was deducted at entry and is gone)
             sqlx::query(
                 r#"
                 UPDATE bot_portfolios SET
@@ -1612,16 +1726,15 @@ pub async fn create_session(
                 WHERE bot_id = ?
                 "#,
             )
-            .bind(win_amount)
             .bind(pnl)
-            .bind(win_amount)
+            .bind(pnl)
+            .bind(pnl)
             .bind(bot_id)
             .execute(pool)
             .await?;
         } else {
-            // For loss: balance was ALREADY deducted at entry (update_portfolio_balance),
-            // so DON'T deduct again here. Only update stats.
-            // pnl is already negative (e.g. -bet_size), so add it to total_pnl.
+            // On loss: pnl is already -bet_size (the stake loss). Balance was already deducted at entry.
+            // Don't deduct again. Just update stats.
             sqlx::query(
                 r#"
                 UPDATE bot_portfolios SET
@@ -1735,6 +1848,42 @@ pub async fn create_session(
                 .bind(v).bind(bot_id).bind(user_id).execute(db.as_ref()).await?;
         }
         Ok(())
+    }
+
+    // === Execution records ===
+
+    /// Create an execution record for a paper or live trade
+    pub async fn create_execution(
+        db: &Db,
+        bot_id: i64,
+        user_id: i64,
+        market_slug: &str,
+        side: &str,
+        size: f64,
+        price: f64,
+        _decision_id: i64,
+        mode: &str,
+    ) -> Result<i64, sqlx::Error> {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO executions (
+                bot_id, user_id, market_id, side, requested_size, avg_fill_price,
+                filled_size, adapter, mode, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'paper', ?, 'filled')
+            "#
+        )
+        .bind(bot_id)
+        .bind(user_id)
+        .bind(market_slug)
+        .bind(side)
+        .bind(size)
+        .bind(price)
+        .bind(size)
+        .bind(mode)
+        .execute(db.as_ref())
+        .await?;
+
+        Ok(result.last_insert_rowid())
     }
 
     // === API Keys CRUD ===
@@ -1933,4 +2082,18 @@ pub struct BotPortfolioRecord {
     pub total_pnl: f64,
     pub peak_balance: f64,
     pub last_trade_time: Option<String>,
+}
+
+/// Session timer record - timed session for the fleet
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct SessionTimerRecord {
+    pub id: i64,
+    pub user_id: i64,
+    pub duration_secs: i64,
+    pub started_at: String,
+    pub ends_at: String,
+    pub status: String,
+    pub auto_stopped: i64,
+    pub summary_json: Option<String>,
+    pub created_at: String,
 }

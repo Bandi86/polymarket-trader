@@ -42,6 +42,7 @@ export function TradeFeed() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
   const [filter, setFilter] = useState<"ALL" | "UP" | "DOWN" | "WIN" | "LOSS">("ALL");
+  const [botFilter, setBotFilter] = useState<string>("ALL");
 
   // Derive trades directly from botActivities — no useEffect needed, prevents infinite loop
   const sseTrades = useMemo(() => {
@@ -146,6 +147,7 @@ export function TradeFeed() {
   }, [autoScroll, paused]);
 
   const filtered = sseTrades.filter((t) => {
+    if (botFilter !== "ALL" && String(t.botId) !== botFilter) return false;
     if (filter === "ALL") return true;
     if (filter === "UP") return t.side === "UP" || t.outcome === "YES";
     if (filter === "DOWN") return t.side === "DOWN" || t.outcome === "NO";
@@ -247,6 +249,18 @@ export function TradeFeed() {
           </div>
 
           <div className="flex items-center gap-1.5">
+            <select
+              value={botFilter}
+              onChange={(e) => setBotFilter(e.target.value)}
+              className="rounded-md px-2 py-1 text-[10px] font-bold bg-zinc-900/60 border border-white/10 text-zinc-500 cursor-pointer"
+            >
+              <option value="ALL">All Bots</option>
+              {bots.map((b) => (
+                <option key={b.id} value={String(b.id)}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
             <span className="text-[10px] text-zinc-600">{filtered.length} entries</span>
             <button
               type="button"

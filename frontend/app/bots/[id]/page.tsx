@@ -7,6 +7,7 @@ import {
   BarChart3,
   Bot as BotIcon,
   Clock,
+  Edit2,
   Loader2,
   Play,
   RotateCcw,
@@ -16,6 +17,7 @@ import {
   TrendingUp,
   Trophy,
   Wallet,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -103,6 +105,16 @@ function BotDetail({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"trades" | "sessions" | "config">("trades");
+  const [isEditingConfig, setIsEditingConfig] = useState(false);
+  const [editForm, setEditForm] = useState({
+    bet_size: 0,
+    max_bet: 0,
+    stop_loss: 0,
+    take_profit: 0,
+    kelly_fraction: 0,
+    use_kelly: false,
+  });
+  const [savingConfig, setSavingConfig] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -129,6 +141,46 @@ function BotDetail({ id }: { id: string }) {
     const interval = setInterval(loadAll, 10000);
     return () => clearInterval(interval);
   }, [loadAll]);
+
+  // Populate edit form when bot loads
+  useEffect(() => {
+    if (bot) {
+      setEditForm({
+        bet_size: bot.bet_size,
+        max_bet: bot.max_bet,
+        stop_loss: bot.stop_loss,
+        take_profit: bot.take_profit,
+        kelly_fraction: bot.kelly_fraction,
+        use_kelly: bot.use_kelly,
+      });
+    }
+  }, [bot]);
+
+  const handleSaveConfig = async () => {
+    setSavingConfig(true);
+    try {
+      const res = await apiFetch<{ success: boolean }>(`/bots/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          bet_size: editForm.bet_size,
+          max_bet: editForm.max_bet,
+          stop_loss: editForm.stop_loss,
+          take_profit: editForm.take_profit,
+          use_kelly: editForm.use_kelly,
+          kelly_fraction: editForm.kelly_fraction,
+        }),
+      });
+      if (res.success) {
+        toast.success("Konfiguráció frissítve");
+        setIsEditingConfig(false);
+        await loadAll();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Hiba a mentés közben");
+    } finally {
+      setSavingConfig(false);
+    }
+  };
 
   const equityData = useMemo(() => {
     const reversed = [...trades].reverse();
@@ -536,22 +588,134 @@ function BotDetail({ id }: { id: string }) {
             </div>
           )}
 
-          {activeTab === "config" && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <ConfigItem label="Stratégia" value={bot.strategy_type} />
-              <ConfigItem label="Piaci ID" value={bot.market_id.slice(0, 20)} />
-              <ConfigItem label="Tét" value={`$${bot.bet_size}`} />
-              <ConfigItem label="Max tét" value={`$${bot.max_bet}`} />
-              <ConfigItem
-                label="Kelly"
-                value={bot.use_kelly ? `${(bot.kelly_fraction * 100).toFixed(0)}%` : "Nem"}
-              />
-              <ConfigItem label="Interval" value={`${(bot.interval / 1000).toFixed(0)}s`} />
-              <ConfigItem label="Stop Loss" value={`-${(bot.stop_loss * 100).toFixed(0)}%`} />
-              <ConfigItem label="Take Profit" value={`+${(bot.take_profit * 100).toFixed(0)}%`} />
-              <ConfigItem label="Paraméterek" value={bot.params || "{}"} />
-            </div>
-          )}
+          {activeTab === "config" &&
+            (isEditingConfig ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <ConfigEditItem
+                    label="Tét (USDC)"
+                    value={editForm.bet_size}
+                    onChange={(v) => setEditForm({ ...editForm, bet_size: v })}
+                    type="number"
+                    min={1}
+                    max={1000}
+                  />
+                  <ConfigEditItem
+                    label="Max tét (USDC)"
+                    value={editForm.max_bet}
+                    onChange={(v) => setEditForm({ ...editForm, max_bet: v })}
+                    type="number"
+                    min={1}
+                    max={10000}
+                  />
+                  <ConfigEditItem
+                    label="Stop Loss (%)"
+                    value={(editForm.stop_loss * 100).toFixed(0)}
+                    onChange={(v) => setEditForm({ ...editForm, stop_loss: v / 100 })}
+                    type="number"
+                    min={1}
+                    max={50}
+                    suffix="%"
+                  />
+                  <ConfigEditItem
+                    label="Take Profit (%)"
+                    value={(editForm.take_profit * 100).toFixed(0)}
+                    onChange={(v) => setEditForm({ ...editForm, take_profit: v / 100 })}
+                    type="number"
+                    min={1}
+                    max={100}
+                    suffix="%"
+                  />
+                  <div className="flex items-center gap-3 rounded-lg bg-zinc-800/30 p-3">
+                    <span className="text-[10px] uppercase text-zinc-500">Kelly Fogalmazás</span>
+                    <button
+                      type="button"
+                      onClick={() => setEditForm({ ...editForm, use_kelly: !editForm.use_kelly })}
+                      className={`rounded-md px-3 py-1 text-xs font-semibold cursor-pointer transition-colors ${
+                        editForm.use_kelly
+                          ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                          : "bg-zinc-700/50 text-zinc-400 border border-white/10"
+                      }`}
+                    >
+                      {editForm.use_kelly ? "BE" : "KI"}
+                    </button>
+                    {editForm.use_kelly && (
+                      <input
+                        type="number"
+                        value={(editForm.kelly_fraction * 100).toFixed(0)}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, kelly_fraction: Number(e.target.value) / 100 })
+                        }
+                        min={10}
+                        max={100}
+                        className="w-16 rounded-md bg-zinc-900/60 border border-white/10 px-2 py-1 text-xs font-mono text-zinc-100"
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveConfig}
+                    disabled={savingConfig}
+                    className="flex items-center gap-2 rounded-lg bg-green-500/15 px-4 py-2 text-sm font-semibold text-green-400 border border-green-500/30 hover:bg-green-500/25 transition-colors disabled:opacity-50"
+                  >
+                    {savingConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                    Mentés
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingConfig(false);
+                      if (bot)
+                        setEditForm({
+                          bet_size: bot.bet_size,
+                          max_bet: bot.max_bet,
+                          stop_loss: bot.stop_loss,
+                          take_profit: bot.take_profit,
+                          kelly_fraction: bot.kelly_fraction,
+                          use_kelly: bot.use_kelly,
+                        });
+                    }}
+                    className="flex items-center gap-2 rounded-lg bg-zinc-700/50 px-4 py-2 text-sm font-semibold text-zinc-400 border border-white/10 hover:bg-zinc-700/70 transition-colors"
+                  >
+                    <X className="h-4 w-4" />
+                    Mégse
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-xs text-zinc-500">Konfiguráció (olvasható)</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingConfig(true)}
+                    className="flex items-center gap-2 rounded-lg bg-indigo-500/10 px-3 py-1.5 text-xs font-semibold text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors"
+                  >
+                    <Edit2 className="h-3 w-3" />
+                    Szerkesztés
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <ConfigItem label="Stratégia" value={bot.strategy_type} />
+                  <ConfigItem label="Piaci ID" value={bot.market_id.slice(0, 20)} />
+                  <ConfigItem label="Tét" value={`$${bot.bet_size}`} />
+                  <ConfigItem label="Max tét" value={`$${bot.max_bet}`} />
+                  <ConfigItem
+                    label="Kelly"
+                    value={bot.use_kelly ? `${(bot.kelly_fraction * 100).toFixed(0)}%` : "Nem"}
+                  />
+                  <ConfigItem label="Interval" value={`${(bot.interval / 1000).toFixed(0)}s`} />
+                  <ConfigItem label="Stop Loss" value={`-${(bot.stop_loss * 100).toFixed(0)}%`} />
+                  <ConfigItem
+                    label="Take Profit"
+                    value={`+${(bot.take_profit * 100).toFixed(0)}%`}
+                  />
+                  <ConfigItem label="Paraméterek" value={bot.params || "{}"} />
+                </div>
+              </div>
+            ))}
         </div>
       </div>
     </div>
@@ -595,6 +759,44 @@ function ConfigItem({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg bg-zinc-800/30 p-3">
       <p className="text-[10px] uppercase text-zinc-500 mb-1">{label}</p>
       <p className="text-sm font-medium text-white truncate">{value}</p>
+    </div>
+  );
+}
+
+function ConfigEditItem({
+  label,
+  value,
+  onChange,
+  type,
+  min,
+  max,
+  suffix,
+}: {
+  label: string;
+  value: string | number;
+  onChange: (v: number) => void;
+  type: "number" | "text";
+  min?: number;
+  max?: number;
+  suffix?: string;
+}) {
+  return (
+    <div className="rounded-lg bg-zinc-800/30 p-3">
+      <p className="text-[10px] uppercase text-zinc-500 mb-1">{label}</p>
+      <div className="flex items-center gap-1">
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => {
+            const v = type === "number" ? parseFloat(e.target.value) || 0 : e.target.value;
+            onChange(v as number);
+          }}
+          min={min}
+          max={max}
+          className="w-full rounded-md bg-zinc-900/60 border border-indigo-500/30 px-3 py-2 text-sm font-semibold font-mono text-indigo-300 focus:border-indigo-400 focus:outline-none"
+        />
+        {suffix && <span className="text-xs text-zinc-500">{suffix}</span>}
+      </div>
     </div>
   );
 }

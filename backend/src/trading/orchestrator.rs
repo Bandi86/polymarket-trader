@@ -569,13 +569,16 @@ impl BotOrchestrator {
                                 match Self::place_order(&market, outcome, actual_bet_size, creds).await {
                                     Ok(order_id) => {
                                         tracing::info!("[LIVE] Bot {} order executed: {} ({} @ {})", bot_id, order_id, outcome, price);
-                                        let _d_id = queries::log_trade_decision(
+                                        let d_id = queries::log_trade_decision(
                                             &self.db, bot_id, rb.session_id, user_id, &market_slug,
                                             &market.condition_id, outcome, &bot.strategy_type, conf,
                                             Some(btc_price), btc_change, Some(market.yes_price),
                                             Some(market.no_price), Some(market.time_remaining), "live"
                                         ).await.unwrap_or(0);
                                         queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - actual_bet_size).await.ok();
+                                        if d_id > 0 {
+                                            queries::create_execution(&self.db, bot_id, user_id, &market_slug, outcome, actual_bet_size, price, d_id, "live").await.ok();
+                                        }
                                         self.event_sender.send(BotEvent::OrderExecuted { bot_id, order_id }).ok();
                                         self.event_sender.send(BotEvent::PositionUpdate { bot_id, bot_name: rb.bot_name.clone(), side: outcome.to_string(), size: actual_bet_size, price, unrealized_pnl: 0.0 }).ok();
                                     }
@@ -605,6 +608,8 @@ impl BotOrchestrator {
                             }
                         } else {
                             queries::update_portfolio_balance(&self.db, bot_id, portfolio.balance - actual_bet_size).await.ok();
+                            // Create execution record for paper trade
+                            queries::create_execution(&self.db, bot_id, user_id, &market_slug, outcome, actual_bet_size, price, d_id, "paper trade").await.ok();
                             let mut running = self.running_bots.write().await;
                             if let Some(existing) = running.get_mut(&bot_id) {
                                 if let Some(ref mut pb) = existing.pending_bet {

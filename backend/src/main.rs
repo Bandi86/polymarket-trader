@@ -100,6 +100,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orch_save = app_state.orchestrator.clone();
     tokio::spawn(async move { trading::orchestrator::start_auto_save_loop(orch_save).await; });
 
+    // Session timer monitor - checks for expired timers every 10 seconds
+    let orch_timer = app_state.orchestrator.clone();
+    let db_timer = db.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let users = sqlx::query("SELECT DISTINCT user_id FROM session_timers WHERE status = 'active'")
+                .fetch_all(db_timer.as_ref()).await.unwrap_or_default();
+            for row in users {
+                let user_id: i64 = row.get("user_id");
+                if let Ok(Some(timer)) = db::queries::get_active_session_timer(&db_timer, user_id).await {
+                    let now = chrono::Utc::now().timestamp();
+                    let ends_at = chrono::NaiveDateTime::parse_from_str(&timer.ends_at, "%Y-%m-%d %H:%M:%S")
+                        .map(|dt| dt.and_utc().timestamp()).unwrap_or(0);
+                    if now >= ends_at {
+                        tracing::info!("Session timer {} expired for user {}, auto-stopping bots", timer.id, user_id);
+                        let running = orch_timer.get_running_bots(user_id).await;
+                        let bots_count = running.len();
+                        for bot_id in running {
+                            let _ = orch_timer.stop_bot(bot_id, user_id).await;
+                        }
+                        let summary = serde_json::json!({
+                            "stopped_at": chrono::Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string(),
+                            "duration_secs": timer.duration_secs,
+                            "bots_stopped": bots_count
+                        });
+                        let _ = db::queries::expire_session_timer(&db_timer, timer.id, &summary.to_string(), true).await;
+                    }
+                }
+            }
+        }
+    });
+
     // CORS layer
 
     let app = Router::new()

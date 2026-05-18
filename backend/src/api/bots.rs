@@ -1067,14 +1067,32 @@ pub async fn stop_all_bots(
     Extension(claims): Extension<Claims>,
 ) -> Response {
     let user_id = claims.user_id;
+    let db = state.db();
 
+    // First: stop all bots in orchestrator's in-memory map
     let running = state.orchestrator.get_running_bots(user_id).await;
-    let mut stopped = 0;
+    let mut stopped = running.len();
 
     for bot_id in running {
         if state.orchestrator.stop_bot(bot_id, user_id).await.is_ok() {
-            stopped += 1;
+            // already counted
         }
+    }
+
+    // Second: clean up any bots still marked "running" in DB but not in orchestrator map
+    // (can happen after server restart — stale DB state)
+    let db_running: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM bot_configs WHERE user_id = ? AND status = 'running'"
+    )
+    .bind(user_id)
+    .fetch_all(db.as_ref())
+    .await
+    .unwrap_or_default();
+
+    for bot_id in db_running {
+        // This handles the ghost-running case via the fallback in stop_bot
+        state.orchestrator.stop_bot(bot_id, user_id).await.ok();
+        stopped += 1;
     }
 
     Json(serde_json::json!({
@@ -1111,8 +1129,8 @@ pub async fn reset_all_bots(
         }
     }
 
-    // Reset all portfolios to $100
-    match sqlx::query("UPDATE bot_portfolios SET balance = 100.0, total_pnl = 0, winning_trades = 0, losing_trades = 0, updated_at = datetime('now') WHERE user_id = ?")
+    // Reset all portfolios to $100 and clear ALL stats
+    match sqlx::query("UPDATE bot_portfolios SET balance = 100.0, initial_balance = 100.0, total_pnl = 0, winning_trades = 0, losing_trades = 0, total_trades = 0, open_positions = 0, updated_at = datetime('now') WHERE user_id = ?")
         .bind(user_id)
         .execute(db.as_ref())
         .await {
@@ -1509,4 +1527,195 @@ pub async fn get_portfolio_history(
             })).into_response()
         }
     }
+}
+
+// ==================== Session Timer ====================
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[derive(Debug, Deserialize)]
+pub struct StartSessionTimerRequest {
+    pub duration_mins: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionTimerResponse {
+    pub id: i64,
+    pub duration_secs: i64,
+    pub started_at: String,
+    pub ends_at: String,
+    pub status: String,
+    pub remaining_secs: i64,
+}
+
+/// POST /api/session/start - Start a fleet-wide session timer
+/// When the timer expires, all running bots are stopped and a summary is saved.
+pub async fn start_session_timer(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+    Json(req): Json<StartSessionTimerRequest>,
+) -> Response {
+    let user_id = claims.user_id;
+    let db = state.db();
+
+    // Cancel any existing active timer first
+    queries::cancel_session_timer(&db, user_id).await.ok();
+
+    // Create the new timer
+    let duration_secs = req.duration_mins * 60;
+    let ends_at = {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let ends = now + duration_secs;
+        chrono::DateTime::from_timestamp(ends, 0)
+            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            .unwrap_or_else(|| {
+                let t = chrono::Utc::now() + chrono::TimeDelta::seconds(duration_secs);
+                t.format("%Y-%m-%d %H:%M:%S").to_string()
+            })
+    };
+
+    match queries::create_session_timer(&db, user_id, duration_secs, &ends_at).await {
+        Ok(timer_id) => {
+            // Start the fleet using orchestrator.start_bot so bots are properly registered
+            // in the running_bots map and can be stopped correctly
+            let balance = 100.0;
+            let bots = queries::get_bots_by_user(&db, user_id).await.unwrap_or_default();
+            let mut started = 0i32;
+            for bot in bots {
+                // Skip if bot already has an active session
+                if queries::get_active_session(&db, bot.id).await.ok().flatten().is_some() {
+                    continue;
+                }
+                // Use orchestrator.start_bot to properly register in running_bots map
+                match state.orchestrator.start_bot(&bot, balance).await {
+                    Ok(session_id) => {
+                        let interval_secs = (bot.interval / 1000).max(10) as u64;
+                        let orch = state.orchestrator.clone();
+                        let cred = state.credential_cache.clone();
+                        let b_id = bot.id;
+                        let u_id = user_id;
+                        tokio::spawn(async move {
+                            crate::trading::orchestrator::start_orchestrator_loop(
+                                orch, b_id, u_id, interval_secs, Some(cred)
+                            ).await;
+                        });
+                        started += 1;
+                        tracing::info!("Session timer started bot {} (session {}, balance {:.2})", bot.id, session_id, balance);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to start bot {} from session timer: {}", bot.id, e);
+                    }
+                }
+            }
+
+            tracing::info!("Session timer {} started for {} mins ({} bots started)", timer_id, req.duration_mins, started);
+
+            Json(SessionTimerResponse {
+                id: timer_id,
+                duration_secs,
+                started_at: chrono::Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string(),
+                ends_at,
+                status: "active".to_string(),
+                remaining_secs: duration_secs,
+            }).into_response()
+        }
+        Err(e) => {
+            tracing::error!("Failed to create session timer: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to start session timer".to_string(),
+            })).into_response()
+        }
+    }
+}
+
+/// GET /api/session/timer - Get the current active session timer
+pub async fn get_session_timer(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let user_id = claims.user_id;
+    let db = state.db();
+
+    match queries::get_active_session_timer(&db, user_id).await {
+        Ok(Some(timer)) => {
+            // Calculate remaining seconds
+            let remaining = {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64;
+                let ends = chrono::NaiveDateTime::parse_from_str(&timer.ends_at, "%Y-%m-%d %H:%M:%S")
+                    .map(|dt| dt.and_utc().timestamp())
+                    .unwrap_or(now);
+                let rem = ends - now;
+                if rem > 0 { rem } else { 0 }
+            };
+
+            Json(SessionTimerResponse {
+                id: timer.id,
+                duration_secs: timer.duration_secs,
+                started_at: timer.started_at,
+                ends_at: timer.ends_at,
+                status: timer.status,
+                remaining_secs: remaining,
+            }).into_response()
+        }
+        Ok(None) => (StatusCode::NOT_FOUND, Json(ErrorResponse {
+            error: "No active session timer".to_string(),
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to get session timer: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to get session timer".to_string(),
+            })).into_response()
+        }
+    }
+}
+
+/// POST /api/session/cancel - Cancel the active session timer (does NOT stop bots)
+pub async fn cancel_session_timer(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let user_id = claims.user_id;
+    let db = state.db();
+
+    match queries::cancel_session_timer(&db, user_id).await {
+        Ok(_) => Json(serde_json::json!({
+            "success": true,
+            "message": "Session timer cancelled"
+        })).into_response(),
+        Err(e) => {
+            tracing::error!("Failed to cancel session timer: {}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse {
+                error: "Failed to cancel session timer".to_string(),
+            })).into_response()
+        }
+    }
+}
+
+/// POST /api/session/stop-all - Stop all running bots (called when timer expires)
+pub async fn session_timer_stop_all(
+    State(state): State<AppState>,
+    Extension(claims): Extension<Claims>,
+) -> Response {
+    let user_id = claims.user_id;
+    let db = state.db();
+
+    let bots = queries::get_bots_by_user(&db, user_id).await.unwrap_or_default();
+    let mut stopped = 0i32;
+
+    for bot in bots {
+        if state.orchestrator.stop_bot(bot.id, user_id).await.is_ok() {
+            stopped += 1;
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": true,
+        "stopped": stopped
+    })).into_response()
 }

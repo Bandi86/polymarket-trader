@@ -90,14 +90,23 @@ export function BotSelector() {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [confirmBot, setConfirmBot] = useState<{ id: number; name: string } | null>(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [betSizeValue, setBetSizeValue] = useState(1.0);
   const [batchLoading, setBatchLoading] = useState<string | null>(null);
 
   const botList = botsFromApi ?? [];
   const isMutating = startBotMutation.isPending || stopBotMutation.isPending;
 
-  // Filter bots by trading mode
-  const filteredBots = botList;
+  // Filter bots by trading mode + search
+  const filteredBots = botList.filter((b) => {
+    if (!searchQuery) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      b.name.toLowerCase().includes(q) ||
+      b.strategy_type.toLowerCase().includes(q) ||
+      String(b.status).toLowerCase().includes(q)
+    );
+  });
   const allSelected = filteredBots.length > 0 && selectedBotIds.length === filteredBots.length;
 
   const startBot = (id: number) => {
@@ -403,6 +412,19 @@ export function BotSelector() {
             )}
           </div>
         </div>
+
+        {/* Search bar */}
+        {filteredBots.length < botList.length && (
+          <div className="px-4 pb-2">
+            <input
+              type="text"
+              placeholder="Keresés botokra..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-zinc-800/60 px-3 py-1.5 text-xs text-white placeholder-zinc-600 outline-none focus:border-indigo-500/50"
+            />
+          </div>
+        )}
 
         {/* Batch toolbar */}
         <AnimatePresence>

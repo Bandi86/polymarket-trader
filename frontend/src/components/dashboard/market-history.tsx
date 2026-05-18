@@ -55,9 +55,19 @@ export function MarketHistory() {
       return true;
     });
 
-  const reversed = [...filtered].reverse().slice(0, 5);
+  const reversed = [...filtered].reverse().slice(0, 10);
   const winRate =
     reversed.length > 0 ? (reversed.filter((r) => r.delta >= 0).length / reversed.length) * 100 : 0;
+
+  // Streak calculation
+  const streak = reversed.slice(0, 7).reduce<{ wins: number; losses: number }>(
+    (acc, r) => {
+      if (r.delta >= 0) acc.wins++;
+      else acc.losses++;
+      return acc;
+    },
+    { wins: 0, losses: 0 }
+  );
 
   return (
     <motion.div
@@ -76,13 +86,29 @@ export function MarketHistory() {
         <span className="text-sm font-semibold text-zinc-100">Market Results</span>
         <span className="ml-auto flex items-center gap-2">
           {reversed.length > 0 && (
-            <span
-              className={`text-xs font-bold ${winRate >= 50 ? "text-green-500" : "text-amber-500"}`}
-            >
-              {winRate.toFixed(0)}% WR
-            </span>
+            <>
+              <span
+                className={`text-xs font-bold ${winRate >= 50 ? "text-green-500" : "text-amber-500"}`}
+              >
+                {winRate.toFixed(0)}% WR
+              </span>
+              {(streak.wins > 0 || streak.losses > 0) && (
+                <div className="flex items-center gap-0.5">
+                  {Array.from({ length: Math.min(streak.wins, 5) }).map((_, i) => (
+                    <span key={`win-${i}`} className="text-[10px] text-green-500">
+                      W
+                    </span>
+                  ))}
+                  {Array.from({ length: Math.min(streak.losses, 5) }).map((_, i) => (
+                    <span key={`loss-${i}`} className="text-[10px] text-red-500">
+                      L
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
           )}
-          <span className="text-xs text-zinc-500">{reversed.length}/5</span>
+          <span className="text-xs text-zinc-500">{reversed.length}/10</span>
           <ChevronDown
             className={`h-4 w-4 text-zinc-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
           />

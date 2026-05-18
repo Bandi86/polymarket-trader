@@ -168,6 +168,11 @@ pub fn routes(app_state: AppState) -> Router<AppState> {
         .route("/funding/info", get(funding::funding_info))
         .route("/funding/wallet-info", get(funding::wallet_info))
         .route("/funding/wrap", post(funding::wrap_pusd))
+        // Session timer routes (fleet-wide timed sessions)
+        .route("/session/start", post(bots::start_session_timer))
+        .route("/session/timer", get(bots::get_session_timer))
+        .route("/session/cancel", post(bots::cancel_session_timer))
+        .route("/session/stop-all", post(bots::session_timer_stop_all))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             auth_middleware::auth_middleware,

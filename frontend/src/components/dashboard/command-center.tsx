@@ -18,7 +18,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityTabs } from "@/components/dashboard/activity-tabs";
 import { BacktestResults } from "@/components/dashboard/backtest-results";
 import { BotSelector } from "@/components/dashboard/bot-selector";
@@ -32,7 +32,7 @@ import { PendingBetMonitor } from "@/components/dashboard/pending-bet-monitor";
 import { QuickStart } from "@/components/dashboard/quick-start";
 import { QuickTradePanel } from "@/components/dashboard/quick-trade-panel";
 import { StrategyComparisonTable } from "@/components/dashboard/strategy-comparison-table";
-import { StrategyPerformance } from "@/components/dashboard/strategy-performance";
+import { StrategyPanel } from "@/components/dashboard/strategy-panel";
 import { SystemHealth } from "@/components/dashboard/system-health";
 import { TradeFeed } from "@/components/dashboard/trade-feed";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
@@ -265,9 +265,9 @@ function MarketBar() {
 
   const marketDuration = 300;
 
-  // Probability Arc — mini SVG showing YES probability as arc fill
+  // Probability Arc — larger SVG gauge showing YES probability as arc fill
   function ProbabilityArc({ yesPrice }: { yesPrice: number }) {
-    const radius = 18;
+    const radius = 36;
     const circumference = Math.PI * radius; // half-circle
     const fillPercent = Math.min(Math.max(yesPrice * 100, 2), 98);
     const offset = circumference - (fillPercent / 100) * circumference;
@@ -276,44 +276,61 @@ function MarketBar() {
 
     return (
       <svg
-        width="44"
-        height="24"
-        viewBox="0 0 44 24"
+        width="80"
+        height="45"
+        viewBox="0 0 80 45"
         className="shrink-0"
         role="img"
-        aria-label="Probability arc"
+        aria-label={`YES probability: ${(yesPrice * 100).toFixed(1)}%`}
       >
-        <title>Probability</title>
+        <title>Probability: {(yesPrice * 100).toFixed(1)}%</title>
+        {/* Background arc */}
         <path
-          d="M 4 22 A 18 18 0 0 1 40 22"
+          d="M 6 40 A 36 36 0 0 1 74 40"
           fill="none"
           stroke="#27272a"
-          strokeWidth="3"
+          strokeWidth="5"
           strokeLinecap="round"
         />
+        {/* Filled arc */}
         <path
-          d="M 4 22 A 18 18 0 0 1 40 22"
+          d="M 6 40 A 36 36 0 0 1 74 40"
           fill="none"
           stroke={color}
-          strokeWidth="3"
+          strokeWidth="5"
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           className="transition-all duration-500"
         />
+        {/* Needle */}
         <line
-          x1="22"
-          y1="22"
-          x2="22"
-          y2="8"
+          x1="40"
+          y1="40"
+          x2="40"
+          y2="12"
           stroke={color}
-          strokeWidth="1.5"
+          strokeWidth="2"
           strokeLinecap="round"
-          opacity="0.7"
+          opacity="0.8"
         />
+        {/* Center dot */}
+        <circle cx="40" cy="40" r="3" fill={color} opacity="0.8" />
       </svg>
     );
   }
+
+  // BTC Sparkline — mini price history from SSE tick data
+  const btcHistoryRef = useRef<number[]>([]);
+  useEffect(() => {
+    if (btcPrice > 0) {
+      btcHistoryRef.current = [...btcHistoryRef.current, btcPrice].slice(-15);
+    }
+  }, [btcPrice]);
+  const btcHistory = btcHistoryRef.current;
+  const btcMax = Math.max(...btcHistory, 1);
+  const btcMin = Math.min(...btcHistory);
+  const btcRange = btcMax - btcMin || 1;
 
   const timeProgress =
     timeRemaining > 0 ? ((marketDuration - timeRemaining) / marketDuration) * 100 : 100;
@@ -383,6 +400,43 @@ function MarketBar() {
               {probGap.toFixed(0)}%
             </div>
           </div>
+
+          {/* BTC Sparkline */}
+          {btcHistory.length >= 3 && (
+            <div className="flex items-center gap-1.5 ml-2 px-2 border-l border-white/10">
+              <span className="text-[9px] uppercase tracking-wider text-zinc-500">BTC</span>
+              <svg
+                width="60"
+                height="24"
+                viewBox="0 0 60 24"
+                className="opacity-70"
+                aria-label="BTC price sparkline"
+              >
+                <title>BTC Price Sparkline</title>
+                <polyline
+                  points={btcHistory
+                    .map((p: number, i: number) => {
+                      const x = (i / (btcHistory.length - 1)) * 58 + 1;
+                      const y = 22 - ((p - btcMin) / btcRange) * 20;
+                      return `${x},${y}`;
+                    })
+                    .join(" ")}
+                  fill="none"
+                  stroke="#f59e0b"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <span className="text-[10px] font-mono text-amber-400">
+                {btcHistory[btcHistory.length - 1] > btcHistory[0] ? "↑" : "↓"}
+                {Math.abs(
+                  ((btcHistory[btcHistory.length - 1] - btcHistory[0]) / btcHistory[0]) * 100
+                ).toFixed(1)}
+                %
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Target */}
@@ -647,7 +701,7 @@ export function CommandCenter() {
         </div>
       </CollapsiblePanel>
 
-      {/* 6. Strategy Performance */}
+      {/* 6. Strategy Performance (Unified) */}
       <CollapsiblePanel
         title="Strategy Performance"
         icon={<BarChart3 className="h-4 w-4" />}
@@ -655,15 +709,15 @@ export function CommandCenter() {
         onToggle={() => togglePanel("strategyPerformance")}
         bodyClassName="p-0"
       >
-        <StrategyPerformance />
+        <StrategyPanel />
       </CollapsiblePanel>
 
-      {/* 6.5 Strategy Comparison Table */}
+      {/* 6.5 Strategy Comparison (deprecated - merged into StrategyPanel) */}
       <CollapsiblePanel
         title="Strategy Comparison"
         icon={<BarChart3 className="h-4 w-4" />}
-        isOpen={true}
-        onToggle={() => {}}
+        isOpen={panels.strategyComparison}
+        onToggle={() => togglePanel("strategyComparison")}
         bodyClassName="p-0"
       >
         <StrategyComparisonTable />

@@ -31,7 +31,6 @@ import { toast } from "sonner";
 import { CreateBotModal } from "@/components/bot-creation-modal";
 import { MiniEquityCurve } from "@/components/dashboard";
 import { apiFetch } from "@/lib/utils";
-import type { PortfolioResponse } from "@/types";
 
 // ---- Típusok ----
 type BotStatus = "running" | "paused" | "error" | "stopped";
@@ -129,6 +128,15 @@ export default function BotsPage() {
       }
     | undefined
   >();
+  const [sessionTimer, setSessionTimer] = useState<{
+    id: number;
+    duration_secs: number;
+    started_at: string;
+    ends_at: string;
+    status: string;
+    remaining_secs: number;
+  } | null>(null);
+  const [timerLoading, setTimerLoading] = useState(false);
 
   // Read URL params for market selection (from Markets page)
   const searchParams = useSearchParams();
@@ -167,32 +175,36 @@ export default function BotsPage() {
     setIsSyncing(true);
     try {
       setAuthRequired(false);
-      const data = await apiFetch<Bot[]>("/bots");
-      const withPortfolio = await Promise.all(
-        data.map(async (bot) => {
-          try {
-            const p = await apiFetch<PortfolioResponse>(`/bots/${bot.id}/portfolio`);
-            return {
-              ...bot,
-              portfolio: {
-                balance: p.balance,
-                total_pnl: p.total_pnl,
-                total_trades: p.total_trades,
-                winning_trades: p.winning_trades,
-                losing_trades: p.losing_trades,
-                win_rate: p.win_rate,
-                initial_balance: p.initial_balance,
-                roi_percent: p.roi_percent,
-                drawdown_percent: p.drawdown_percent,
-                avg_pnl_per_trade: p.avg_pnl_per_trade,
-                open_positions: p.open_positions,
-              },
-            };
-          } catch {
-            return bot;
-          }
-        })
-      );
+      // Use the backend's aggregate endpoint which fetches bots + portfolios in 2 queries (not N+1)
+      const data = await apiFetch<{
+        bots: Bot[];
+        total_bots: number;
+        running_bots: number;
+        total_balance: number;
+        total_pnl: number;
+        overall_win_rate: number;
+      }>("/bots");
+      const bots = data.bots || data;
+
+      const withPortfolio = bots.map((bot: Bot) => {
+        return {
+          ...bot,
+          portfolio: bot.portfolio
+            ? {
+                balance: bot.portfolio.balance,
+                total_pnl: bot.portfolio.total_pnl,
+                total_trades: bot.portfolio.total_trades ?? 0,
+                winning_trades: bot.portfolio.winning_trades ?? 0,
+                losing_trades: bot.portfolio.losing_trades ?? 0,
+                win_rate: bot.portfolio.win_rate ?? 0,
+                initial_balance: bot.portfolio.initial_balance,
+                roi_percent: bot.portfolio.roi_percent,
+                drawdown_percent: bot.portfolio.drawdown_percent,
+                open_positions: bot.portfolio.open_positions ?? 0,
+              }
+            : undefined,
+        };
+      });
 
       if (prevBotsRef.current.length > 0) {
         withPortfolio.forEach((newBot) => {
@@ -256,6 +268,113 @@ export default function BotsPage() {
     return () => clearInterval(loadBotsIntervalRef.current);
   }, [loadBots]);
 
+  // Load session timer status
+  const loadSessionTimer = useCallback(async () => {
+    try {
+      const data = await apiFetch<{
+        id: number;
+        duration_secs: number;
+        started_at: string;
+        ends_at: string;
+        status: string;
+        remaining_secs: number;
+      }>("/session/timer");
+      setSessionTimer(data);
+    } catch {
+      setSessionTimer(null);
+    }
+  }, []);
+
+  // Timer countdown ticker (pure client-side, no server fetch)
+  useEffect(() => {
+    if (!sessionTimer) return;
+    const interval = setInterval(() => {
+      setSessionTimer((prev) =>
+        prev ? { ...prev, remaining_secs: Math.max(0, prev.remaining_secs - 1) } : null
+      );
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [sessionTimer]);
+
+  // Sync with server every 15 seconds to get accurate remaining time
+  useEffect(() => {
+    if (!sessionTimer) return;
+    const interval = setInterval(loadSessionTimer, 15000);
+    return () => clearInterval(interval);
+  }, [sessionTimer, loadSessionTimer]);
+
+  // 5-minute warning toast
+  useEffect(() => {
+    if (sessionTimer && sessionTimer.remaining_secs === 300) {
+      toast.warning("5 perc maradt a session-ből!");
+    }
+  }, [sessionTimer]);
+
+  // Detect expired timer from server sync and show summary
+  useEffect(() => {
+    if (sessionTimer?.status === "expired") {
+      // Backend has marked timer as expired, session summary will show via the modal
+    }
+  }, [sessionTimer?.status]);
+
+  // Stop timer locally when it hits 0 (backup if backend hasn't expired it yet)
+  useEffect(() => {
+    if (sessionTimer && sessionTimer.remaining_secs === 0 && sessionTimer.status === "active") {
+      toast.info("Session lejárt! Botok leállítva.");
+      loadSessionTimer(); // Re-sync with server
+    }
+  }, [sessionTimer, loadSessionTimer]);
+
+  // Start a timed session
+  const handleStartTimedSession = async (durationMins: number) => {
+    setTimerLoading(true);
+    try {
+      const res = await apiFetch<{
+        id: number;
+        duration_secs: number;
+        started_at: string;
+        ends_at: string;
+        status: string;
+        remaining_secs: number;
+      }>("/session/start", {
+        method: "POST",
+        body: JSON.stringify({ duration_mins: durationMins }),
+      });
+      setSessionTimer(res);
+      toast.success(`${durationMins} perces session elindítva!`);
+      addLog(`Időzített session indítva: ${durationMins} perc`, "success");
+      await loadBots();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Hiba a session indításakor");
+    } finally {
+      setTimerLoading(false);
+    }
+  };
+
+  // Cancel session timer
+  const handleCancelTimer = async () => {
+    if (!confirm("Biztosan törlöd az időzített session-t? A botok tovább fognak futni.")) return;
+    setTimerLoading(true);
+    try {
+      await apiFetch("/session/cancel", { method: "POST" });
+      setSessionTimer(null);
+      toast.success("Session timer törölve");
+      addLog("Session timer törölve", "info");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Hiba");
+    } finally {
+      setTimerLoading(false);
+    }
+  };
+
+  const formatTime = (secs: number) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
   const handleStart = async (id: string, name: string) => {
     setActionLoading(id);
     try {
@@ -318,9 +437,17 @@ export default function BotsPage() {
     if (!confirm("BIZTOSAN nullázni akarod az ÖSSZES bot statisztikáját és egyenlegét?")) return;
     addLog("Összes bot nullázása folyamatban...", "warn");
     try {
-      await apiFetch("/bots/reset-all", { method: "POST" });
-      toast.success("Minden bot nullázva!");
-      setBots((prev) => prev.map((b) => ({ ...b, history: [] })));
+      // Reset backend state first, then reload from server
+      const result = await apiFetch<{ success: boolean; stopped: number }>("/bots/reset-all", {
+        method: "POST",
+      });
+      toast.success(`Minden bot nullázva! (${result.stopped} bot leállítva)`);
+      // Force clear all UI state immediately, then do a clean reload
+      setBots((prev) => prev.map((b) => ({ ...b, history: [] as TradeResult[] })));
+      // Reset prevBotsRef so loadBots doesn't try to diff against stale data
+      prevBotsRef.current = [];
+      // Small delay to let the backend commit the transaction
+      await new Promise((r) => setTimeout(r, 200));
       await loadBots();
     } catch {
       toast.error("Hiba történt a tömeges reset során");
@@ -671,26 +798,85 @@ export default function BotsPage() {
           {parsedSessionBalance === undefined && (
             <span className="text-xs text-red-400">Adj meg pozitív balance értéket.</span>
           )}
-          <button
-            type="button"
-            onClick={() => handleBulkAction("start")}
-            disabled={bulkLoading || bots.length === 0 || parsedSessionBalance === undefined}
-            className="flex items-center gap-1.5 rounded-lg bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
-          >
-            <Play className="h-3 w-3" />
-            Start All Eligible
-          </button>
-          <button
-            type="button"
-            onClick={() => handleBulkAction("stop")}
-            disabled={bulkLoading || totalStats.active === 0}
-            className="flex items-center gap-1.5 rounded-lg bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors disabled:opacity-40"
-          >
-            <Square className="h-3 w-3" />
-            Stop All
-          </button>
+
+          {/* Timer presets */}
+          {!sessionTimer && (
+            <div className="flex items-center gap-1.5 ml-2 border-l border-white/10 pl-3">
+              <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">
+                Timer:
+              </span>
+              {[15, 30, 60, 120, 240].map((mins) => (
+                <button
+                  type="button"
+                  key={mins}
+                  onClick={() => handleStartTimedSession(mins)}
+                  disabled={timerLoading}
+                  className="rounded-md bg-indigo-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20 transition-colors disabled:opacity-40"
+                  title={`${mins} perces session`}
+                >
+                  {mins < 60 ? `${mins}p` : `${mins / 60}h`}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Active timer display */}
+          {sessionTimer && (
+            <div className="flex items-center gap-2 ml-2 border-l border-white/10 pl-3">
+              <div className="flex items-center gap-1.5">
+                <div className="h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+                <span className="font-mono text-sm font-bold text-indigo-400">
+                  {formatTime(sessionTimer.remaining_secs)}
+                </span>
+              </div>
+              <div className="w-24 h-1.5 rounded-full bg-zinc-700 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
+                  style={{
+                    width: `${(sessionTimer.remaining_secs / sessionTimer.duration_secs) * 100}%`,
+                  }}
+                />
+              </div>
+              {sessionTimer.remaining_secs <= 300 && sessionTimer.remaining_secs > 0 && (
+                <span className="rounded-md bg-amber-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-400 animate-pulse">
+                  {Math.ceil(sessionTimer.remaining_secs / 60)}p maradt
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleCancelTimer}
+                disabled={timerLoading}
+                className="rounded-md bg-red-500/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors disabled:opacity-40"
+              >
+                Mégse
+              </button>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Session Summary Modal */}
+      {sessionTimer?.status === "expired" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-zinc-900 p-6 shadow-2xl"
+          >
+            <h3 className="mb-4 text-lg font-bold text-white">Session vége</h3>
+            <p className="mb-4 text-sm text-zinc-400">
+              A időzített session lejárt. Botok leállítva.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSessionTimer(null)}
+              className="w-full rounded-xl bg-indigo-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-indigo-600 transition-colors"
+            >
+              Rendben
+            </button>
+          </motion.div>
+        </div>
+      )}
 
       {/* Bot Grid */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">

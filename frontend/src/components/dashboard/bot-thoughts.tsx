@@ -10,6 +10,7 @@ interface BotThought {
   id: string;
   botId: number;
   botName: string;
+  strategyType: string;
   timestamp: number;
   thought: string;
   confidence: number;
@@ -24,6 +25,7 @@ export function BotThoughts() {
   const scrollRef = useRef<HTMLUListElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
   const [filter, setFilter] = useState<"ALL" | "BUY" | "SELL">("ALL");
+  const [botFilter, setBotFilter] = useState<string>("ALL");
   const [collapsed, setCollapsed] = useState(false);
 
   // Extract thoughts from bot activities
@@ -45,6 +47,7 @@ export function BotThoughts() {
             id: activity.id,
             botId: bid,
             botName: name,
+            strategyType: bot?.strategy_type ?? "unknown",
             timestamp: activity.timestamp,
             thought: `Decided to ${isBuy ? "BUY" : "SELL"} with ${(confidence * 100).toFixed(0)}% confidence`,
             confidence,
@@ -66,9 +69,8 @@ export function BotThoughts() {
   }, [autoScroll]);
 
   const filtered = thoughts.filter((t) => {
-    if (filter === "ALL") return true;
-    if (filter === "BUY") return t.action === "buy";
-    if (filter === "SELL") return t.action === "sell";
+    if (filter !== "ALL" && t.action !== filter.toLowerCase()) return false;
+    if (botFilter !== "ALL" && String(t.botId) !== botFilter) return false;
     return true;
   });
 
@@ -169,6 +171,19 @@ export function BotThoughts() {
               {f}
             </button>
           ))}
+          <div className="h-3 w-px bg-white/10" />
+          <select
+            value={botFilter}
+            onChange={(e) => setBotFilter(e.target.value)}
+            className="rounded-md px-2 py-1 text-[10px] font-bold bg-zinc-900/60 border border-white/10 text-zinc-500 hover:text-zinc-400 cursor-pointer"
+          >
+            <option value="ALL">All Bots</option>
+            {bots.map((b) => (
+              <option key={b.id} value={String(b.id)}>
+                {b.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 

@@ -89,6 +89,18 @@ export function PendingBetMonitor() {
 
   const count = pendingBets.length;
 
+  // Aggregated stats
+  const totalExposure = pendingBets.reduce((sum, b) => sum + b.size, 0);
+  const totalExpectedWinnings = pendingBets.reduce((sum, bet) => {
+    const isYes = bet.side === "YES";
+    return (
+      sum + (isYes ? bet.size * (1 / bet.price - 1) : bet.size * (bet.price / (1 - bet.price)))
+    );
+  }, 0);
+  const yesBets = pendingBets.filter((b) => b.side === "YES");
+  const noBets = pendingBets.filter((b) => b.side === "NO");
+  const yesRatio = count > 0 ? (yesBets.length / count) * 100 : 0;
+
   return (
     <div className="flex flex-col gap-3 p-4">
       <div className="flex items-center justify-between">
@@ -117,6 +129,47 @@ export function PendingBetMonitor() {
           </div>
         )}
       </div>
+
+      {/* Aggregated Summary */}
+      {count > 0 && (
+        <div className="flex items-center gap-4 px-3 py-2 rounded-lg bg-indigo-500/5 border border-indigo-500/10">
+          <div className="flex items-center gap-1.5">
+            <DollarSign className="h-3 w-3 text-indigo-400" />
+            <span className="text-[10px] text-zinc-500">Total at stake:</span>
+            <span className="text-xs font-bold font-mono text-indigo-300">
+              ${totalExposure.toFixed(2)}
+            </span>
+          </div>
+          <div className="h-3 w-px bg-white/10" />
+          <div className="flex items-center gap-1.5">
+            <TrendingUp className="h-3 w-3 text-emerald-400" />
+            <span className="text-[10px] text-zinc-500">Est. win:</span>
+            <span className="text-xs font-bold font-mono text-emerald-400">
+              +${totalExpectedWinnings.toFixed(2)}
+            </span>
+          </div>
+          <div className="h-3 w-px bg-white/10" />
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-green-500/70" />
+            <span className="text-[10px] text-zinc-500">UP:</span>
+            <span className="text-xs font-bold font-mono text-green-400">{yesBets.length}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-red-500/70" />
+            <span className="text-[10px] text-zinc-500">DOWN:</span>
+            <span className="text-xs font-bold font-mono text-red-400">{noBets.length}</span>
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <span className="text-[10px] text-zinc-500">Ratio:</span>
+            <div className="w-16 h-1.5 rounded-full bg-zinc-800 overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-green-500 to-red-500 rounded-full"
+                style={{ width: `${yesRatio}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-h-80 overflow-y-auto space-y-2">
         {count === 0 ? (

@@ -175,6 +175,71 @@ export function QuickTradePanel() {
         </motion.div>
       </div>
 
+      {/* Expected Return Calculator */}
+      {amount > 0 && (
+        <div className="rounded-xl bg-indigo-500/8 border border-indigo-500/20 p-4">
+          <div className="text-xs font-bold text-indigo-400 mb-3">Expected Return</div>
+          <div className="grid grid-cols-2 gap-4">
+            {/* UP potential */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400">If UP wins:</span>
+                <span className="text-sm font-bold text-green-400">
+                  +${((1 / yesPrice) * amount - amount).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Payout (incl. stake):</span>
+                <span className="text-xs font-mono text-zinc-300">
+                  ${((1 / yesPrice) * amount).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Odds:</span>
+                <span className="text-xs font-mono text-green-400">
+                  {(yesPrice * 100).toFixed(1)}¢
+                </span>
+              </div>
+            </div>
+            {/* DOWN potential */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-400">If DOWN wins:</span>
+                <span className="text-sm font-bold text-red-400">
+                  +${((1 / noPrice) * amount - amount).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Payout (incl. stake):</span>
+                <span className="text-xs font-mono text-zinc-300">
+                  ${((1 / noPrice) * amount).toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-zinc-500">Odds:</span>
+                <span className="text-xs font-mono text-red-400">
+                  {(noPrice * 100).toFixed(1)}¢
+                </span>
+              </div>
+            </div>
+          </div>
+          {/* EV Summary */}
+          <div className="mt-3 pt-3 border-t border-indigo-500/20 flex items-center justify-between">
+            <span className="text-xs text-zinc-400">Expected Value (UP):</span>
+            <div className="flex items-center gap-2">
+              <span
+                className={`text-sm font-bold ${(yesPrice - 0.5) >= 0 ? "text-green-400" : "text-red-400"}`}
+              >
+                {(yesPrice * ((1 / yesPrice) * amount - amount) + (1 - yesPrice) * -amount).toFixed(
+                  2
+                )}
+              </span>
+              <span className="text-[10px] text-zinc-500">per ${amount} bet</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Amount Input */}
       <div>
         <div className="mb-2 block text-xs text-zinc-500">Bet Amount (USDC)</div>

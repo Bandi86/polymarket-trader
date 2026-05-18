@@ -137,6 +137,7 @@ interface AppState {
     tradeFeed: boolean;
     systemHealth: boolean;
     equityCurve: boolean;
+    strategyComparison: boolean;
   };
   togglePanel: (panel: keyof AppState["panels"]) => void;
 }
@@ -324,6 +325,7 @@ export const useAppStore = create<AppState>()(
         botsAndPositions: true,
         history: true,
         strategyPerformance: true,
+        strategyComparison: true,
         tradeFeed: true,
         systemHealth: false,
         equityCurve: true,
